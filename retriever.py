@@ -21,7 +21,12 @@ import os
 from openai import OpenAI
 
 # БЛОК: ретривер top-k чанков из Chroma по эмбеддингу вопроса
-def retrieve(query: str, k: int = 5, chroma_path="data/chroma", collection_name="kb", model="text-embedding-3-small"):
+def retrieve(query: str, k: int = 5, chroma_path="data/chroma", collection_name="kb_docs", model="text-embedding-3-small"):
+    import re
+    NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{2,62}$")
+    if not NAME_RE.match(collection_name):
+        raise ValueError(f"Invalid collection name '{collection_name}'. Use 3–63 chars: [a-z0-9_-].")
+    
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     chroma = chromadb.PersistentClient(path=chroma_path)
     col = chroma.get_or_create_collection(collection_name)

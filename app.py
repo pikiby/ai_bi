@@ -76,7 +76,7 @@ if user_input:
         st.markdown(user_input)
 
     # 2) достать контекст из векторного индекса (Ретривер)
-    ctx_docs = retrieve(user_input, k=5, chroma_path="data/chroma", collection_name="kb")
+    ctx_docs = retrieve(user_input, k=5, chroma_path="data/chroma", collection_name="kb_docs")
     context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)])
 
     # 3) собрать сообщения для модели
