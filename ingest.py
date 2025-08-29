@@ -1,8 +1,24 @@
+# --- SQLite shim (нужен на Streamlit Cloud) ---
+# Должен идти ПЕРЕД "import chromadb"
+try:
+    import sqlite3
+    from sqlite3 import sqlite_version
+    def _ver(t): return tuple(int(x) for x in t.split("."))
+    NEEDS_SHIM = _ver(sqlite_version) < (3, 35, 0)
+except Exception:
+    NEEDS_SHIM = True
+
+if NEEDS_SHIM:
+    import sys
+    import pysqlite3  # noqa: F401
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+# ---------------------------------------------
+import chromadb
+
 # ingest.py
 # БЛОК: импортов и клиентов
 import os, glob, os.path
 from openai import OpenAI
-import chromadb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
