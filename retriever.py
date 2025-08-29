@@ -22,8 +22,6 @@ import os
 import re
 from typing import List, Dict
 from openai import OpenAI
-
-
 # --- нормализация/валидация имени коллекции ---
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,63}$")
 def _norm_name(name: str) -> str:
@@ -33,7 +31,6 @@ def _norm_name(name: str) -> str:
             f"Invalid collection name {name!r}. Use 3–63 chars from [a-z0-9_]."
         )
     return n
-
 
 # БЛОК: ретривер top-k чанков из Chroma по эмбеддингу вопроса
 def retrieve(
@@ -67,21 +64,30 @@ def retrieve(
     res = col.query(
         query_embeddings=[q_emb],
         n_results=max(1, int(k)),
-        include=["documents", "metadatas", "ids", "distances"],
+        include=["documents", "metadatas", "distances"],  # без "ids"
     )
 
     hits: List[Dict] = []
     # защита от пустого ответа
-    if not res or not res.get("ids") or not res["ids"] or not res["ids"][0]:
+    if (not res or
+        not res.get("documents") or not res["documents"] or not res["documents"][0]):
         return hits
 
-    n = len(res["ids"][0])
+    docs0 = res["documents"][0]
+    metas0 = (res.get("metadatas") or [[]])[0]
+    ids0   = (res.get("ids") or [[]])[0]           # ids может отсутствовать, но часто приходит
+    dists0 = (res.get("distances") or [[]])[0]     # distances может отсутствовать, подстрахуемся
+
+    n = len(docs0)
     for i in range(n):
-        hits.append({
-            "id": res["ids"][0][i],
-            "text": res["documents"][0][i],
-            "source": (res["metadatas"][0][i] or {}).get("source"),
-            "path": (res["metadatas"][0][i] or {}).get("path"),
-            "score": res["distances"][0][i],
-        })
+        meta_i = metas0[i] if i < len(metas0) else {}
+        hit = {
+            "id":    ids0[i] if i < len(ids0) else None,
+            "text":  docs0[i],
+            "source": (meta_i or {}).get("source"),
+            "path":   (meta_i or {}).get("path"),
+            "score":  dists0[i] if i < len(dists0) else None,
+        }
+        hits.append(hit)
+
     return hits
