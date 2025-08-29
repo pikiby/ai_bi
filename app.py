@@ -7,17 +7,16 @@ import subprocess
 import streamlit as st
 from openai import OpenAI
 from retriever import retrieve
+from sql_assistant import run_sql_assistant  # <— добавили
 
 st.set_page_config(page_title="Streamline Chat + RAG", page_icon="💬", layout="centered")
 
 # ----- ЕДИНЫЕ настройки для Chroma -----
-# можно переопределить через переменные окружения на проде
 CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")
 COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")
 
 def _validate_collection_name(name: str) -> str:
     n = (name or "").strip().lower()
-    # максимально совместимый паттерн для Chroma (избегаем дефиса на старых версиях)
     if not re.fullmatch(r"[a-z0-9_]{3,63}", n):
         raise ValueError(f"Некорректное имя коллекции: {name!r}. Разрешены 3–63 символа: [a-z0-9_].")
     return n
@@ -33,7 +32,7 @@ if not api_key:
     st.stop()
 client = OpenAI(api_key=api_key)
 
-# БЛОК: сайдбар — настройки модели + кнопка запуска индексации
+# БЛОК: сайдбар — настройки модели + кнопка запуска индексации + ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМА
 with st.sidebar:
     st.header("Настройки")
     model = st.selectbox(
@@ -52,16 +51,19 @@ with st.sidebar:
         height=120,
     )
 
+    # ← вот он, переключатель
+    mode = st.radio("Режим", ["База знаний (RAG)", "Данные (SQL)"], index=0)
+
     st.caption("Историю чата можно очистить кнопкой ниже.")
     if st.button("Очистить историю"):
         st.session_state.messages = []
+        st.rerun()
 
     st.divider()
     st.subheader("Ингест базы знаний")
     st.caption(f"Коллекция: {COLLECTION_NAME!r} · Путь к индексу: {CHROMA_PATH!r}")
     if st.button("Переиндексировать docs/"):
         with st.status("Индексируем документы…", expanded=True) as status:
-            # Передаём имя коллекции и путь в ingest.py
             env = os.environ.copy()
             env["KB_COLLECTION_NAME"] = COLLECTION_NAME
             env["KB_CHROMA_PATH"] = CHROMA_PATH
@@ -82,8 +84,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # БЛОК: заголовки
-st.title("Chat → ChatGPT с базой знаний (RAG)")
-st.caption("Слева можно запустить индексацию. Вопросы внизу — ответы с контекстом из docs/.")
+st.title("Chat → ChatGPT с базой знаний (RAG) и данными (SQL)")
+st.caption("Слева выберите режим. Есть кнопка для переиндексации docs/.")
 
 # БЛОК: рендер истории
 for msg in st.session_state.messages:
@@ -91,58 +93,88 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # БЛОК: ввод пользователя
-user_input = st.chat_input("Вопрос по вашей базе знаний…")
+user_input = st.chat_input("Введите вопрос…")
 if user_input:
-    # 1) показать сообщение пользователя
+    # 1) сообщение пользователя
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # 2) достать контекст из векторного индекса (Ретривер)
-    try:
-        ctx_docs = retrieve(
-            user_input,
-            k=5,
-            chroma_path=CHROMA_PATH,
-            collection_name=COLLECTION_NAME
-        )
-    except Exception as e:
-        st.error(f"Ошибка ретрива: {e}")
-        st.stop()
+    if mode == "База знаний (RAG)":
+        # 2) достать контекст из Chroma
+        try:
+            ctx_docs = retrieve(
+                user_input,
+                k=5,
+                chroma_path=CHROMA_PATH,
+                collection_name=COLLECTION_NAME
+            )
+        except Exception as e:
+            st.error(f"Ошибка ретрива: {e}")
+            st.stop()
 
-    context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)]) or "—"
+        context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)]) or "—"
 
-    # 3) собрать сообщения для модели
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.append({
-        "role": "user",
-        "content": (
-            f"QUESTION:\n{user_input}\n\n"
-            f"CONTEXT:\n{context}\n\n"
-            f"Правила: отвечай только по CONTEXT. Если данных нет — так и скажи."
-        )
-    })
+        # 3) собрать сообщения для модели
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.append({
+            "role": "user",
+            "content": (
+                f"QUESTION:\n{user_input}\n\n"
+                f"CONTEXT:\n{context}\n\n"
+                f"Правила: отвечай только по CONTEXT. Если данных нет — так и скажи."
+            )
+        })
 
-    # 4) потоковый ответ ассистента
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        stream_text = ""
-        stream = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content or ""
-            stream_text += delta
-            placeholder.markdown(stream_text)
+        # 4) потоковый ответ
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            stream_text = ""
+            stream = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                stream_text += delta
+                placeholder.markdown(stream_text)
 
-    # 5) сохранить ответ в историю
-    st.session_state.messages.append({"role": "assistant", "content": stream_text})
+        # 5) сохранить ответ
+        st.session_state.messages.append({"role": "assistant", "content": stream_text})
 
-    # 6) показать источники
-    if ctx_docs:
-        with st.expander("Источники"):
-            for i, d in enumerate(ctx_docs, 1):
-                st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
+        # 6) источники
+        if ctx_docs:
+            with st.expander("Источники"):
+                for i, d in enumerate(ctx_docs, 1):
+                    st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
+
+    else:
+        # --- РЕЖИМ SQL ---
+        try:
+            database = "db1"
+            allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]  # при необходимости
+
+            sql, df = run_sql_assistant(
+                question=user_input,
+                database=database,
+                allowed_tables=allowed_tables,
+                model=model,
+            )
+
+            with st.chat_message("assistant"):
+                st.markdown("**Сформированный SQL:**")
+                st.code(sql, language="sql")
+                st.markdown("**Результат:**")
+                st.dataframe(df.to_pandas(), use_container_width=True)
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"SQL выполнен. Строк: {df.height}, столбцов: {df.width}."
+            })
+
+        except Exception as e:
+            with st.chat_message("assistant"):
+                st.error(f"Ошибка при формировании/выполнении SQL: {e}")
+            st.session_state.messages.append({"role": "assistant", "content": f"Ошибка: {e}"})
