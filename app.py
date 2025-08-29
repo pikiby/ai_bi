@@ -183,6 +183,22 @@ if user_input:
                     mime="text/csv"
                 )
 
+                # --- Кнопка для скачивания Excel ---
+                import io
+                import pandas as pd
+
+                excel_bytes = io.BytesIO()
+                with pd.ExcelWriter(excel_bytes, engine="openpyxl") as writer:
+                    df.to_pandas().to_excel(writer, index=False, sheet_name="Result")
+                excel_bytes.seek(0)
+
+                st.download_button(
+                    "Скачать результат (Excel)",
+                    data=excel_bytes,
+                    file_name="result.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
             # 2) сохранить в ИСТОРИЮ и SQL, и превью данных (markdown)
             #    чтобы это осталось на следующих рендерах
             try:
