@@ -172,6 +172,17 @@ if user_input:
                 st.markdown("**Результат:**")
                 st.dataframe(df.to_pandas(), use_container_width=True)
 
+                # добавляем кнопку для скачивания CSV
+                import io
+                csv_bytes = io.BytesIO()
+                df.to_pandas().to_csv(csv_bytes, index=False)
+                st.download_button(
+                    "Скачать результат (CSV)",
+                    csv_bytes.getvalue(),
+                    file_name="result.csv",
+                    mime="text/csv"
+                )
+
             # 2) сохранить в ИСТОРИЮ и SQL, и превью данных (markdown)
             #    чтобы это осталось на следующих рендерах
             try:
