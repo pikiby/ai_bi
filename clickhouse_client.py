@@ -19,7 +19,8 @@ class ClickHouse_client:
             username=ClickHouse_username,
             password=ClickHouse_password,
             secure=True,
-            verify=False
+            verify=False,
+            database="db1"
         )
 
     def query_run(self, query_text: str) -> pl.DataFrame:
