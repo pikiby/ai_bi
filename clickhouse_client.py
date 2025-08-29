@@ -6,10 +6,10 @@ import polars as pl
 from dotenv import load_dotenv
 
 load_dotenv()
-ClickHouse_host = os.environ.get('ClickHouse_host')
-ClickHouse_port = os.environ.get('ClickHouse_port')
-ClickHouse_username = os.environ.get('ClickHouse_username')
-ClickHouse_password = os.environ.get('ClickHouse_password')
+ClickHouse_host = os.getenv('ClickHouse_host')
+ClickHouse_port = os.getenv('ClickHouse_port')
+ClickHouse_username = os.getenv('ClickHouse_username')
+ClickHouse_password = os.getenv('ClickHouse_password')
 
 class ClickHouse_client:
     def __init__(self):
