@@ -1,3 +1,5 @@
+# retriever.py
+
 # --- SQLite shim (нужен на Streamlit Cloud) ---
 # Должен идти ПЕРЕД "import chromadb"
 try:
@@ -15,39 +17,71 @@ if NEEDS_SHIM:
 # ---------------------------------------------
 import chromadb
 
-# retriever.py
-# БЛОК: импортов и клиентов
+# БЛОК: импортов и утилит
 import os
+import re
+from typing import List, Dict
 from openai import OpenAI
 
+
+# --- нормализация/валидация имени коллекции ---
+_NAME_RE = re.compile(r"^[a-z0-9_]{3,63}$")
+def _norm_name(name: str) -> str:
+    n = (name or "").strip().lower()
+    if not _NAME_RE.fullmatch(n):
+        raise ValueError(
+            f"Invalid collection name {name!r}. Use 3–63 chars from [a-z0-9_]."
+        )
+    return n
+
+
 # БЛОК: ретривер top-k чанков из Chroma по эмбеддингу вопроса
-def retrieve(query: str, k: int = 5, chroma_path="data/chroma", collection_name="kb_docs", model="text-embedding-3-small"):
-    import re
-    NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{2,62}$")
-    if not NAME_RE.match(collection_name):
-        raise ValueError(f"Invalid collection name '{collection_name}'. Use 3–63 chars: [a-z0-9_-].")
-    
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def retrieve(
+    query: str,
+    k: int = 5,
+    chroma_path: str = "data/chroma",
+    collection_name: str = "kb_docs",
+    model: str = "text-embedding-3-small",
+) -> List[Dict]:
+    # нормализуем и валидируем имя коллекции
+    collection_name = _norm_name(collection_name)
+
+    # быстрые проверки
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    # инициализация клиентов
+    client = OpenAI(api_key=api_key)
     chroma = chromadb.PersistentClient(path=chroma_path)
     col = chroma.get_or_create_collection(collection_name)
 
-    q_emb = client.embeddings.create(model=model, input=[query]).data[0].embedding
+    # эмбеддинг вопроса
+    q_emb = client.embeddings.create(model=model, input=[q]).data[0].embedding
 
+    # ANN-поиск
     res = col.query(
         query_embeddings=[q_emb],
-        n_results=k,
+        n_results=max(1, int(k)),
         include=["documents", "metadatas", "ids", "distances"],
     )
 
-    hits = []
-    if res["ids"]:
-        n = len(res["ids"][0])
-        for i in range(n):
-            hits.append({
-                "id": res["ids"][0][i],
-                "text": res["documents"][0][i],
-                "source": res["metadatas"][0][i].get("source"),
-                "path": res["metadatas"][0][i].get("path"),
-                "score": res["distances"][0][i],
-            })
+    hits: List[Dict] = []
+    # защита от пустого ответа
+    if not res or not res.get("ids") or not res["ids"] or not res["ids"][0]:
+        return hits
+
+    n = len(res["ids"][0])
+    for i in range(n):
+        hits.append({
+            "id": res["ids"][0][i],
+            "text": res["documents"][0][i],
+            "source": (res["metadatas"][0][i] or {}).get("source"),
+            "path": (res["metadatas"][0][i] or {}).get("path"),
+            "score": res["distances"][0][i],
+        })
     return hits

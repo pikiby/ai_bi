@@ -1,6 +1,5 @@
 streamlit>=1.36
 openai>=1.40
-# важные пины для совместимости:
 numpy==1.26.4
 chromadb==0.4.24
 pysqlite3-binary>=0.5.2
