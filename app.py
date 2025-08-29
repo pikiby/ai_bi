@@ -153,7 +153,7 @@ if user_input:
                     st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
 
     else:
-        # --- РЕЖИМ SQL ---
+    # --- РЕЖИМ SQL ---
         try:
             database = "db1"
             allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]  # при необходимости
@@ -165,18 +165,34 @@ if user_input:
                 model=model,
             )
 
+            # 1) рендер “живой” таблицы и SQL сейчас (как раньше)
             with st.chat_message("assistant"):
                 st.markdown("**Сформированный SQL:**")
                 st.code(sql, language="sql")
                 st.markdown("**Результат:**")
                 st.dataframe(df.to_pandas(), use_container_width=True)
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"SQL выполнен. Строк: {df.height}, столбцов: {df.width}."
-            })
+            # 2) сохранить в ИСТОРИЮ и SQL, и превью данных (markdown)
+            #    чтобы это осталось на следующих рендерах
+            try:
+                # компактный превью (до 50 строк), безопасный для истории
+                preview_pd: pd.DataFrame = df.head(50).to_pandas()
+                # markdown-таблица (нужен пакет tabulate; см. ниже)
+                preview_md = preview_pd.to_markdown(index=False)
+            except Exception:
+                # если tabulate не установлен, сделаем CSV в код-блоке
+                preview_md = "```\n" + df.head(50).to_pandas().to_csv(index=False) + "\n```"
+
+            history_block = (
+                "**Сформированный SQL:**\n"
+                f"```sql\n{sql}\n```\n\n"
+                f"**Превью результата (первые {min(50, len(df))} строк):**\n\n"
+                f"{preview_md}"
+            )
+            st.session_state.messages.append({"role": "assistant", "content": history_block})
 
         except Exception as e:
             with st.chat_message("assistant"):
                 st.error(f"Ошибка при формировании/выполнении SQL: {e}")
             st.session_state.messages.append({"role": "assistant", "content": f"Ошибка: {e}"})
+
