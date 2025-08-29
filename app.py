@@ -55,8 +55,8 @@ with st.sidebar:
     mode = st.radio("Режим", ["База знаний (RAG)", "Данные (SQL)"], index=0)
 
     st.caption("Историю чата можно очистить кнопкой ниже.")
-    if st.button("Очистить историю"):
-        st.session_state.messages = []
+    if st.button("Очистить историю", key="clear_history"):
+        st.session_state["messages"] = []
         st.rerun()
 
     st.divider()
@@ -80,8 +80,7 @@ with st.sidebar:
                 st.error(proc.stderr)
 
 # БЛОК: инициализация истории
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+st.session_state.setdefault("messages", [])
 
 # БЛОК: заголовки
 st.title("Chat → ChatGPT с базой знаний (RAG) и данными (SQL)")
@@ -111,20 +110,23 @@ if user_input:
             )
         except Exception as e:
             st.error(f"Ошибка ретрива: {e}")
-            st.stop()
+            # НИЧЕГО не чистим, не останавливаем весь рендер
+            # Можно дописать «технический» ответ ассистента:
+            st.session_state.messages.append({"role": "assistant", "content": f"Не удалось получить контекст: {e}"})
+            ctx_docs = []
 
         context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)]) or "—"
-
-        # 3) собрать сообщения для модели
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.append({
-            "role": "user",
+        
+        # 3) собрать сообщения для модели (не путай с историей UI)
+        llm_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",
             "content": (
                 f"QUESTION:\n{user_input}\n\n"
                 f"CONTEXT:\n{context}\n\n"
                 f"Правила: отвечай только по CONTEXT. Если данных нет — так и скажи."
-            )
-        })
+            )}
+        ]
 
         # 4) потоковый ответ
         with st.chat_message("assistant"):
@@ -132,7 +134,7 @@ if user_input:
             stream_text = ""
             stream = client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=llm_messages,
                 temperature=temperature,
                 stream=True,
             )
