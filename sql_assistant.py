@@ -17,49 +17,29 @@ FORBIDDEN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|RENAME|ATTACH|DETACH|OPTIMIZE|CREATE|KILL|SYSTEM|GRANT|REVOKE)\b",
     re.IGNORECASE
 )
-ONLY_SELECT = re.compile(r"^\s*(?:--.*\n|\s)*SELECT\b", re.IGNORECASE | re.DOTALL)
+# допускаем комментарии и/или CTE перед SELECT
+ONLY_SELECT = re.compile(r"^\s*(?:--.*\n|\s)*(?:WITH\b.*?\bSELECT\b|SELECT\b)", re.IGNORECASE | re.DOTALL)
 
-# Разрешим только один SELECT-стейтмент
 def _single_statement(sql: str) -> bool:
-    s = sql.strip()
-    # допустим финальную точку с запятой, но не более одного стейтмента
+    s = (sql or "").strip()
     body = s[:-1] if s.endswith(";") else s
     return ";" not in body
 
-def _is_safe(sql: str) -> bool:
+def _is_safe(sql: str) -> tuple[bool, str]:
     """
-    Проверка безопасности: допускаем только SELECT-запросы (включая WITH ... SELECT).
+    Возвращает (ok, why). Допускаем только один SELECT-стейтмент,
+    разрешаем CTE (WITH ... SELECT), запрещаем DDL/DML ключевые слова.
     """
-    if not sql:
-        return False
-    s = sql.strip().upper()
-    return s.startswith("SELECT") or s.startswith("WITH")
+    if not sql or not sql.strip():
+        return False, "Пустой SQL."
+    if not ONLY_SELECT.match(sql):
+        return False, "Сгенерирован не SELECT-запрос."
+    if FORBIDDEN.search(sql):
+        return False, "Обнаружены запрещённые операции (DDL/DML)."
+    if not _single_statement(sql):
+        return False, "Разрешён только один SELECT (без нескольких стейтментов)."
+    return True, ""
 
-def _clean_sql(s: str) -> str:
-    """
-    Превратить ответ модели в чистый SQL:
-    - снять ```sql ... ```
-    - выкинуть любой текст до первого SELECT
-    - убрать строки-комментарии `-- ...`
-    - обрезать пробелы и финальную точку с запятой по желанию
-    """
-    s = (s or "").strip()
-
-    # снять markdown-кодовые блоки, если они есть
-    s = re.sub(r"^```(?:sql|SQL)?\s*", "", s.strip())
-    s = re.sub(r"\s*```$", "", s.strip())
-
-    # найти первый SELECT (игнор регистра)
-    m = re.search(r"\bSELECT\b", s, flags=re.IGNORECASE)
-    if m:
-        s = s[m.start():]  # отбросить всю "прозу" до SELECT
-
-    # убрать одноместные комментарии
-    s = re.sub(r"--.*?$", "", s, flags=re.MULTILINE)
-
-    # финальная зачистка
-    s = s.strip()
-    return s
 
 # ---------- ПРЕДСТАВЛЕНИЕ СХЕМЫ ----------
 def _schema_to_text(schema: Dict[str, List[Tuple[str, str]]], database: str) -> str:
