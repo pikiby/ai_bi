@@ -268,9 +268,11 @@ if mode == "sql":
 
         sql, df = run_sql_assistant(
             question=user_input,
-            database=database,
-            allowed_tables=allowed_tables,
+            database="db1",
+            allowed_tables=["total_active_users", "total_active_users_rep_mobile_total"],  # при желании сузить
             model=model,
+            chroma_path=CHROMA_PATH,
+            collection_name=COLLECTION_NAME
         )
 
         # живой вывод
