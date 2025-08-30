@@ -320,13 +320,13 @@ for msg in st.session_state.messages:
 # ---------- Основной ввод ----------
 user_input = st.chat_input("Введите вопрос…")
 if not user_input:
-    # Sticky визуализация (когда нет нового сообщения)
+# Sticky визуализация (когда нет нового сообщения)
     if st.session_state.get("viz_active") and st.session_state.get("last_sql_df") is not None:
         try:
             render_auto_chart(
                 st.session_state["last_sql_df"],
                 st.session_state.get("viz_text", ""),
-                key_prefix="sticky_viz"
+                key_prefix="main_viz"
             )
         except Exception as e:
             st.warning(f"Не удалось построить график из последних данных: {e}")
@@ -376,7 +376,7 @@ if mode == "sql":
                 # только график (без таблицы / CSV)
                 st.session_state["viz_active"] = True
                 st.session_state["viz_text"] = user_input
-                render_auto_chart(df, user_input, key_prefix="sql_viz")
+                render_auto_chart(df, user_input, key_prefix="main_viz")
             else:
                 st.markdown("**Результат:**")
                 st.dataframe(df.to_pandas(), use_container_width=True)
@@ -490,7 +490,7 @@ if chart_requested and st.session_state.get("last_sql_df") is not None and mode 
     st.session_state["viz_active"] = True
     st.session_state["viz_text"] = user_input
     try:
-        render_auto_chart(st.session_state["last_sql_df"], user_input, key_prefix="last_viz")
+        render_auto_chart(st.session_state["last_sql_df"], user_input, key_prefix="main_viz")
     except Exception as e:
         st.warning(f"Не удалось построить график из последних данных: {e}")
 
