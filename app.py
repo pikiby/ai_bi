@@ -1,17 +1,21 @@
 # app.py
-# БЛОК: импортов и базовой проверки ключа
+# =========================
+# ЕДИНЫЙ режим: авто-роутинг между RAG (документы) и SQL (ClickHouse)
+# =========================
+
 import os
 import sys
 import re
 import subprocess
 import streamlit as st
+import pandas as pd  # для превью/скачивания результатов SQL
 from openai import OpenAI
 from retriever import retrieve
-from sql_assistant import run_sql_assistant  # <— добавили
+from sql_assistant import run_sql_assistant  # генерация безопасного SQL + исполнение
 
-st.set_page_config(page_title="Streamline Chat + RAG", page_icon="💬", layout="centered")
+st.set_page_config(page_title="Chat + RAG + SQL (Auto)", page_icon="💬", layout="centered")
 
-# ----- ЕДИНЫЕ настройки для Chroma -----
+# ---------- Глобальные настройки Chroma ----------
 CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")
 COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")
 
@@ -25,14 +29,91 @@ COLLECTION_NAME = _validate_collection_name(COLLECTION_NAME)
 os.makedirs(CHROMA_PATH, exist_ok=True)
 os.makedirs("docs", exist_ok=True)
 
-# ----- OpenAI ключ -----
+# ---------- OpenAI ключ ----------
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     st.error("Переменная окружения OPENAI_API_KEY не задана.")
     st.stop()
 client = OpenAI(api_key=api_key)
 
-# БЛОК: сайдбар — настройки модели + кнопка запуска индексации + ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМА
+# ---------- Служебные хелперы ----------
+def build_history_for_llm(max_turns: int = 6):
+    """
+    Возвращает последние max_turns ходов (user/assistant) в формате OpenAI messages.
+    Не добавляем внутрь большие таблицы — в историю мы уже кладём сжатые тексты.
+    """
+    msgs = []
+    for m in st.session_state.messages[-max_turns:]:
+        if m["role"] in ("user", "assistant"):
+            msgs.append({"role": m["role"], "content": m["content"]})
+    return msgs
+
+# Простые эвристики для определения намерения “SQL vs RAG”
+SQL_HINTS = [
+    "сколько", "посчитай", "сумма", "avg", "count", "sum", "min", "max",
+    "distinct", "group by", "групп", "средн", "медиан", "покажи строки",
+    "выведи", "таблиц", "select", "join", "where", "having", "order by",
+    "за день", "за неделю", "за месяц", "по дням", "по месяцам", "топ", "тренд",
+]
+RAG_HINTS = [
+    "что такое", "объясни", "описан", "документаци", "как устроена", "что означает",
+    "тип поля", "описание таблицы", "ddl", "schema", "схема",
+]
+# Простейший маршрутизатор. По ключевым словам определяет, к какой категории относится запрос пользователя
+def heuristic_route(question: str):
+    q = (question or "").lower()
+    score_sql = sum(1 for k in SQL_HINTS if k in q)
+    score_rag = sum(1 for k in RAG_HINTS if k in q)
+    if score_sql > score_rag and score_sql >= 1:
+        return "sql", f"heuristic:{score_sql}"
+    if score_rag > score_sql and score_rag >= 1:
+        return "rag", f"heuristic:{score_rag}"
+    return "unknown", "heuristic:0"
+
+def llm_route(question: str, model: str = "gpt-4o-mini"):
+    """
+    Фолбэк-классификация через LLM — просим вернуть строго 'SQL' или 'RAG'.
+    """
+    sys_txt = (
+        "Классифицируй пользовательский запрос на одну из категорий:\n"
+        "- SQL: если нужно посчитать метрики/сделать выборку/агрегацию из ClickHouse.\n"
+        "- RAG: если вопрос про документацию/значение полей/описание схемы из docs/.\n"
+        "Ответь строго одним словом: SQL или RAG."
+    )
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": sys_txt},
+                  {"role": "user", "content": question}],
+        temperature=0.0,
+    )
+    label = (resp.choices[0].message.content or "").strip().upper()
+    if label == "SQL":
+        return "sql", "llm"
+    if label == "RAG":
+        return "rag", "llm"
+    return "rag", "llm:default"  # по умолчанию идём в RAG
+
+# решает, куда отправить пользовательский запрос на основе heuristic_route или llm_route, если heuristic_route не сработал
+def route_question(question: str, model: str = "gpt-4o-mini", use_llm_fallback: bool = True):
+    mode, reason = heuristic_route(question)
+    if mode != "unknown":
+        return mode, reason
+    if use_llm_fallback:
+        return llm_route(question, model=model)
+    return "rag", "default"
+
+def is_repeat_sql_command(text: str) -> bool:
+    t = (text or "").lower()
+    return any(kw in t for kw in [
+        "повтори", "тот же", "как раньше", "как в прошлый раз", "с теми же данными"
+    ])
+
+# ---------- Session State ----------
+st.session_state.setdefault("messages", [])
+st.session_state.setdefault("last_sql", None)
+st.session_state.setdefault("last_sql_df", None)
+
+# ---------- Сайдбар ----------
 with st.sidebar:
     st.header("Настройки")
     model = st.selectbox(
@@ -47,17 +128,9 @@ with st.sidebar:
     temperature = st.slider("Temperature", 0.0, 1.0, 0.2, 0.05)
     system_prompt = st.text_area(
         "System prompt",
-        value="Ты — полезный ассистент. Отвечай кратко и по делу. Используй только предоставленный контекст.",
+        value="Ты — полезный ассистент. Используй предоставленный контекст. Если контекста недостаточно — скажи об этом.",
         height=120,
     )
-
-    # ← вот он, переключатель
-    mode = st.radio("Режим", ["База знаний (RAG)", "Данные (SQL)"], index=0)
-
-    st.caption("Историю чата можно очистить кнопкой ниже.")
-    if st.button("Очистить историю", key="clear_history"):
-        st.session_state["messages"] = []
-        st.rerun()
 
     st.divider()
     st.subheader("Ингест базы знаний")
@@ -79,147 +152,180 @@ with st.sidebar:
             else:
                 st.error(proc.stderr)
 
-# БЛОК: инициализация истории
-st.session_state.setdefault("messages", [])
+    st.divider()
+    if st.button("Очистить историю", key="clear_history"):
+        st.session_state["messages"] = []
+        st.session_state["last_sql"] = None
+        st.session_state["last_sql_df"] = None
+        st.rerun()
 
-# БЛОК: заголовки
-st.title("Chat → ChatGPT с базой знаний (RAG) и данными (SQL)")
-st.caption("Слева выберите режим. Есть кнопка для переиндексации docs/.")
+# ---------- Заголовок ----------
+st.title("Единый чат: документы (RAG) + данные (SQL) — авто-роутинг")
+st.caption("Пишите запросы как есть. Бот сам решит: искать в docs/ или выполнить SQL к ClickHouse.")
 
-# БЛОК: рендер истории
+# ---------- Рендер истории ----------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# БЛОК: ввод пользователя
+# ---------- Основной ввод ----------
 user_input = st.chat_input("Введите вопрос…")
-if user_input:
-    # 1) сообщение пользователя
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+if not user_input:
+    st.stop()
 
-    if mode == "База знаний (RAG)":
-        # 2) достать контекст из Chroma
+# 1) фиксируем пользовательский ход
+st.session_state.messages.append({"role": "user", "content": user_input})
+with st.chat_message("user"):
+    st.markdown(user_input)
+
+# 2) авто-роутинг
+mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
+st.caption(f"Роутер: {mode} ({decided_by})")
+
+# 3) SQL: поддержка “повтори запрос”
+if mode == "sql" and is_repeat_sql_command(user_input):
+    if st.session_state.last_sql:
         try:
-            ctx_docs = retrieve(
-                user_input,
-                k=5,
-                chroma_path=CHROMA_PATH,
-                collection_name=COLLECTION_NAME
-            )
-        except Exception as e:
-            st.error(f"Ошибка ретрива: {e}")
-            # НИЧЕГО не чистим, не останавливаем весь рендер
-            # Можно дописать «технический» ответ ассистента:
-            st.session_state.messages.append({"role": "assistant", "content": f"Не удалось получить контекст: {e}"})
-            ctx_docs = []
+            from clickhouse_client import ClickHouse_client
+            sql = st.session_state.last_sql
+            df = ClickHouse_client().query_run(sql)
 
-        context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)]) or "—"
-        
-        # 3) собрать сообщения для модели (не путай с историей UI)
-        llm_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",
-            "content": (
-                f"QUESTION:\n{user_input}\n\n"
-                f"CONTEXT:\n{context}\n\n"
-                f"Правила: отвечай только по CONTEXT. Если данных нет — так и скажи."
-            )}
-        ]
-
-        # 4) потоковый ответ
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            stream_text = ""
-            stream = client.chat.completions.create(
-                model=model,
-                messages=llm_messages,
-                temperature=temperature,
-                stream=True,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                stream_text += delta
-                placeholder.markdown(stream_text)
-
-        # 5) сохранить ответ
-        st.session_state.messages.append({"role": "assistant", "content": stream_text})
-
-        # 6) источники
-        if ctx_docs:
-            with st.expander("Источники"):
-                for i, d in enumerate(ctx_docs, 1):
-                    st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
-
-    else:
-    # --- РЕЖИМ SQL ---
-        try:
-            database = "db1"
-            allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]  # при необходимости
-
-            sql, df = run_sql_assistant(
-                question=user_input,
-                database=database,
-                allowed_tables=allowed_tables,
-                model=model,
-            )
-
-            # 1) рендер “живой” таблицы и SQL сейчас (как раньше)
             with st.chat_message("assistant"):
-                st.markdown("**Сформированный SQL:**")
+                st.markdown("**Повтор предыдущего SQL:**")
                 st.code(sql, language="sql")
-                st.markdown("**Результат:**")
                 st.dataframe(df.to_pandas(), use_container_width=True)
 
-                # добавляем кнопку для скачивания CSV
+                # CSV кнопка (не сохраняется в историю — намеренно)
                 import io
                 csv_bytes = io.BytesIO()
                 df.to_pandas().to_csv(csv_bytes, index=False)
-                st.download_button(
-                    "Скачать результат (CSV)",
-                    csv_bytes.getvalue(),
-                    file_name="result.csv",
-                    mime="text/csv"
-                )
+                st.download_button("Скачать результат (CSV)", csv_bytes.getvalue(),
+                                   file_name="result.csv", mime="text/csv")
 
-                # --- Кнопка для скачивания Excel ---
-                import io
-                import pandas as pd
+            # сохраняем состояние
+            st.session_state.last_sql = sql
+            st.session_state.last_sql_df = df
 
-                excel_bytes = io.BytesIO()
-                with pd.ExcelWriter(excel_bytes, engine="openpyxl") as writer:
-                    df.to_pandas().to_excel(writer, index=False, sheet_name="Result")
-                excel_bytes.seek(0)
-
-                st.download_button(
-                    "Скачать результат (Excel)",
-                    data=excel_bytes,
-                    file_name="result.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
-            # 2) сохранить в ИСТОРИЮ и SQL, и превью данных (markdown)
-            #    чтобы это осталось на следующих рендерах
-            try:
-                # компактный превью (до 50 строк), безопасный для истории
-                preview_pd: pd.DataFrame = df.head(50).to_pandas()
-                # markdown-таблица (нужен пакет tabulate; см. ниже)
-                preview_md = preview_pd.to_markdown(index=False)
-            except Exception:
-                # если tabulate не установлен, сделаем CSV в код-блоке
-                preview_md = "```\n" + df.head(50).to_pandas().to_csv(index=False) + "\n```"
-
-            history_block = (
-                "**Сформированный SQL:**\n"
-                f"```sql\n{sql}\n```\n\n"
-                f"**Превью результата (первые {min(50, len(df))} строк):**\n\n"
-                f"{preview_md}"
-            )
-            st.session_state.messages.append({"role": "assistant", "content": history_block})
-
+            # пишем в историю краткий блок
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"Повторили предыдущий SQL. Строк: {df.height}, столбцов: {df.width}."
+            })
+            st.stop()
         except Exception as e:
             with st.chat_message("assistant"):
-                st.error(f"Ошибка при формировании/выполнении SQL: {e}")
-            st.session_state.messages.append({"role": "assistant", "content": f"Ошибка: {e}"})
+                st.error(f"Не удалось повторить SQL: {e}")
+            st.session_state.messages.append({"role": "assistant", "content": f"Ошибка повтора SQL: {e}"})
+            st.stop()
 
+# 4) Основной роутинг
+if mode == "sql":
+    # --- SQL путь ---
+    try:
+        database = "db1"
+        allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]  # при необходимости сузить
+
+        sql, df = run_sql_assistant(
+            question=user_input,
+            database=database,
+            allowed_tables=allowed_tables,
+            model=model,
+        )
+
+        # живой вывод
+        with st.chat_message("assistant"):
+            st.markdown("**Сформированный SQL:**")
+            st.code(sql, language="sql")
+            st.markdown("**Результат:**")
+            st.dataframe(df.to_pandas(), use_container_width=True)
+
+            # кнопка CSV (живой рендер; не пишем в историю)
+            import io
+            csv_bytes = io.BytesIO()
+            df.to_pandas().to_csv(csv_bytes, index=False)
+            st.download_button("Скачать результат (CSV)", csv_bytes.getvalue(),
+                               file_name="result.csv", mime="text/csv")
+
+        # сериализуем в историю SQL + компактное превью (до 50 строк)
+        try:
+            preview_pd: pd.DataFrame = df.head(50).to_pandas()
+            try:
+                preview_md = preview_pd.to_markdown(index=False)  # требует tabulate
+            except Exception:
+                preview_md = "```\n" + preview_pd.to_csv(index=False) + "\n```"
+        except Exception:
+            preview_md = "_не удалось сформировать превью_"
+
+        history_block = (
+            "**Сформированный SQL:**\n"
+            f"```sql\n{sql}\n```\n\n"
+            f"**Превью результата (первые {min(50, len(df))} строк):**\n\n"
+            f"{preview_md}"
+        )
+        st.session_state.messages.append({"role": "assistant", "content": history_block})
+
+        # сохраняем состояние для будущих “повтори/измени”
+        st.session_state.last_sql = sql
+        st.session_state.last_sql_df = df
+
+    except Exception as e:
+        with st.chat_message("assistant"):
+            st.error(f"Ошибка при формировании/выполнении SQL: {e}")
+        st.session_state.messages.append({"role": "assistant", "content": f"Ошибка: {e}"})
+
+else:
+    # --- RAG путь ---
+    # 1) достаём контекст из Chroma
+    try:
+        ctx_docs = retrieve(
+            user_input,
+            k=5,
+            chroma_path=CHROMA_PATH,
+            collection_name=COLLECTION_NAME
+        )
+    except Exception as e:
+        with st.chat_message("assistant"):
+            st.error(f"Ошибка ретрива: {e}")
+        st.session_state.messages.append({"role": "assistant", "content": f"Не удалось получить контекст: {e}"})
+        ctx_docs = []
+
+    context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)]) or "—"
+
+    # 2) формируем сообщения для LLM: system + история + текущий вопрос с CONTEXT
+    history_msgs = build_history_for_llm(max_turns=6)
+    llm_messages = (
+        [{"role": "system", "content": system_prompt}]
+        + history_msgs
+        + [{
+            "role": "user",
+            "content": (
+                f"QUESTION:\n{user_input}\n\n"
+                f"CONTEXT:\n{context}\n\n"
+                "Правила: отвечай только по CONTEXT. Если данных нет — так и скажи."
+            )
+        }]
+    )
+
+    # 3) потоковый ответ
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
+        stream_text = ""
+        stream = client.chat.completions.create(
+            model=model,
+            messages=llm_messages,
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            stream_text += delta
+            placeholder.markdown(stream_text)
+
+    # 4) фиксируем ответ в историю
+    st.session_state.messages.append({"role": "assistant", "content": stream_text})
+
+    # 5) источники (живой рендер; не пишем в историю)
+    if ctx_docs:
+        with st.expander("Источники"):
+            for i, d in enumerate(ctx_docs, 1):
+                st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
