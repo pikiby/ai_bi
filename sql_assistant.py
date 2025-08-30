@@ -27,22 +27,30 @@ def _single_statement(sql: str) -> bool:
     return ";" not in body
 
 def _clean_sql(s: str) -> str:
-    # снять ```sql ... ``` и лишние украшения
-    s = s.strip()
-    s = re.sub(r"^```(?:sql|SQL)?\s*", "", s)
-    s = re.sub(r"\s*```$", "", s)
-    # убрать -- комментарии до конца строки
-    s = re.sub(r"--.*?$", "", s, flags=re.MULTILINE)
-    return s.strip()
+    """
+    Превратить ответ модели в чистый SQL:
+    - снять ```sql ... ```
+    - выкинуть любой текст до первого SELECT
+    - убрать строки-комментарии `-- ...`
+    - обрезать пробелы и финальную точку с запятой по желанию
+    """
+    s = (s or "").strip()
 
-def _is_safe(sql: str) -> tuple[bool, str]:
-    if not ONLY_SELECT.match(sql or ""):
-        return False, "Сгенерирован не SELECT-запрос."
-    if FORBIDDEN.search(sql or ""):
-        return False, "Обнаружены запрещённые операции (DDL/DML)."
-    if not _single_statement(sql or ""):
-        return False, "Разрешён только один SELECT без нескольких выражений."
-    return True, ""
+    # снять markdown-кодовые блоки, если они есть
+    s = re.sub(r"^```(?:sql|SQL)?\s*", "", s.strip())
+    s = re.sub(r"\s*```$", "", s.strip())
+
+    # найти первый SELECT (игнор регистра)
+    m = re.search(r"\bSELECT\b", s, flags=re.IGNORECASE)
+    if m:
+        s = s[m.start():]  # отбросить всю "прозу" до SELECT
+
+    # убрать одноместные комментарии
+    s = re.sub(r"--.*?$", "", s, flags=re.MULTILINE)
+
+    # финальная зачистка
+    s = s.strip()
+    return s
 
 # ---------- ПРЕДСТАВЛЕНИЕ СХЕМЫ ----------
 def _schema_to_text(schema: Dict[str, List[Tuple[str, str]]], database: str) -> str:
@@ -120,10 +128,11 @@ def _build_system_prompt(schema_text: str, rag_appendix: str) -> str:
     - ВСЕГДА используй полные имена таблиц.
     - Делай JOIN только когда это действительно нужно и явно указывай ON.
     - Если колонка отсутствует в схеме — не выдумывай её; лучше спроси уточнение.
-    - Не ставь LIMIT.
+    - Если пользователь просит вывести все данные, показать полную таблицу, на ставить LIMIT - то запрос должен быть без LIMIT. В ином случае Ставь LIMIT 10000.
     - Любые «переименуй/удали/замени/добавь колонку» — это изменение ВЫБОРКИ (SELECT), а не данных.
     - Все таблицы и колонки доступны только из приведённой схемы ниже.
     - Если пользователь не указывает дату, предпологай что нужно вывести данные за максимальный report_date в таблице
+    - Отвечай ТОЛЬКО финальным SQL без комментариев и пояснений. Никакого текста до или после.
 
     # SCHEMA SNAPSHOT
     {schema_text}
