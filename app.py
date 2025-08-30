@@ -341,6 +341,8 @@ st.session_state.messages.append({"role": "user", "content": user_input})
 with st.chat_message("user"):
     st.markdown(user_input)
 
+chart_requested = is_chart_intent(user_input)
+
 # 2) авто-роутинг
 mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
 if override != "Auto":
