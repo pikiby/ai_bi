@@ -220,9 +220,9 @@ def run_sql_assistant(
     _enforce_allowed_tables(sql, database, allowed_tables)
 
     # 6) гарантия LIMIT
-    if re.search(r"\bLIMIT\b", sql, flags=re.IGNORECASE) is None:
-        sql = sql.rstrip().rstrip(";")
-        sql += " LIMIT 200"
+#    if re.search(r"\bLIMIT\b", sql, flags=re.IGNORECASE) is None:
+#       sql = sql.rstrip().rstrip(";")
+#        sql += " LIMIT 200"
 
     # 7) выполняем
     df = ch.query_run(sql)
