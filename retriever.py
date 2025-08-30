@@ -1,5 +1,9 @@
-
 # retriever.py
+# ===========================================
+# Поиск top-k чанков из Chroma по текстовому запросу.
+# Использует embedding_function OpenAI (как в ingest.py)
+# и query_texts=[...] вместо ручных эмбеддингов.
+# ===========================================
 
 # --- SQLite shim (нужен на Streamlit Cloud) ---
 # Должен идти ПЕРЕД "import chromadb"
@@ -16,75 +20,76 @@ if NEEDS_SHIM:
     import pysqlite3  # noqa: F401
     sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 # ---------------------------------------------
-import chromadb
 
-# БЛОК: импортов и утилит
 import os
 import re
 from typing import List, Dict
-from openai import OpenAI
+
+import chromadb
+from chromadb.utils import embedding_functions
+
+
 # --- нормализация/валидация имени коллекции ---
 _NAME_RE = re.compile(r"^[a-z0-9_]{3,63}$")
 def _norm_name(name: str) -> str:
     n = (name or "").strip().lower()
     if not _NAME_RE.fullmatch(n):
-        raise ValueError(
-            f"Invalid collection name {name!r}. Use 3–63 chars from [a-z0-9_]."
-        )
+        raise ValueError("Invalid collection name. Use 3–63 chars from [a-z0-9_].")
     return n
 
-# retriever.py — ДОБАВЬ эти вспомогательные функции рядом с другими
 
-def _keyword_fallback(col, query: str, k: int = 5):
-    """
-    Простой резервный поиск: фильтруем документы, где встречается подстрока query (case-insensitive),
-    потом ранжируем по длине совпадения/положению. Работает быстро на малых коллекциях.
-    """
+# --- резервный поиск по ключевым словам (на случай пустого ANN) ---
+def _keyword_fallback(col, query: str, k: int = 5) -> List[Dict]:
     q = (query or "").strip()
     if not q:
         return []
 
-    # Попробуем сначала через where_document (если поддерживается версией Chroma)
+    # 1) Попытка where_document:$contains (если поддерживается вашей версией Chroma)
     try:
         res = col.get(where_document={"$contains": q.lower()}, limit=k)
         docs = res.get("documents") or []
         ids = res.get("ids") or []
         metas = res.get("metadatas") or []
         hits = []
-        for i in range(len(docs)):
+        for i in range(min(len(docs), k)):
+            meta_i = metas[i] or {}
             hits.append({
                 "id": ids[i] if i < len(ids) else None,
                 "text": docs[i],
-                "source": (metas[i] or {}).get("source"),
-                "path": (metas[i] or {}).get("path"),
-                "score": 0.0,  # без метрики
+                "source": meta_i.get("source"),
+                "path": meta_i.get("path"),
+                "score": 0.0,
             })
-        return hits[:k]
+        if hits:
+            return hits
     except Exception:
         pass
 
-    # Если where_document нет — берём маленький сэмпл и фильтруем вручную
+    # 2) Фолбэк через peek + простая фильтрация подстроки
     try:
-        peek = col.peek(limit=200)  # достаточно для POC
+        peek = col.peek(limit=200)
         docs = peek.get("documents") or []
         ids = peek.get("ids") or []
         metas = peek.get("metadatas") or []
         ql = q.lower()
-        cand = []
+
+        candidates = []
         for i, d in enumerate(docs):
             if not d:
                 continue
-            pos = (d.lower()).find(ql)
+            pos = d.lower().find(ql)
             if pos >= 0:
-                cand.append((pos, i))
-        cand.sort(key=lambda x: x[0])
+                candidates.append((pos, i))
+        candidates.sort(key=lambda t: t[0])
+
         hits = []
-        for _, i in cand[:k]:
+        for _, i in candidates[:k]:
+            meta_i = metas[i] or {}
             hits.append({
                 "id": ids[i] if i < len(ids) else None,
                 "text": docs[i],
-                "source": (metas[i] or {}).get("source"),
-                "path": (metas[i] or {}).get("path"),
+                "source": meta_i.get("source"),
+                "path": meta_i.get("path"),
                 "score": 0.0,
             })
         return hits
@@ -92,7 +97,7 @@ def _keyword_fallback(col, query: str, k: int = 5):
         return []
 
 
-# БЛОК: ретривер top-k чанков из Chroma по эмбеддингу вопроса
+# --- основной ретривер ---
 def retrieve(
     query: str,
     k: int = 5,
@@ -100,12 +105,12 @@ def retrieve(
     collection_name: str = "kb_docs",
     model: str = "text-embedding-3-small",
 ) -> List[Dict]:
-    print(f"[retriever] chroma_path={chroma_path} collection={collection_name}")
-
-    # нормализуем и валидируем имя коллекции
+    """
+    Возвращает список документов-чанков с метаданными:
+    [{id, text, source, path, score}, ...]
+    """
     collection_name = _norm_name(collection_name)
 
-    # быстрые проверки
     q = (query or "").strip()
     if not q:
         return []
@@ -114,49 +119,48 @@ def retrieve(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not set")
 
-    # инициализация клиентов
-    client = OpenAI(api_key=api_key)
+    # 1) Подключаемся к Chroma и задаём embedding_function OpenAI
     chroma = chromadb.PersistentClient(path=chroma_path)
-    col = chroma.get_or_create_collection(collection_name)
+    ef = embedding_functions.OpenAIEmbeddingFunction(
+        api_key=api_key,
+        model_name=model,  # тот же, что в ingest.py
+    )
+    col = chroma.get_or_create_collection(
+        collection_name,
+        embedding_function=ef,
+    )
 
-    # эмбеддинг вопроса
-       # эмбеддинг вопроса
-    q_emb = client.embeddings.create(model=model, input=[q]).data[0].embedding
-
-    # ANN-поиск
+    # 2) Запрос: Chroma сама эмбеддит текст и ищет ближайшие документы
     res = col.query(
-        query_embeddings=[q_emb],
+        query_texts=[q],
         n_results=max(1, int(k)),
         include=["documents", "metadatas", "distances"],  # без "ids"
     )
 
     hits: List[Dict] = []
 
-    # если ANN ничего не дал — сразу пробуем keyword-фолбэк
+    # 3) Если ANN ничего не дал — пробуем keyword-fallback
     if (not res or
         not res.get("documents") or not res["documents"] or not res["documents"][0]):
         return _keyword_fallback(col, q, k=k)
 
     docs0 = res["documents"][0]
     metas0 = (res.get("metadatas") or [[]])[0]
-    ids0   = (res.get("ids") or [[]])[0]           # ids может отсутствовать, но часто приходит
-    dists0 = (res.get("distances") or [[]])[0]     # distances может отсутствовать, подстрахуемся
+    dists0 = (res.get("distances") or [[]])[0]
 
     n = len(docs0)
     for i in range(n):
         meta_i = metas0[i] if i < len(metas0) else {}
-        hit = {
-            "id":    ids0[i] if i < len(ids0) else None,
-            "text":  docs0[i],
+        hits.append({
+            "id": None,  # ids не запрашивали; при желании можно добавить
+            "text": docs0[i],
             "source": (meta_i or {}).get("source"),
-            "path":   (meta_i or {}).get("path"),
-            "score":  dists0[i] if i < len(dists0) else None,
-        }
-        hits.append(hit)
+            "path": (meta_i or {}).get("path"),
+            "score": dists0[i] if i < len(dists0) else None,
+        })
 
-    # дополнительная страховка (обычно уже не нужна)
+    # На всякий случай — если пусто, ещё раз keyword-fallback
     if not hits:
         hits = _keyword_fallback(col, q, k=k)
 
     return hits
-
