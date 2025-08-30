@@ -120,6 +120,7 @@ def retrieve(
     col = chroma.get_or_create_collection(collection_name)
 
     # эмбеддинг вопроса
+       # эмбеддинг вопроса
     q_emb = client.embeddings.create(model=model, input=[q]).data[0].embedding
 
     # ANN-поиск
@@ -130,7 +131,8 @@ def retrieve(
     )
 
     hits: List[Dict] = []
-    # защита от пустого ответа
+
+    # если ANN ничего не дал — сразу пробуем keyword-фолбэк
     if (not res or
         not res.get("documents") or not res["documents"] or not res["documents"][0]):
         return _keyword_fallback(col, q, k=k)
@@ -151,8 +153,10 @@ def retrieve(
             "score":  dists0[i] if i < len(dists0) else None,
         }
         hits.append(hit)
-    
+
+    # дополнительная страховка (обычно уже не нужна)
     if not hits:
-        hits = _keyword_fallback(col, query, k=k)
+        hits = _keyword_fallback(col, q, k=k)
 
     return hits
+
