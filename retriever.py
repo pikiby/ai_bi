@@ -1,3 +1,4 @@
+
 # retriever.py
 
 # --- SQLite shim (нужен на Streamlit Cloud) ---
@@ -32,6 +33,65 @@ def _norm_name(name: str) -> str:
         )
     return n
 
+# retriever.py — ДОБАВЬ эти вспомогательные функции рядом с другими
+
+def _keyword_fallback(col, query: str, k: int = 5):
+    """
+    Простой резервный поиск: фильтруем документы, где встречается подстрока query (case-insensitive),
+    потом ранжируем по длине совпадения/положению. Работает быстро на малых коллекциях.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    # Попробуем сначала через where_document (если поддерживается версией Chroma)
+    try:
+        res = col.get(where_document={"$contains": q.lower()}, limit=k)
+        docs = res.get("documents") or []
+        ids = res.get("ids") or []
+        metas = res.get("metadatas") or []
+        hits = []
+        for i in range(len(docs)):
+            hits.append({
+                "id": ids[i] if i < len(ids) else None,
+                "text": docs[i],
+                "source": (metas[i] or {}).get("source"),
+                "path": (metas[i] or {}).get("path"),
+                "score": 0.0,  # без метрики
+            })
+        return hits[:k]
+    except Exception:
+        pass
+
+    # Если where_document нет — берём маленький сэмпл и фильтруем вручную
+    try:
+        peek = col.peek(limit=200)  # достаточно для POC
+        docs = peek.get("documents") or []
+        ids = peek.get("ids") or []
+        metas = peek.get("metadatas") or []
+        ql = q.lower()
+        cand = []
+        for i, d in enumerate(docs):
+            if not d:
+                continue
+            pos = (d.lower()).find(ql)
+            if pos >= 0:
+                cand.append((pos, i))
+        cand.sort(key=lambda x: x[0])
+        hits = []
+        for _, i in cand[:k]:
+            hits.append({
+                "id": ids[i] if i < len(ids) else None,
+                "text": docs[i],
+                "source": (metas[i] or {}).get("source"),
+                "path": (metas[i] or {}).get("path"),
+                "score": 0.0,
+            })
+        return hits
+    except Exception:
+        return []
+
+
 # БЛОК: ретривер top-k чанков из Chroma по эмбеддингу вопроса
 def retrieve(
     query: str,
@@ -40,6 +100,8 @@ def retrieve(
     collection_name: str = "kb_docs",
     model: str = "text-embedding-3-small",
 ) -> List[Dict]:
+    print(f"[retriever] chroma_path={chroma_path} collection={collection_name}")
+
     # нормализуем и валидируем имя коллекции
     collection_name = _norm_name(collection_name)
 
@@ -89,5 +151,8 @@ def retrieve(
             "score":  dists0[i] if i < len(dists0) else None,
         }
         hits.append(hit)
+    
+    if not hits:
+        hits = _keyword_fallback(col, query, k=k)
 
     return hits
