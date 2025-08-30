@@ -26,6 +26,15 @@ def _single_statement(sql: str) -> bool:
     body = s[:-1] if s.endswith(";") else s
     return ";" not in body
 
+def _is_safe(sql: str) -> bool:
+    """
+    Проверка безопасности: допускаем только SELECT-запросы (включая WITH ... SELECT).
+    """
+    if not sql:
+        return False
+    s = sql.strip().upper()
+    return s.startswith("SELECT") or s.startswith("WITH")
+
 def _clean_sql(s: str) -> str:
     """
     Превратить ответ модели в чистый SQL:
