@@ -16,6 +16,7 @@ from sql_assistant import run_sql_assistant  # генерация безопас
 import plotly.express as px
 import numpy as np
 import polars as pl
+import io
 
 st.set_page_config(page_title="Chat + RAG + SQL (Auto)", page_icon="💬", layout="centered")
 
@@ -435,11 +436,15 @@ if mode == "sql":
         with st.chat_message("assistant"):
             st.markdown("**Сформированный SQL:**")
             st.code(sql, language="sql")
-            st.markdown("**Результат:**")
-            st.dataframe(df.to_pandas(), use_container_width=True)
+            if is_chart_intent(user_input):
+            # если запрос явно про график → показываем только график
+                render_auto_chart(df, user_input)
+            else:
+                # если нет — выводим таблицу и даём скачать
+                st.markdown("**Результат:**")
+                st.dataframe(df.to_pandas(), use_container_width=True)
 
             # кнопка CSV (живой рендер; не пишем в историю)
-            import io
             csv_bytes = io.BytesIO()
             df.to_pandas().to_csv(csv_bytes, index=False)
             st.download_button("Скачать результат (CSV)", csv_bytes.getvalue(),
