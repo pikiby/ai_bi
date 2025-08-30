@@ -395,12 +395,30 @@ if mode == "sql":
         except Exception:
             preview_md = "_не удалось сформировать превью_"
 
-        history_block = (
-            "**Сформированный SQL:**\n"
-            f"```sql\n{sql}\n```\n\n"
-            f"**Превью результата (первые {min(50, len(df))} строк):**\n\n"
-            f"{preview_md}"
-        )
+        # --- Сохраняем в историю: без превью-таблицы, если просили график ---
+        if chart_requested:
+            history_block = (
+                "**Сформированный SQL:**\n"
+                f"```sql\n{sql}\n```\n\n"
+                "_Построена визуализация по результатам; табличное превью скрыто._"
+            )
+        else:
+            try:
+                preview_pd: pd.DataFrame = df.head(50).to_pandas()
+                try:
+                    preview_md = preview_pd.to_markdown(index=False)  # требует tabulate
+                except Exception:
+                    preview_md = "```\n" + preview_pd.to_csv(index=False) + "\n```"
+            except Exception:
+                preview_md = "_не удалось сформировать превью_"
+
+            history_block = (
+                "**Сформированный SQL:**\n"
+                f"```sql\n{sql}\n```\n\n"
+                f"**Превью результата (первые {min(50, len(df))} строк):**\n\n"
+                f"{preview_md}"
+            )
+
         st.session_state.messages.append({"role": "assistant", "content": history_block})
 
         # сохраняем состояние
