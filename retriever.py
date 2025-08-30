@@ -133,7 +133,7 @@ def retrieve(
     # защита от пустого ответа
     if (not res or
         not res.get("documents") or not res["documents"] or not res["documents"][0]):
-        return hits
+        return _keyword_fallback(col, q, k=k)
 
     docs0 = res["documents"][0]
     metas0 = (res.get("metadatas") or [[]])[0]
