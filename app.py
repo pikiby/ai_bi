@@ -49,26 +49,32 @@ def build_history_for_llm(max_turns: int = 6):
     return msgs
 
 # Простые эвристики для определения намерения “SQL vs RAG”
+# --- РОУТЕР: аккуратнее со словами и порогом уверенности ---
 SQL_HINTS = [
-    "сколько", "посчитай", "сумма", "avg", "count", "sum", "min", "max",
-    "distinct", "group by", "групп", "средн", "медиан", "покажи строки",
-    "выведи", "таблиц", "select", "join", "where", "having", "order by",
-    "за день", "за неделю", "за месяц", "по дням", "по месяцам", "топ", "тренд",
+    r"\bselect\b", r"\bjoin\b", r"\bwhere\b", r"\border by\b", r"\bgroup by\b",
+    r"\bcount\b", r"\bsum\b", r"\bavg\b", r"\bmin\b", r"\bmax\b",
+    r"\bагрег", r"\bсумм", r"\bпосчит", r"\bсколько\b", r"\bтренд\b",
 ]
 RAG_HINTS = [
-    "что такое", "объясни", "описан", "документаци", "как устроена", "что означает",
-    "тип поля", "описание таблицы", "ddl", "schema", "схема",
+    r"\bчто такое\b", r"\bобъясн", r"\bописан", r"\bдокументац", r"\bсхем",
+    r"\bddl\b", r"\bschema\b", r"\bтип пол(я|я)\b", r"\bописание таблиц",
 ]
-# Простейший маршрутизатор. По ключевым словам определяет, к какой категории относится запрос пользователя
+
+import re
+def _score(patterns, text):
+    return sum(1 for p in patterns if re.search(p, text))
+
 def heuristic_route(question: str):
     q = (question or "").lower()
-    score_sql = sum(1 for k in SQL_HINTS if k in q)
-    score_rag = sum(1 for k in RAG_HINTS if k in q)
-    if score_sql > score_rag and score_sql >= 1:
+    score_sql = _score(SQL_HINTS, q)
+    score_rag = _score(RAG_HINTS, q)
+
+    # Требуем «запас» хотя бы в 2 балла, иначе считаем неуверенным
+    if score_sql - score_rag >= 2:
         return "sql", f"heuristic:{score_sql}"
-    if score_rag > score_sql and score_rag >= 1:
+    if score_rag - score_sql >= 1:
         return "rag", f"heuristic:{score_rag}"
-    return "unknown", "heuristic:0"
+    return "unknown", f"heuristic:{score_sql}-{score_rag}"
 
 def llm_route(question: str, model: str = "gpt-4o-mini"):
     """
@@ -125,6 +131,7 @@ with st.sidebar:
         ],
         index=0,
     )
+    override = st.selectbox("Режим (отладка)", ["Auto", "RAG", "SQL"], index=0)
     temperature = st.slider("Temperature", 0.0, 1.0, 0.2, 0.05)
     system_prompt = st.text_area(
         "System prompt",
@@ -180,6 +187,9 @@ with st.chat_message("user"):
 
 # 2) авто-роутинг
 mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
+if override != "Auto":
+    mode = "rag" if override == "RAG" else "sql"
+    decided_by = f"override:{override}"
 st.caption(f"Роутер: {mode} ({decided_by})")
 
 # 3) SQL: поддержка “повтори запрос”
@@ -283,13 +293,17 @@ else:
             chroma_path=CHROMA_PATH,
             collection_name=COLLECTION_NAME
         )
+        st.caption(f"RAG: найдено чанков = {len(ctx_docs)}")
+        if not ctx_docs:
+            st.info("Контекст не найден. Проверьте, что выполнили «Переиндексировать docs/» и что в docs/ есть .md/.pdf.")
     except Exception as e:
         with st.chat_message("assistant"):
             st.error(f"Ошибка ретрива: {e}")
         st.session_state.messages.append({"role": "assistant", "content": f"Не удалось получить контекст: {e}"})
         ctx_docs = []
 
-    context = "\n\n".join([f"[{i+1}] {d['text']}" for i, d in enumerate(ctx_docs)]) or "—"
+    context = "\n\n".join([f"[{i+1}] {d['source']}: {d['text'][:300]}..." for i, d in enumerate(ctx_docs)]) or "—"
+
 
     # 2) формируем сообщения для LLM: system + история + текущий вопрос с CONTEXT
     history_msgs = build_history_for_llm(max_turns=6)
