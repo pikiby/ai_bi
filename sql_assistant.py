@@ -25,6 +25,32 @@ def _single_statement(sql: str) -> bool:
     body = s[:-1] if s.endswith(";") else s
     return ";" not in body
 
+def _clean_sql(sql: str) -> str:
+    """
+    Приводим текст от модели к "чистому" SQL:
+    - убираем Markdown-обёртки ```sql ... ```
+    - убираем лишние комментарии в начале
+    - обрезаем всё до первого SELECT
+    """
+    if not sql:
+        return ""
+
+    s = sql.strip()
+
+    # Убираем Markdown-блоки
+    if s.lower().startswith("```sql"):
+        s = s[6:]
+    if s.endswith("```"):
+        s = s[:-3]
+    s = s.strip()
+
+    # Ищем первое SELECT
+    idx = s.lower().find("select")
+    if idx > 0:
+        s = s[idx:]
+
+    return s.strip()
+
 def _is_safe(sql: str) -> tuple[bool, str]:
     """
     Возвращает (ok, why). Допускаем только один SELECT-стейтмент,
