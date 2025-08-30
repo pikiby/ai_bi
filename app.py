@@ -206,7 +206,7 @@ def render_auto_chart(df, user_text: str, *, key_prefix: str = "viz"):
             st.info("Для line-графика нужна ось X и числовая Y.")
             return
         fig = px.line(pdf, x=x, y=y, color=cat, markers=True, title=None)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"{key_base}_plot")
 
     elif chart_type == "bar":
         if x and y:
@@ -216,13 +216,13 @@ def render_auto_chart(df, user_text: str, *, key_prefix: str = "viz"):
         else:
             st.info("Нечего отображать на bar-графике.")
             return
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"{key_base}_plot")
 
     elif chart_type == "scatter":
         if len(y_cands) >= 2:
             y2 = y_cands[1]
             fig = px.scatter(pdf, x=y, y=y2, color=cat, hover_data=pdf.columns, title=None)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"{key_base}_plot")
         else:
             st.info("Для scatter нужны как минимум две числовые колонки.")
             return
@@ -233,7 +233,7 @@ def render_auto_chart(df, user_text: str, *, key_prefix: str = "viz"):
             st.info("Не удалось выбрать поле для гистограммы.")
             return
         fig = px.histogram(pdf, x=target, color=cat, nbins=30, title=None)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"{key_base}_plot")
 
     else:
         st.info("Неизвестный тип графика.")
@@ -370,19 +370,18 @@ if mode == "sql":
             st.markdown("**Сформированный SQL:**")
             st.code(sql, language="sql")
 
-            if is_chart_intent(user_input):
-                # если просили график — рисуем график и НЕ показываем таблицу
+            if chart_requested:
+                # только график (без таблицы / CSV)
                 st.session_state["viz_active"] = True
                 st.session_state["viz_text"] = user_input
                 render_auto_chart(df, user_input, key_prefix="sql_viz")
             else:
                 st.markdown("**Результат:**")
                 st.dataframe(df.to_pandas(), use_container_width=True)
-                # кнопка CSV
                 csv_bytes = io.BytesIO()
                 df.to_pandas().to_csv(csv_bytes, index=False)
                 st.download_button("Скачать результат (CSV)", csv_bytes.getvalue(),
-                                   file_name="result.csv", mime="text/csv")
+                                file_name="result.csv", mime="text/csv")
 
         # сериализуем компактное превью в историю (без тяжелых таблиц)
         try:
@@ -467,23 +466,11 @@ else:
                 st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
 
 # --- Построить график по последним данным (если просили, а режим был не SQL) ---
-if is_chart_intent(user_input) and st.session_state.get("last_sql_df") is not None and mode != "sql":
+if chart_requested and st.session_state.get("last_sql_df") is not None and mode != "sql":
+    st.session_state["viz_active"] = True
+    st.session_state["viz_text"] = user_input
     try:
-        st.session_state["viz_active"] = True
-        st.session_state["viz_text"] = user_input
         render_auto_chart(st.session_state["last_sql_df"], user_input, key_prefix="last_viz")
     except Exception as e:
         st.warning(f"Не удалось построить график из последних данных: {e}")
 
-# ---------- Sticky визуализация ----------
-# Если ранее просили график, показываем его и при последующих перерендерах
-# (переключение radio перерисовывает приложение)
-if st.session_state.get("viz_active") and st.session_state.get("last_sql_df") is not None:
-    try:
-        render_auto_chart(
-            st.session_state["last_sql_df"],
-            st.session_state.get("viz_text", ""),
-            key_prefix="sticky_viz"
-        )
-    except Exception as e:
-        st.warning(f"Не удалось построить график из последних данных: {e}")
