@@ -12,6 +12,10 @@ import pandas as pd  # для превью/скачивания результа
 from openai import OpenAI
 from retriever import retrieve
 from sql_assistant import run_sql_assistant  # генерация безопасного SQL + исполнение
+# --- визуализация ---
+import plotly.express as px
+import numpy as np
+import polars as pl
 
 st.set_page_config(page_title="Chat + RAG + SQL (Auto)", page_icon="💬", layout="centered")
 
@@ -36,7 +40,160 @@ if not api_key:
     st.stop()
 client = OpenAI(api_key=api_key)
 
+
+
 # ---------- Служебные хелперы ----------
+
+# ---------- Автоматическая визуализация ----------
+
+# Фразы, по которым считаем, что пользователь просит график
+_CHART_HINTS = [
+    "график", "диаграмм", "построй", "визуализ", "plot", "chart",
+    "линейный график", "столбчат", "bar", "line", "scatter", "hist"
+]
+
+def is_chart_intent(text: str) -> bool:
+    t = (text or "").lower()
+    return any(k in t for k in _CHART_HINTS)
+
+def _to_pandas(df):
+    """Унифицируем: поддержим и Polars, и Pandas."""
+    if isinstance(df, pl.DataFrame):
+        return df.to_pandas()
+    import pandas as pd
+    if isinstance(df, pd.DataFrame):
+        return df
+    raise TypeError("Ожидается Polars или Pandas DataFrame")
+
+def _guess_roles(pdf):
+    """
+    Эвристика:
+      - если есть явная дата/время → это ось X
+      - если есть категориальная (строковая) → X=категория
+      - числовые поля → кандидаты на Y
+    Возвращает словарь {'x': <col or None>, 'y_candidates': [..], 'cat': <col or None>}
+    """
+    import pandas as pd
+    cols = list(pdf.columns)
+    if not cols:
+        return {"x": None, "y_candidates": [], "cat": None}
+
+    # типы
+    dt_cols = [c for c in cols if pd.api.types.is_datetime64_any_dtype(pdf[c])]
+    # распознаем даты-строками (например '2025-01-01') — попробуем привести
+    if not dt_cols:
+        for c in cols:
+            if pdf[c].dtype == object:
+                try:
+                    pd.to_datetime(pdf[c], errors="raise")
+                    dt_cols.append(c)
+                    break
+                except Exception:
+                    pass
+
+    num_cols = [c for c in cols if pd.api.types.is_numeric_dtype(pdf[c])]
+    str_cols = [c for c in cols if pdf[c].dtype == object]
+
+    x = dt_cols[0] if dt_cols else (str_cols[0] if str_cols else None)
+    y_candidates = [c for c in num_cols if c != x]
+    cat = None
+    # если X — дата, попробуем найти категорию для группировки (например city)
+    if dt_cols and str_cols:
+        cat = str_cols[0]
+    return {"x": x, "y_candidates": y_candidates, "cat": cat}
+
+def render_auto_chart(df, user_text: str):
+    """
+    Строит график на основании df и текста пользователя.
+    Возвращает None — всё рисует в Streamlit.
+    """
+    pdf = _to_pandas(df).copy()
+
+    # Попробуем привести очевидные столбцы-даты к datetime
+    for c in pdf.columns:
+        if any(k in c.lower() for k in ["date", "time", "dt", "timestamp", "дата", "время"]):
+            try:
+                pdf[c] = pd.to_datetime(pdf[c], errors="ignore")
+            except Exception:
+                pass
+
+    roles = _guess_roles(pdf)
+    x, y_cands, cat = roles["x"], roles["y_candidates"], roles["cat"]
+
+    if x is None and not y_cands:
+        st.info("Недостаточно данных для графика (нет числовых или оси X).")
+        return
+
+    # Пользовательский override типа графика (удобно в отладке)
+    chart_type = st.radio(
+        "Тип графика",
+        options=["auto", "line", "bar", "scatter", "hist"],
+        index=0,
+        horizontal=True,
+        help="Выберите тип вручную, если авто-выбор не подходит."
+    )
+
+    # Автовыбор
+    auto_type = None
+    if chart_type == "auto":
+        if x is not None and np.issubdtype(pdf[x].dtype, np.datetime64):
+            auto_type = "line" if y_cands else "hist"
+        elif x is not None and pdf[x].dtype == object and y_cands:
+            auto_type = "bar"
+        elif len(y_cands) >= 2:
+            auto_type = "scatter"
+        elif y_cands:
+            auto_type = "hist"
+        else:
+            auto_type = "bar"
+        chart_type = auto_type
+
+    # Выбор осей (простая логика)
+    y = y_cands[0] if y_cands else None
+
+    st.markdown("### Визуализация")
+    st.caption(f"Выбрано: {chart_type}; X={x or '—'}; Y={y or '—'}; Category={cat or '—'}")
+
+    # Построение
+    if chart_type == "line":
+        if x is None or not y:
+            st.info("Для line-графика нужна ось X и числовая Y.")
+            return
+        fig = px.line(pdf, x=x, y=y, color=cat, markers=True, title=None)
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif chart_type == "bar":
+        # Если есть X-строка и Y — строим bar; иначе сделаем топ по числовой
+        if x and y:
+            fig = px.bar(pdf, x=x, y=y, color=cat, title=None)
+        elif y:
+            fig = px.bar(pdf, x=pdf.index, y=y, title=None)
+        else:
+            st.info("Нечего отображать на bar-графике.")
+            return
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif chart_type == "scatter":
+        if len(y_cands) >= 2:
+            y2 = y_cands[1]
+            fig = px.scatter(pdf, x=y, y=y2, color=cat, hover_data=pdf.columns, title=None)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Для scatter нужны как минимум две числовые колонки.")
+            return
+
+    elif chart_type == "hist":
+        target = y or x
+        if target is None:
+            st.info("Не удалось выбрать поле для гистограммы.")
+            return
+        fig = px.histogram(pdf, x=target, color=cat, nbins=30, title=None)
+        st.plotly_chart(fig, use_container_width=True)
+
+    else:
+        st.info("Неизвестный тип графика.")
+
+
 def build_history_for_llm(max_turns: int = 6):
     """
     Возвращает последние max_turns ходов (user/assistant) в формате OpenAI messages.
@@ -60,7 +217,6 @@ RAG_HINTS = [
     r"\bddl\b", r"\bschema\b", r"\bтип пол(я|я)\b", r"\bописание таблиц",
 ]
 
-import re
 def _score(patterns, text):
     return sum(1 for p in patterns if re.search(p, text))
 
@@ -268,7 +424,7 @@ if mode == "sql":
 
         sql, df = run_sql_assistant(
             question=user_input,
-            database="db1",
+            database=database,
             allowed_tables=["total_active_users", "total_active_users_rep_mobile_total"],  # при желании сузить
             model=model,
             chroma_path=CHROMA_PATH,
@@ -310,6 +466,13 @@ if mode == "sql":
         # сохраняем состояние для будущих “повтори/измени”
         st.session_state.last_sql = sql
         st.session_state.last_sql_df = df
+
+        # Если в вопросе просили график — построим
+        if is_chart_intent(user_input):
+            try:
+                render_auto_chart(df, user_input)
+            except Exception as e:
+                st.warning(f"Не удалось построить график: {e}")
 
     except Exception as e:
         with st.chat_message("assistant"):
@@ -376,3 +539,10 @@ else:
         with st.expander("Источники"):
             for i, d in enumerate(ctx_docs, 1):
                 st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
+
+# --- Построить график на основе последнего набора данных без нового запроса ---
+if is_chart_intent(user_input) and st.session_state.get("last_sql_df") is not None and mode != "sql":
+    try:
+        render_auto_chart(st.session_state["last_sql_df"], user_input)
+    except Exception as e:
+        st.warning(f"Не удалось построить график из последних данных: {e}")
