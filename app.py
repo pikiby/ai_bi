@@ -159,36 +159,36 @@ with st.sidebar:
             else:
                 st.error(proc.stderr)
         
-        with st.sidebar.expander("Диагностика RAG"):
-            import os, glob
-            st.write("Working dir:", os.getcwd())
-            st.write("CHROMA_PATH:", CHROMA_PATH)
-            st.write("COLLECTION_NAME:", COLLECTION_NAME)
-            st.write("docs/ существует?", os.path.isdir("docs"))
-            st.write("Файлов .md:", len(glob.glob("docs/**/*.md", recursive=True)))
-            st.write("Файлов .pdf:", len(glob.glob("docs/**/*.pdf", recursive=True)))
+    with st.sidebar.expander("Диагностика RAG"):
+        import os, glob
+        st.write("Working dir:", os.getcwd())
+        st.write("CHROMA_PATH:", CHROMA_PATH)
+        st.write("COLLECTION_NAME:", COLLECTION_NAME)
+        st.write("docs/ существует?", os.path.isdir("docs"))
+        st.write("Файлов .md:", len(glob.glob("docs/**/*.md", recursive=True)))
+        st.write("Файлов .pdf:", len(glob.glob("docs/**/*.pdf", recursive=True)))
 
-            # Подключимся к Chroma и посмотрим, что там лежит
-            try:
-                import chromadb
-                chroma = chromadb.PersistentClient(path=CHROMA_PATH)
-                col = chroma.get_or_create_collection(COLLECTION_NAME)
+        # Подключимся к Chroma и посмотрим, что там лежит
+        try:
+            import chromadb
+            chroma = chromadb.PersistentClient(path=CHROMA_PATH)
+            col = chroma.get_or_create_collection(COLLECTION_NAME)
 
-                cnt = col.count()
-                st.write("Docs в коллекции:", cnt)
+            cnt = col.count()
+            st.write("Docs в коллекции:", cnt)
 
-                if cnt > 0:
-                    peek = col.peek(limit=min(3, cnt))
-                    # покажем метаданные и первые символы текста
-                    metas = peek.get("metadatas", [])
-                    docs  = peek.get("documents", [])
-                    for i in range(len(docs)):
-                        src = (metas[i] or {}).get("source")
-                        path = (metas[i] or {}).get("path")
-                        st.write(f"{i+1}) source={src} path={path}")
-                        st.code((docs[i] or "")[:300])
-            except Exception as e:
-                st.error(f"Chroma peek error: {e}")
+            if cnt > 0:
+                peek = col.peek(limit=min(3, cnt))
+                # покажем метаданные и первые символы текста
+                metas = peek.get("metadatas", [])
+                docs  = peek.get("documents", [])
+                for i in range(len(docs)):
+                    src = (metas[i] or {}).get("source")
+                    path = (metas[i] or {}).get("path")
+                    st.write(f"{i+1}) source={src} path={path}")
+                    st.code((docs[i] or "")[:300])
+        except Exception as e:
+            st.error(f"Chroma peek error: {e}")
 
     st.divider()
     if st.button("Очистить историю", key="clear_history"):
