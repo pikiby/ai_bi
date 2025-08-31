@@ -59,6 +59,16 @@ def build_history_for_llm(max_turns: int = 6):
             msgs.append({"role": m["role"], "content": m["content"]})
     return msgs
 
+def is_followup_sql_edit(text: str) -> bool:
+    t = (text or "").lower()
+    # любые формулировки «добавь/переименуй/удали/замени столбец/поле/колонку»
+    return any(p in t for p in [
+        "добавь столб", "добавь колон", "добавь поле",
+        "переимен", "замени", "удали столб", "удали колон", "удали поле",
+        "сделай сортировку", "добавь фильтр", "покажи процент", "сделай долю",
+        "та же выборка", "как раньше", "тот же запрос"
+    ])
+
 # --- Эвристики для SQL / RAG ---
 SQL_HINTS = [
     r"\bselect\b", r"\bjoin\b", r"\bwhere\b", r"\border by\b", r"\bgroup by\b",
@@ -343,12 +353,22 @@ with st.chat_message("user"):
 
 chart_requested = is_chart_intent(user_input)
 
+if is_followup_sql_edit(user_input) and not st.session_state.get("last_sql"):
+    with st.chat_message("assistant"):
+        st.info("Не нашёл предыдущий запрос для правки. Сформулируйте запрос целиком или выполните базовый SELECT, после чего я смогу его изменить.")
+    st.session_state.messages.append({"role":"assistant","content":"Нет предыдущего SQL для правки; выполните базовый SELECT."})
+    st.stop()
+
 # 2) авто-роутинг
-mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
-if override != "Auto":
-    mode = "rag" if override == "RAG" else "sql"
-    decided_by = f"override:{override}"
-st.caption(f"Маршрутизация: {mode} ({decided_by})")
+# если это правка предыдущего SQL и он у нас есть — идём в SQL без классификации
+if is_followup_sql_edit(user_input) and st.session_state.get("last_sql"):
+    mode, decided_by = "sql", "followup-edit"
+else:
+    # обычный авто-роутинг
+    mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
+    if override != "Auto":
+        mode = "rag" if override == "RAG" else "sql"
+        decided_by = f"override:{override}"
 
 # 3) Основной роутинг
 if mode == "sql":
@@ -357,14 +377,26 @@ if mode == "sql":
         database = "db1"
         allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]
 
+        prev_sql = st.session_state.get("last_sql") if is_followup_sql_edit(user_input) else None
+
+        if prev_sql:
+            question_for_sql = (
+                "Измени предыдущий SELECT согласно инструкции пользователя. "
+                "Не меняй логику фильтров/джоинов/агрегатов, только добавь/переименуй/измени то, что просили. "
+                f"Инструкция: {user_input}"
+            )
+        else:
+            question_for_sql = user_input
+
         sql, df = run_sql_assistant(
-            question=user_input,
+            question=question_for_sql,
             database=database,
             allowed_tables=allowed_tables,
             model=model,
             # Передаём RAG-подсказки внутрь SQL-ассистента (если он это поддерживает)
             chroma_path=CHROMA_PATH,
             collection_name=COLLECTION_NAME,
+            previous_sql=prev_sql
         )
 
         # живой вывод
@@ -385,15 +417,6 @@ if mode == "sql":
                 st.download_button("Скачать результат (CSV)", csv_bytes.getvalue(),
                                 file_name="result.csv", mime="text/csv")
 
-        # сериализуем компактное превью в историю (без тяжелых таблиц)
-        try:
-            preview_pd: pd.DataFrame = df.head(50).to_pandas()
-            try:
-                preview_md = preview_pd.to_markdown(index=False)  # требует tabulate
-            except Exception:
-                preview_md = "```\n" + preview_pd.to_csv(index=False) + "\n```"
-        except Exception:
-            preview_md = "_не удалось сформировать превью_"
 
         # --- Сохраняем в историю: без превью-таблицы, если просили график ---
         if chart_requested:

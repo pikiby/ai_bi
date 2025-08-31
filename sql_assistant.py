@@ -129,7 +129,7 @@ def _rag_schema_appendix(
         return ""
 
 # ---------- СИСТЕМНЫЙ ПРОМПТ ДЛЯ LLM ----------
-def _build_system_prompt(schema_text: str, rag_appendix: str) -> str:
+def _build_system_prompt(schema_text: str, rag_appendix: str, previous_sql: str | None = None) -> str:
     """
     Жёстко настраиваем: только SELECT, можно JOIN, просим полные имена.
     RAG-вставка идёт внизу как подсказки.
@@ -153,8 +153,10 @@ def _build_system_prompt(schema_text: str, rag_appendix: str) -> str:
     # SCHEMA SNAPSHOT
     {schema_text}
     """
+    if previous_sql:
+        base += "\n# PREVIOUS SQL (исходник для правки)\n" + f"{previous_sql}\n"
     if rag_appendix:
-        base += f"\n{rag_appendix}\n"
+        base += "\n# RAG hints (docs):\n" + rag_appendix + "\n"
     return base
 
 # ---------- LLM → SQL ----------
@@ -203,6 +205,7 @@ def run_sql_assistant(
     chroma_path: Optional[str] = None,
     collection_name: Optional[str] = None,
     rag_k: int = 6,
+    previous_sql: str | None = None
 ) -> tuple[str, Any]:
     """
     Возвращает (sql, polars_df).
