@@ -143,7 +143,7 @@ def _build_system_prompt(schema_text: str, rag_appendix: str, previous_sql: str 
     - ВСЕГДА используй полные имена таблиц.
     - Делай JOIN только когда это действительно нужно и явно указывай ON.
     - Если колонка отсутствует в схеме — не выдумывай её; лучше спроси уточнение.
-    - Если пользователь просит вывести все данные, показать полную таблицу, на ставить LIMIT - то запрос должен быть без LIMIT. В ином случае Ставь LIMIT 10000.
+    - Если пользователь просит вывести все данные, показать полную таблицу, не ставить LIMIT - то запрос должен быть без LIMIT. В ином случае Ставь LIMIT 10000.
     - Любые «переименуй/удали/замени/добавь колонку» — это изменение ВЫБОРКИ (SELECT), а не данных.
     - Все таблицы и колонки доступны только из приведённой схемы ниже.
     - Если пользователь не указывает дату, предпологай что нужно вывести данные за максимальный report_date в таблице.
@@ -156,7 +156,7 @@ def _build_system_prompt(schema_text: str, rag_appendix: str, previous_sql: str 
     if previous_sql:
         base += "\n# PREVIOUS SQL (исходник для правки)\n" + f"{previous_sql}\n"
     if rag_appendix:
-        base += "\n# RAG hints (docs):\n" + rag_appendix + "\n"
+        base += "\n" + rag_appendix + "\n"
     return base
 
 # ---------- LLM → SQL ----------
@@ -231,7 +231,7 @@ def run_sql_assistant(
     )
 
     # 3) системный промпт: схема + RAG hints
-    sys_prompt = _build_system_prompt(schema_text, rag_appendix)
+    sys_prompt = _build_system_prompt(schema_text, rag_appendix, previous_sql=previous_sql)
 
     # 4) генерим SQL
     sql = _question_to_sql(question, sys_prompt, model=model)
