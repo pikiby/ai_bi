@@ -143,6 +143,17 @@ def _to_pandas(df):
         return df
     raise TypeError("Ожидается Polars или Pandas DataFrame")
 
+def _extract_last_sql_from_history() -> str | None:
+    # идём с конца истории и достаём последний ```sql ... ```
+    for m in reversed(st.session_state.messages):
+        if m.get("role") != "assistant":
+            continue
+        mcontent = m.get("content") or ""
+        match = re.search(r"```sql\s*(.*?)```", mcontent, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(1).strip()
+    return None    
+
 def _guess_roles(pdf: pd.DataFrame):
     """Эвристика выбора X/Y/категории."""
     cols = list(pdf.columns)
@@ -354,6 +365,10 @@ st.session_state.messages.append({"role": "user", "content": user_input})
 with st.chat_message("user"):
     st.markdown(user_input)
 
+if is_followup_sql_edit(user_input) and not st.session_state.get("last_sql"):
+    recovered = _extract_last_sql_from_history()
+    if recovered:
+        st.session_state["last_sql"] = recovered
 
 chart_requested = is_chart_intent(user_input)
 
@@ -370,12 +385,6 @@ if override != "Auto" and not force_sql:
 
 st.caption(f"Маршрутизация: {mode} ({decided_by})")
 
-if is_followup_sql_edit(user_input) and not st.session_state.get("last_sql"):
-    with st.chat_message("assistant"):
-        st.info("Не нашёл предыдущий запрос для правки. Сформулируйте запрос целиком или выполните базовый SELECT, после чего я смогу его изменить.")
-    st.session_state.messages.append({"role":"assistant","content":"Нет предыдущего SQL для правки; выполните базовый SELECT."})
-    st.stop()
-
 # 3) Основной роутинг
 if mode == "sql":
     # --- SQL путь ---
@@ -383,7 +392,10 @@ if mode == "sql":
         database = "db1"
         allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]
 
-        prev_sql = st.session_state.get("last_sql") if is_followup_sql_edit(user_input) else None
+        prev_sql = None
+        if is_followup_sql_edit(user_input):
+            prev_sql = st.session_state.get("last_sql") or _extract_last_sql_from_history()
+        
 
         if prev_sql:
             question_for_sql = (
@@ -395,6 +407,8 @@ if mode == "sql":
             )
         else:
             question_for_sql = user_input
+
+
 
         sql, df = run_sql_assistant(
             question=question_for_sql,

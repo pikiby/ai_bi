@@ -26,30 +26,22 @@ def _single_statement(sql: str) -> bool:
     return ";" not in body
 
 def _clean_sql(sql: str) -> str:
-    """
-    Приводим текст от модели к "чистому" SQL:
-    - убираем Markdown-обёртки ```sql ... ```
-    - убираем лишние комментарии в начале
-    - обрезаем всё до первого SELECT
-    """
     if not sql:
         return ""
-
     s = sql.strip()
 
-    # Убираем Markdown-блоки
-    if s.lower().startswith("```sql"):
-        s = s[6:]
-    if s.endswith("```"):
-        s = s[:-3]
-    s = s.strip()
+    # Снять markdown-обёртку
+    m = re.search(r"^```(?:sql)?\s*(.*?)\s*```$", s, flags=re.IGNORECASE | re.DOTALL)
+    if m:
+        s = m.group(1).strip()
 
-    # Ищем первое SELECT
-    idx = s.lower().find("select")
-    if idx > 0:
-        s = s[idx:]
+    # Убрать ведущие комментарии/пояснения до первого WITH/SELECT
+    m = re.search(r"(?is)\bwith\b.*?\bselect\b|\bselect\b", s, flags=0)
+    if m:
+        s = s[m.start():].strip()
 
-    return s.strip()
+    return s
+
 
 def _looks_consistent(previous_sql: str, new_sql: str) -> bool:
     # очень мягкая проверка: совпадает хотя бы одна исходная таблица и часть WHERE/JOIN
