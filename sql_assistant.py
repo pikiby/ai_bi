@@ -26,6 +26,11 @@ def _single_statement(sql: str) -> bool:
     return ";" not in body
 
 def _clean_sql(sql: str) -> str:
+    """
+    Приводим текст от модели к «чистому» SQL:
+    - снимаем Markdown-блоки ```sql ... ```
+    - отрезаем всё «до» первого WITH или SELECT (что встретится раньше), сохраняя CTE
+    """
     if not sql:
         return ""
     s = sql.strip()
@@ -35,8 +40,8 @@ def _clean_sql(sql: str) -> str:
     if m:
         s = m.group(1).strip()
 
-    # Убрать ведущие комментарии/пояснения до первого WITH/SELECT
-    m = re.search(r"(?is)\bwith\b.*?\bselect\b|\bselect\b", s, flags=0)
+    # Обрезать всё до первого WITH/SELECT, но сам WITH сохранить
+    m = re.search(r"(?is)\bwith\b.*?\bselect\b|\bselect\b", s)
     if m:
         s = s[m.start():].strip()
 
