@@ -25,6 +25,7 @@ def _single_statement(sql: str) -> bool:
     body = s[:-1] if s.endswith(";") else s
     return ";" not in body
 
+
 def _clean_sql(sql: str) -> str:
     """
     Приводим текст от модели к «чистому» SQL:
@@ -33,7 +34,7 @@ def _clean_sql(sql: str) -> str:
     """
     if not sql:
         return ""
-    s = sql.strip()
+    s = str(sql).strip()
 
     # Снять markdown-обёртку
     m = re.search(r"^```(?:sql)?\s*(.*?)\s*```$", s, flags=re.IGNORECASE | re.DOTALL)
