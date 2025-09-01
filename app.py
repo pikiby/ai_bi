@@ -61,13 +61,16 @@ def build_history_for_llm(max_turns: int = 6):
 
 def is_followup_sql_edit(text: str) -> bool:
     t = (text or "").lower()
-    # любые формулировки «добавь/переименуй/удали/замени столбец/поле/колонку»
-    return any(p in t for p in [
+    # короткие бытовые формулировки
+    triggers = [
         "добавь столб", "добавь колон", "добавь поле",
         "переимен", "замени", "удали столб", "удали колон", "удали поле",
-        "сделай сортировку", "добавь фильтр", "покажи процент", "сделай долю",
-        "та же выборка", "как раньше", "тот же запрос"
-    ])
+        "добавь фильтр", "убери фильтр", "добавь услов", "убери услов",
+        "сортир", "order by", "группир", "group by", "агрег",
+        "сделай долю", "процент", "кумулятив", "кумулятивный", "running total",
+        "тот же запрос", "как раньше", "как в прошлый раз", "тот же, но", "добавь в запрос",
+    ]
+    return any(p in t for p in triggers)
 
 # --- Эвристики для SQL / RAG ---
 SQL_HINTS = [
@@ -351,24 +354,27 @@ st.session_state.messages.append({"role": "user", "content": user_input})
 with st.chat_message("user"):
     st.markdown(user_input)
 
+
 chart_requested = is_chart_intent(user_input)
+
+force_sql = False
+if is_followup_sql_edit(user_input) and st.session_state.get("last_sql"):
+    mode, decided_by = "sql", "followup-edit"
+    force_sql = True
+else:
+    mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
+
+if override != "Auto" and not force_sql:
+    mode = "rag" if override == "RAG" else "sql"
+    decided_by = f"override:{override}"
+
+st.caption(f"Маршрутизация: {mode} ({decided_by})")
 
 if is_followup_sql_edit(user_input) and not st.session_state.get("last_sql"):
     with st.chat_message("assistant"):
         st.info("Не нашёл предыдущий запрос для правки. Сформулируйте запрос целиком или выполните базовый SELECT, после чего я смогу его изменить.")
     st.session_state.messages.append({"role":"assistant","content":"Нет предыдущего SQL для правки; выполните базовый SELECT."})
     st.stop()
-
-# 2) авто-роутинг
-# если это правка предыдущего SQL и он у нас есть — идём в SQL без классификации
-if is_followup_sql_edit(user_input) and st.session_state.get("last_sql"):
-    mode, decided_by = "sql", "followup-edit"
-else:
-    # обычный авто-роутинг
-    mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
-    if override != "Auto":
-        mode = "rag" if override == "RAG" else "sql"
-        decided_by = f"override:{override}"
 
 # 3) Основной роутинг
 if mode == "sql":
@@ -382,8 +388,10 @@ if mode == "sql":
         if prev_sql:
             question_for_sql = (
                 "Измени предыдущий SELECT согласно инструкции пользователя. "
-                "Не меняй логику фильтров/джоинов/агрегатов, только добавь/переименуй/измени то, что просили. "
-                f"Инструкция: {user_input}"
+                "Не меняй логику WHERE/JOIN/агрегатов; только внеси правки к списку столбцов, "
+                "группировкам, сортировкам и/или условиям. "
+                f"Инструкция: {user_input}\n\n"
+                f"ПРЕДЫДУЩИЙ SQL:\n{prev_sql}"
             )
         else:
             question_for_sql = user_input

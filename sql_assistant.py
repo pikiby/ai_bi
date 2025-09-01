@@ -51,6 +51,24 @@ def _clean_sql(sql: str) -> str:
 
     return s.strip()
 
+def _looks_consistent(previous_sql: str, new_sql: str) -> bool:
+    # очень мягкая проверка: совпадает хотя бы одна исходная таблица и часть WHERE/JOIN
+    prev = previous_sql.lower()
+    new  = (new_sql or "").lower()
+
+    # вытащим имена таблиц db1.*
+    import re
+    prev_tabs = set(re.findall(r"\bdb1\.[a-z0-9_]+", prev))
+    new_tabs  = set(re.findall(r"\bdb1\.[a-z0-9_]+", new))
+    if prev_tabs and not (prev_tabs & new_tabs):
+        return False
+    # частичное совпадение WHERE/JOIN
+    for kw in (" where ", " join "):
+        if kw in prev and kw not in new:
+            # если раньше было условие/джоин, а теперь исчез — это подозрительно
+            return False
+    return True
+
 def _is_safe(sql: str) -> tuple[bool, str]:
     """
     Возвращает (ok, why). Допускаем только один SELECT-стейтмент,
@@ -164,7 +182,8 @@ def _question_to_sql(
     question: str,
     system_prompt: str,
     *,
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4o-mini",
+    temperature: float = 0.0,  # по умолчанию детерминированно
 ) -> str:
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     messages = [
@@ -174,10 +193,11 @@ def _question_to_sql(
     resp = client.chat.completions.create(
         model=model,
         messages=messages,
-        temperature=0.1,
+        temperature=temperature,
     )
     raw = resp.choices[0].message.content or ""
     return _clean_sql(raw)
+
 
 # ---------- ПРОСТАЯ ПРОВЕРКА, ЧТО НЕ ВЫШЛИ ЗА СПИСОК РАЗРЕШЁННЫХ ТАБЛИЦ (★ NEW) ----------
 _TABLE_RE = re.compile(r"\b(?:FROM|JOIN)\s+([a-z0-9_]+\.[a-z0-9_]+)", re.IGNORECASE)
@@ -234,7 +254,7 @@ def run_sql_assistant(
     sys_prompt = _build_system_prompt(schema_text, rag_appendix, previous_sql=previous_sql)
 
     # 4) генерим SQL
-    sql = _question_to_sql(question, sys_prompt, model=model)
+    sql = _question_to_sql(question, sys_prompt, model=model, temperature=0.0)
 
     # 5) валидация read-only и разрешённых таблиц
     ok, why = _is_safe(sql)
@@ -242,6 +262,20 @@ def run_sql_assistant(
         raise ValueError(f"Небезопасный SQL: {why}\n\n{sql}")
 
     _enforce_allowed_tables(sql, database, allowed_tables)
+
+    if previous_sql and not _looks_consistent(previous_sql, sql):
+    # одноразовый «жёсткий» перезапрос
+        reinforce = (
+            "Ты проигнорировал исходный запрос. Сохрани точные части WHERE/JOIN из previous_sql "
+            "и просто внеси требуемые изменения. Не изобретай запрос заново."
+        )
+        sql = _question_to_sql(reinforce + "\n\nИНСТРУКЦИЯ ПОЛЬЗОВАТЕЛЯ:\n" + question,
+                            _build_system_prompt(schema_text, rag_appendix, previous_sql=previous_sql),
+                            model=model, temperature=0.0)
+        sql = _clean_sql(sql)
+        ok, why = _is_safe(sql)
+        if not ok:
+            raise ValueError(f"Небезопасный SQL после повторной попытки: {why}\n\n{sql}")
 
     # 6) гарантия LIMIT
 #    if re.search(r"\bLIMIT\b", sql, flags=re.IGNORECASE) is None:
