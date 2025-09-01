@@ -135,6 +135,15 @@ def is_chart_intent(text: str) -> bool:
     t = (text or "").lower()
     return any(k in t for k in _CHART_HINTS)
 
+def is_chart_from_last_data(text: str) -> bool:
+    t = (text or "").lower()
+    triggers = [
+        "из последнего запроса", "из последнего", "по последнему запросу",
+        "по последним данным", "по предыдущему запросу", "по прошлому запросу",
+        "с прошлого раза", "из того запроса", "как в прошлый раз график",
+    ]
+    return any(p in t for p in triggers)
+
 # --- Хелперы визуализации ---
 def _to_pandas(df):
     if isinstance(df, pl.DataFrame):
@@ -371,6 +380,28 @@ if is_followup_sql_edit(user_input) and not st.session_state.get("last_sql"):
         st.session_state["last_sql"] = recovered
 
 chart_requested = is_chart_intent(user_input)
+
+# Если пользователь явно просит график ИМЕННО из последних данных — строим сейчас и выходим
+if chart_requested and is_chart_from_last_data(user_input):
+    if st.session_state.get("last_sql_df") is None:
+        with st.chat_message("assistant"):
+            st.info("Нет последних данных для графика. Сначала выполните SQL-запрос.")
+        st.session_state.messages.append({"role": "assistant", "content": "Нет последних данных для графика."})
+        st.stop()
+
+    st.session_state["viz_active"] = True
+    st.session_state["viz_text"] = user_input
+    with st.chat_message("assistant"):
+        render_auto_chart(st.session_state["last_sql_df"], user_input, key_prefix="main_viz")
+
+    # Для истории — без повторного SQL
+    hist = (
+        "**Визуализация по последним данным (без повторного SQL).**\n\n"
+        "Использован последний выполненный SELECT:\n"
+        f"```sql\n{st.session_state.get('last_sql') or '-- недоступно --'}\n```"
+    )
+    st.session_state.messages.append({"role": "assistant", "content": hist})
+    st.stop()
 
 force_sql = False
 if is_followup_sql_edit(user_input) and st.session_state.get("last_sql"):
