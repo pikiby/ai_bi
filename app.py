@@ -173,33 +173,6 @@ def _safe_fetch_df_from_sql(sql: str, limit: int = 500):
         # Любые ошибки клиента/сети подавляем — вернём None
         return None
 
-_FORBIDDEN_DML = re.compile(
-    r"(?is)\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|REPLACE|OPTIMIZE|ATTACH|DETACH|SYSTEM|KILL|RENAME|GRANT|REVOKE|CREATE)\b"
-)
-
-def _safe_fetch_df_from_sql(sql: str, limit: int = 500):
-    """
-    Безопасно выполнить последний SELECT для графика:
-    - допускаем только WITH...SELECT или SELECT в начале;
-    - запрещаем DDL/DML;
-    - если LIMIT отсутствует — добавляем в конец.
-    Возвращает polars.DataFrame или None.
-    """
-    if not sql:
-        return None
-    s = sql.strip()
-    if not re.match(r"(?is)^\s*(with\b.*?select\b|select\b)", s):
-        return None
-    if _FORBIDDEN_DML.search(s):
-        return None
-    if re.search(r"(?is)\blimit\s+\d+\b", s) is None:
-        s = s.rstrip().rstrip(";") + f"\nLIMIT {limit}"
-    try:
-        ch = ClickHouse_client()
-        return ch.query_run(s)
-    except Exception:
-        return None
-
 # --- Эвристики для SQL / RAG ---
 SQL_HINTS = [
     r"\bselect\b", r"\bjoin\b", r"\bwhere\b", r"\border by\b", r"\bgroup by\b",
@@ -617,6 +590,31 @@ if early:
 else:
     prev_sql = None  # если ранних решений нет
 
+# --- ДЕФОЛТНАЯ ИНИЦИАЛИЗАЦИЯ РОУТЕРА ---
+# если ранняя ветка не включила принудительный SQL
+if "force_sql" not in locals():
+    force_sql = False
+
+# если режим ещё не определён — определим его сейчас
+if "mode" not in locals() or "decided_by" not in locals():
+    mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
+
+# --- ПРОСТО «СДЕЛАЙ ГРАФИК» (если есть последний SQL; НЕ генерируем новый SQL) ---
+if chart_requested and ( 'early' not in locals() or early is None or early.get("action") not in ("chart_from_last", "sql_edit") ):
+    last_sql = get_last_sql()
+    if last_sql:
+        df_last = _safe_fetch_df_from_sql(last_sql, limit=500)
+        if df_last is not None:
+            st.session_state["viz_active"] = True
+            st.session_state["viz_text"] = user_input
+            with st.chat_message("assistant"):
+                render_auto_chart(df_last, user_input, key_prefix="main_viz")
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "**Визуализация по последнему SQL (без нового SQL).**"
+            })
+            st.stop()
+
 
 if override != "Auto" and not force_sql:
     mode = "rag" if override == "RAG" else "sql"
@@ -768,7 +766,6 @@ else:
             for i, d in enumerate(ctx_docs, 1):
                 st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
 
-# --- Построить график по последнему SQL (если просили, а режим был не SQL) ---
 # --- Построить график по последнему SQL (если просили, а режим был не SQL) ---
 if chart_requested and mode != "sql":
     last_sql = get_last_sql()
