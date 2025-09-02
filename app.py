@@ -81,60 +81,60 @@ if user_input:
     reply = resp.choices[0].message.content
 
     # --- Сначала решаем: нужен ли RAG ---
-final_reply = None  # ответ, который увидит пользователь и по которому выполняем SQL/GRAPH
+    final_reply = None  # ответ, который увидит пользователь и по которому выполняем SQL/GRAPH
 
-# 1) Проверка RAG (не показываем промежуточный reply)
-m = re.search(r"```rag\s*(.*?)```", reply, re.DOTALL | re.IGNORECASE)
-if m:
-    rag_query = m.group(1).strip()
-    try:
-        hits = retriever.retrieve(
-            rag_query, k=5,
-            chroma_path=CHROMA_PATH,
-            collection_name=COLLECTION_NAME,
+    # 1) Проверка RAG (не показываем промежуточный reply)
+    m = re.search(r"```rag\s*(.*?)```", reply, re.DOTALL | re.IGNORECASE)
+    if m:
+        rag_query = m.group(1).strip()
+        try:
+            hits = retriever.retrieve(
+                rag_query, k=5,
+                chroma_path=CHROMA_PATH,
+                collection_name=COLLECTION_NAME,
+            )
+        except Exception as e:
+            hits = []
+            st.warning(f"Не удалось получить контекст из базы знаний: {e}")
+
+        # Собираем контекст (при желании можно ограничить длину)
+        context = "\n\n".join([h.get("text", "") for h in hits if h.get("text")])
+
+        # Второй вызов LLM уже с контекстом
+        msgs = (
+            [{"role": "system", "content": SYSTEM_PROMPT}]
+            + st.session_state.messages
+            + [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по контексту."}]
         )
-    except Exception as e:
-        hits = []
-        st.warning(f"Не удалось получить контекст из базы знаний: {e}")
+        rag_resp = client.chat.completions.create(model="gpt-4o", messages=msgs)
+        final_reply = rag_resp.choices[0].message.content
+    else:
+        # RAG не нужен — используем исходный ответ
+        final_reply = reply
 
-    # Собираем контекст (при желании можно ограничить длину)
-    context = "\n\n".join([h.get("text", "") for h in hits if h.get("text")])
+    # 2) Теперь показываем РОВНО один ответ и пишем его в историю
+    st.session_state.messages.append({"role": "assistant", "content": final_reply})
+    with st.chat_message("assistant"):
+        st.markdown(final_reply)
 
-    # Второй вызов LLM уже с контекстом
-    msgs = (
-        [{"role": "system", "content": SYSTEM_PROMPT}]
-        + st.session_state.messages
-        + [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по контексту."}]
-    )
-    rag_resp = client.chat.completions.create(model="gpt-4o", messages=msgs)
-    final_reply = rag_resp.choices[0].message.content
-else:
-    # RAG не нужен — используем исходный ответ
-    final_reply = reply
+    # 3) Дальше всё делаем по финальному ответу: SQL и/или GRAPH
+    m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+    if m_sql:
+        sql = m_sql.group(1).strip()
+        try:
+            ch = ClickHouse_client()
+            df = ch.query_run(sql)
+            st.session_state["last_df"] = df
+            st.dataframe(df.to_pandas(), use_container_width=True)
+            csv = io.BytesIO()
+            df.to_pandas().to_csv(csv, index=False)
+            st.download_button("Скачать CSV", csv.getvalue(), "result.csv", "text/csv")
+        except Exception as e:
+            st.error(f"Ошибка SQL: {e}")
 
-# 2) Теперь показываем РОВНО один ответ и пишем его в историю
-st.session_state.messages.append({"role": "assistant", "content": final_reply})
-with st.chat_message("assistant"):
-    st.markdown(final_reply)
-
-# 3) Дальше всё делаем по финальному ответу: SQL и/или GRAPH
-m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-if m_sql:
-    sql = m_sql.group(1).strip()
-    try:
-        ch = ClickHouse_client()
-        df = ch.query_run(sql)
-        st.session_state["last_df"] = df
-        st.dataframe(df.to_pandas(), use_container_width=True)
-        csv = io.BytesIO()
-        df.to_pandas().to_csv(csv, index=False)
-        st.download_button("Скачать CSV", csv.getvalue(), "result.csv", "text/csv")
-    except Exception as e:
-        st.error(f"Ошибка SQL: {e}")
-
-if "GRAPH" in final_reply.upper() and st.session_state["last_df"] is not None:
-    pdf = st.session_state["last_df"].to_pandas()
-    if not pdf.empty:
-        col_x, col_y = pdf.columns[:2]
-        fig = px.line(pdf, x=col_x, y=col_y, markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+    if "GRAPH" in final_reply.upper() and st.session_state["last_df"] is not None:
+        pdf = st.session_state["last_df"].to_pandas()
+        if not pdf.empty:
+            col_x, col_y = pdf.columns[:2]
+            fig = px.line(pdf, x=col_x, y=col_y, markers=True)
+            st.plotly_chart(fig, use_container_width=True)
