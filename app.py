@@ -10,6 +10,7 @@ import retriever
 import sys
 import subprocess
 
+
 # Пути/имена для базы знаний (ChromaDB)
 CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")
 COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")
