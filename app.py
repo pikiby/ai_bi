@@ -31,9 +31,10 @@ st.set_page_config(page_title="AI SQL Assistant")
 
 # ----------------------- Константы окружения -----------------------
 
-CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "./chroma")
-COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_default")
+CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")   # было, вероятно: "./chroma"
+COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")  # было, вероятно: "kb_default"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+
 
 # ----------------------- Клиент OpenAI -----------------------
 
@@ -302,9 +303,9 @@ if user_input:
 
         # 2b) Финальный ответ/SQL с учётом контекста
         exec_msgs = (
-            [{"role": "system", "content": prompts_map["sql"]}] +
+            [{"role": "system", "content": prompts_map["rag"]}] +   # <<< важная замена
             st.session_state["messages"] +
-            [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по контексту."}]
+            [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по этому контексту."}]
         )
         try:
             final_reply = client.chat.completions.create(
