@@ -9,6 +9,10 @@ from clickhouse_client import ClickHouse_client
 import retriever
 import sys
 import subprocess
+from sql_assistant import run_sql_assistant
+from prompts import CHAT_SYSTEM_PROMPT  # новый модуль
+
+SYSTEM_PROMPT = CHAT_SYSTEM_PROMPT
 
 
 # Пути/имена для базы знаний (ChromaDB)
@@ -25,23 +29,6 @@ client = OpenAI(api_key=api_key)
 
 st.session_state.setdefault("messages", [])
 st.session_state.setdefault("last_df", None)
-
-SYSTEM_PROMPT = """
-Ты — SQL-ассистент для ClickHouse.
-Ты всегда видишь полную историю диалога.
-Правила:
-- Отвечай либо SQL в блоке ```sql ... ```, либо текстом.
-- SQL только SELECT/CTE. Никаких DDL/DML.
-- Пользователь может ссылаться на «предыдущий запрос», «таблицу-1», «сделай график».
-- Под таблицей-1,2,... понимаются результаты предыдущих SQL в истории.
-- Если просят график — просто скажи «GRAPH», и я построю его по последней таблице.
-
-- Если вопрос касается базы знаний/документации (не SQL), сначала верни блок:
-```rag
-<краткий запрос к базе знаний в 1–2 предложения>
-
-
-"""
 
 # --- База знаний (RAG) ---
 with st.sidebar:
