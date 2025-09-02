@@ -19,3 +19,4 @@ numpy
 polars
 pandas
 tabulate   # (для .to_markdown в превью)
+XlsxWriter
