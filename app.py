@@ -13,6 +13,8 @@ import importlib, prompts
 import plotly.graph_objects as go
 import polars as pl
 from datetime import datetime
+import zipfile                 # для экспорта ZIP
+import plotly.io as pio        # для сохранения графиков в HTML
 
 importlib.reload(prompts)             # гарантируем актуальную версию файла prompts.py
 SYSTEM_PROMPT = prompts.CHAT_SYSTEM_PROMPT
@@ -41,62 +43,10 @@ client = OpenAI(api_key=api_key)
 st.session_state.setdefault("messages", [])
 st.session_state.setdefault("last_df", None)
 st.session_state.setdefault("last_pivot", None)
-t.session_state.setdefault("results", []) # история результатов (список элементов)
+st.session_state.setdefault("results", []) # история результатов (список элементов)
 st.session_state.setdefault("run_counter", 0) # счётчик уникальных id для результатов
 
-
-
-# --- База знаний (RAG) ---
-with st.sidebar:
-    st.header("База знаний (RAG)")
-    st.caption(f"Коллекция: {COLLECTION_NAME!r} · Путь: {CHROMA_PATH!r}")
-
-    if st.button("Переиндексировать docs/"):
-        with st.status("Индексируем документы…", expanded=True) as status:
-            env = os.environ.copy()
-            env["KB_COLLECTION_NAME"] = COLLECTION_NAME
-            env["KB_CHROMA_PATH"] = CHROMA_PATH
-            proc = subprocess.run([sys.executable, "ingest.py"],
-                                capture_output=True, text=True, env=env)
-            st.code(proc.stdout or "(нет stdout)")
-            if proc.returncode == 0:
-                status.update(label="Готово", state="complete")
-            else:
-                st.error(proc.stderr)
-    st.header("Экспорт")
-    if not st.session_state["results"]:
-        st.caption("Нет результатов для экспорта.")
-    else:
-        # Собираем ZIP целиком в память
-        zip_buf = io.BytesIO()
-        with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for item in st.session_state["results"]:
-                base = f"{item['kind']}_{item['id']}"
-                # данные (если есть)
-                if item.get("df") is not None:
-                    pdf = item["df"].to_pandas()
-                    zf.writestr(f"{base}.csv", _df_to_csv_bytes(pdf))
-                    zf.writestr(f"{base}.xlsx", _df_to_xlsx_bytes(pdf, sheet_name=item['kind'][:31]))
-                # график (если есть)
-                if item.get("fig") is not None:
-                    zf.writestr(f"{base}.html", _fig_to_html_bytes(item["fig"]))
-                # SQL (как текст, если есть)
-                sql = (item.get("meta") or {}).get("sql")
-                if sql:
-                    zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
-        zip_buf.seek(0)
-
-        st.download_button(
-            "Скачать все результаты (ZIP)",
-            data=zip_buf.getvalue(),
-            file_name="results_export.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
-
 # ---------- Вспомогательные функции сохранения/рендера ----------
-# Разместите эти функции выше основной логики чат-цикла, чтобы их было видно везде.
-# Они инкапсулируют конвертацию данных в байты, добавление в историю и отрисовку блока.
 
 def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
@@ -185,6 +135,78 @@ def _render_result(item):
             with st.expander("Показать SQL"):
                 st.code(meta["sql"], language="sql")
 
+# --- База знаний (RAG) ---
+with st.sidebar:
+    st.header("База знаний (RAG)")
+    st.caption(f"Коллекция: {COLLECTION_NAME!r} · Путь: {CHROMA_PATH!r}")
+
+    if st.button("Переиндексировать docs/"):
+        with st.status("Индексируем документы…", expanded=True) as status:
+            env = os.environ.copy()
+            env["KB_COLLECTION_NAME"] = COLLECTION_NAME
+            env["KB_CHROMA_PATH"] = CHROMA_PATH
+            proc = subprocess.run([sys.executable, "ingest.py"],
+                                capture_output=True, text=True, env=env)
+            st.code(proc.stdout or "(нет stdout)")
+            if proc.returncode == 0:
+                status.update(label="Готово", state="complete")
+            else:
+                st.error(proc.stderr)
+    st.header("Экспорт")
+    if not st.session_state["results"]:
+        st.caption("Нет результатов для экспорта.")
+    else:
+        # Собираем ZIP целиком в память
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for item in st.session_state["results"]:
+                base = f"{item['kind']}_{item['id']}"
+                # данные (если есть)
+                if item.get("df") is not None:
+                    pdf = item["df"].to_pandas()
+                    zf.writestr(f"{base}.csv", _df_to_csv_bytes(pdf))
+                    zf.writestr(f"{base}.xlsx", _df_to_xlsx_bytes(pdf, sheet_name=item['kind'][:31]))
+                # график (если есть)
+                if item.get("fig") is not None:
+                    zf.writestr(f"{base}.html", _fig_to_html_bytes(item["fig"]))
+                # SQL (как текст, если есть)
+                sql = (item.get("meta") or {}).get("sql")
+                if sql:
+                    zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
+        zip_buf.seek(0)
+
+        st.download_button(
+            "Скачать все результаты (ZIP)",
+            data=zip_buf.getvalue(),
+            file_name="results_export.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
+
+        # Экспорт всех таблиц одним Excel (множественные листы)
+        if any(item.get("df") is not None for item in st.session_state["results"]):
+            xlsx_buf = io.BytesIO()
+            with pd.ExcelWriter(xlsx_buf, engine="openpyxl") as writer:
+                for item in st.session_state["results"]:
+                    if item.get("df") is not None:
+                        pdf = item["df"].to_pandas()
+                        sheet = f"{item['kind']}_{item['id']}"[:31]  # Excel-лимит на имя листа
+                        pdf.to_excel(writer, sheet_name=sheet, index=False)
+            xlsx_buf.seek(0)
+            st.download_button(
+                "Скачать все таблицы (Excel)",
+                xlsx_buf.getvalue(),
+                "results.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                )
+
+    if st.button("Очистить историю результатов"):
+        st.session_state["results"].clear()
+        st.session_state["run_counter"] = 0
+        st.session_state["last_df"] = None
+        st.session_state["last_pivot"] = None
+        st.experimental_rerun()
 
 # Рендер истории
 for m in st.session_state.messages:
@@ -196,12 +218,6 @@ if st.session_state["results"]:
     st.markdown("### История результатов")
     for item in st.session_state["results"]:
         _render_result(item)
-
-
-
-
-
-
 
 user_input = st.chat_input("Введите запрос...")
 # Фиксирует ход в истории и отрисовывает его в UI
@@ -262,20 +278,20 @@ if user_input:
     # 3) Дальше всё делаем по финальному ответу: SQL и/или GRAPH
     m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
     if m_sql:
-    sql = m_sql.group(1).strip()
-    try:
-        ch = ClickHouse_client()
-        df_pl = ch.query_run(sql)
-        st.session_state["last_df"] = df_pl
+        sql = m_sql.group(1).strip()
+        try:
+            ch = ClickHouse_client()
+            df_pl = ch.query_run(sql)
+            st.session_state["last_df"] = df_pl
 
-        # Сохраняем в историю
-        _push_result("table", df_pl=df_pl, meta={"sql": sql})
+            # Сохраняем в историю
+            _push_result("table", df_pl=df_pl, meta={"sql": sql})
 
-        # Рендерим только что добавленный элемент (последний)
-        _render_result(st.session_state["results"][-1])
+            # Рендерим только что добавленный элемент (последний)
+            _render_result(st.session_state["results"][-1])
 
-    except Exception as e:
-        st.error(f"Ошибка SQL: {e}")
+        except Exception as e:
+            st.error(f"Ошибка SQL: {e}")
 
     # if "GRAPH" in final_reply.upper() and st.session_state["last_df"] is not None:
     #     pdf = st.session_state["last_df"].to_pandas()
@@ -285,33 +301,37 @@ if user_input:
     #         st.plotly_chart(fig, use_container_width=True)
 
     # --- PLOTLY CODE (графики как код) ---
+    m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
     if m_plotly:
-    if st.session_state["last_df"] is None:
-        st.info("Нет данных для графика: сначала выполните SQL, чтобы получить df.")
-    else:
-        code = m_plotly.group(1).strip()
-        BANNED_RE = re.compile(
-            r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
-            r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
-            re.IGNORECASE,
-        )
-        if BANNED_RE.search(code):
-            st.error("Код графика отклонён (запрещённые конструкции).")
+        if st.session_state["last_df"] is None:
+            st.info("Нет данных для графика: сначала выполните SQL, чтобы получить df.")
         else:
-            try:
-                df = st.session_state["last_df"].to_pandas()
-                safe_globals = {"pd": pd, "px": px, "go": go, "df": df}
-                safe_locals = {}
-                exec(code, safe_globals, safe_locals)
-                fig = safe_locals.get("fig") or safe_globals.get("fig")
-                if fig is None:
-                    st.error("Код не создал переменную fig.")
-                else:
-                    # Сохраняем в историю (данные для графика тоже полезно положить)
-                    _push_result("chart", df_pl=st.session_state["last_df"], fig=fig)
-                    _render_result(st.session_state["results"][-1])
-            except Exception as e:
-                st.error(f"Ошибка при построении графика: {e}")
+            code = m_plotly.group(1).strip()
+            BANNED_RE = re.compile(
+                r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
+                r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
+                re.IGNORECASE,
+            )
+            if BANNED_RE.search(code):
+                st.error("Код графика отклонён (запрещённые конструкции).")
+            else:
+                try:
+                    df = st.session_state["last_df"].to_pandas()
+                    safe_globals = {
+                        "__builtins__": {},  # отключаем встроенные функции
+                        "pd": pd, "px": px, "go": go, "df": df,
+                    }
+                    safe_locals = {}
+                    exec(code, safe_globals, safe_locals)
+                    fig = safe_locals.get("fig") or safe_globals.get("fig")
+                    if fig is None:
+                        st.error("Код не создал переменную fig.")
+                    else:
+                        # Сохраняем в историю (данные для графика тоже полезно положить)
+                        _push_result("chart", df_pl=st.session_state["last_df"], fig=fig)
+                        _render_result(st.session_state["results"][-1])
+                except Exception as e:
+                    st.error(f"Ошибка при построении графика: {e}")
 
     
     # --- PIVOT (сводная таблица) ---
@@ -352,10 +372,6 @@ if user_input:
 
             # Рисуем элемент истории со своими кнопками скачивания
             _render_result(st.session_state["results"][-1])
-
-            st.markdown("**Сводная таблица:**")
-            buf = io.BytesIO()
-            piv.to_csv(buf, index=False)
         except Exception as e:
             st.error(f"Не удалось построить сводную таблицу: {e}")
 
