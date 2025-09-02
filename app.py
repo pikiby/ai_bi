@@ -1,3 +1,4 @@
+import re
 import os
 import io
 import streamlit as st
@@ -5,7 +6,6 @@ import pandas as pd
 import plotly.express as px
 from openai import OpenAI
 from clickhouse_client import ClickHouse_client
-import re
 import retriever
 import sys
 import subprocess
