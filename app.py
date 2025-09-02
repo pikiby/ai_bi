@@ -28,6 +28,7 @@ SYSTEM_PROMPT = """
 - Если просят график — просто скажи «GRAPH», и я построю его по последней таблице.
 """
 
+
 # Рендер истории
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
