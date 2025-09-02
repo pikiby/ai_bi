@@ -261,7 +261,7 @@ if user_input:
 
     # 3) Дальше всё делаем по финальному ответу: SQL и/или GRAPH
     m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-    f m_sql:
+    if m_sql:
     sql = m_sql.group(1).strip()
     try:
         ch = ClickHouse_client()
