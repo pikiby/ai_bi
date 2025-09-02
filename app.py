@@ -10,9 +10,10 @@ import retriever
 import sys
 import subprocess
 from sql_assistant import run_sql_assistant
-from prompts import CHAT_SYSTEM_PROMPT  # новый модуль
+import importlib, prompts
+importlib.reload(prompts)             # гарантируем актуальную версию файла prompts.py
+SYSTEM_PROMPT = prompts.CHAT_SYSTEM_PROMPT
 
-SYSTEM_PROMPT = CHAT_SYSTEM_PROMPT
 
 
 # Пути/имена для базы знаний (ChromaDB)
