@@ -8,6 +8,7 @@ import io
 import zipfile
 import subprocess
 from datetime import datetime
+import sys
 
 import streamlit as st
 import pandas as pd
@@ -144,6 +145,7 @@ with st.sidebar:
         if st.button("Запустить ingest.py"):
             with st.status("Индексируем…", expanded=True) as status:
                 try:
+                    script_path = os.path.join(os.path.dirname(__file__), "ingest.py")
                     proc = subprocess.run(
                         [sys.executable, "ingest.py"],
                         capture_output=True, text=True, check=False
