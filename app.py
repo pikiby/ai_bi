@@ -333,7 +333,7 @@ user_input = st.chat_input("Введите вопрос…")
 if not user_input:
 # Sticky визуализация (когда нет нового сообщения)
     if st.session_state.get("viz_active"):
-    last_sql = get_last_sql()
+        last_sql = get_last_sql()
     if last_sql:
         df_sticky = _safe_fetch_df_from_sql(last_sql, limit=500)
         if df_sticky is not None:
@@ -514,15 +514,13 @@ else:
 
 # --- Построить график по последним данным (если просили, а режим был не SQL) ---
 if chart_requested and mode != "sql":
-    last_sql = get_last_sql()
-    if last_sql:
-        df_last = _safe_fetch_df_from_sql(last_sql, limit=500)
-        if df_last is not None:
-            st.session_state["viz_active"] = True
-            st.session_state["viz_text"] = user_input
-            try:
+    try:
+        last_sql = get_last_sql()
+        if last_sql:
+            df_last = _safe_fetch_df_from_sql(last_sql, limit=500)
+            if df_last is not None:
+                st.session_state["viz_active"] = True
+                st.session_state["viz_text"] = user_input
                 render_auto_chart(df_last, user_input, key_prefix="main_viz")
-            except Exception as e:
-                st.warning(f"Не удалось построить график: {e}")
     except Exception as e:
         st.warning(f"Не удалось построить график из последних данных: {e}")
