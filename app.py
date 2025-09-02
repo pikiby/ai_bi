@@ -33,6 +33,7 @@ for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
+
 user_input = st.chat_input("Введите запрос...")
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
