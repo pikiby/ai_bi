@@ -9,12 +9,20 @@ from clickhouse_client import ClickHouse_client
 import retriever
 import sys
 import subprocess
-from sql_assistant import run_sql_assistant
 import importlib, prompts
+import plotly.graph_objects as go
+import polars as pl
+
 importlib.reload(prompts)             # гарантируем актуальную версию файла prompts.py
 SYSTEM_PROMPT = prompts.CHAT_SYSTEM_PROMPT
 
-
+def _parse_spec_block(spec: str) -> dict:
+    params = {}
+    for line in spec.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            params[k.strip().lower()] = v.strip()
+    return params
 
 # Пути/имена для базы знаний (ChromaDB)
 CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")
@@ -30,6 +38,9 @@ client = OpenAI(api_key=api_key)
 
 st.session_state.setdefault("messages", [])
 st.session_state.setdefault("last_df", None)
+st.session_state.setdefault("last_pivot", None)
+
+
 
 # --- База знаний (RAG) ---
 with st.sidebar:
@@ -126,9 +137,80 @@ if user_input:
         except Exception as e:
             st.error(f"Ошибка SQL: {e}")
 
-    if "GRAPH" in final_reply.upper() and st.session_state["last_df"] is not None:
-        pdf = st.session_state["last_df"].to_pandas()
-        if not pdf.empty:
-            col_x, col_y = pdf.columns[:2]
-            fig = px.line(pdf, x=col_x, y=col_y, markers=True)
-            st.plotly_chart(fig, use_container_width=True)
+    # if "GRAPH" in final_reply.upper() and st.session_state["last_df"] is not None:
+    #     pdf = st.session_state["last_df"].to_pandas()
+    #     if not pdf.empty:
+    #         col_x, col_y = pdf.columns[:2]
+    #         fig = px.line(pdf, x=col_x, y=col_y, markers=True)
+    #         st.plotly_chart(fig, use_container_width=True)
+
+    # --- PLOTLY CODE (графики как код) ---
+    m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+    if m_plotly:
+        if st.session_state["last_df"] is None:
+            st.info("Нет данных для графика: сначала выполните SQL, чтобы получить df.")
+        else:
+            code = m_plotly.group(1).strip()
+
+            # Базовая песочница: запрещаем опасные конструкции
+            banned = re.compile(
+                r"\b(import|open|exec|eval|__|subprocess|socket|os\\.|sys\\.|Path\\(|write|remove|unlink|requests|httpx)\b",
+                re.IGNORECASE,
+            )
+            if banned.search(code):
+                st.error("Код графика отклонён (запрещённые конструкции).")
+            else:
+                try:
+                    df = st.session_state["last_df"].to_pandas()  # df доступен коду
+                    safe_globals = {"pd": pd, "px": px, "go": go, "df": df}
+                    safe_locals = {}
+                    exec(code, safe_globals, safe_locals)
+                    fig = safe_locals.get("fig") or safe_globals.get("fig")
+                    if fig is None:
+                        st.error("Код не создал переменную fig.")
+                    else:
+                        st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Ошибка при построении графика: {e}")
+    
+    # --- PIVOT (сводная таблица) ---
+    m_pivot = re.search(r"```pivot\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+    if m_pivot and st.session_state["last_df"] is not None:
+        try:
+            spec = _parse_spec_block(m_pivot.group(1))
+            pdf = st.session_state["last_df"].to_pandas()  # last_df у нас polars → приводим к pandas
+
+            index = [s.strip() for s in spec.get("index", "").split(",") if s.strip()]
+            columns = [s.strip() for s in spec.get("columns", "").split(",") if s.strip()]
+            values = [s.strip() for s in spec.get("values", "").split(",") if s.strip()]
+
+            agg = spec.get("aggfunc", "sum").lower()
+            aggfunc = {"sum": "sum", "mean": "mean", "avg": "mean", "count": "count", "max": "max", "min": "min"}.get(agg, "sum")
+
+            fill_raw = spec.get("fill_value", "0")
+            try:
+                fill_value = int(fill_raw)
+            except Exception:
+                fill_value = 0
+
+            piv = pd.pivot_table(
+                pdf,
+                index=index or None,
+                columns=columns or None,
+                values=values or None,
+                aggfunc=aggfunc,
+                fill_value=fill_value,
+            )
+            piv = piv.reset_index()
+            # Сохраняем как polars (чтобы остальной код не ломать)
+            st.session_state["last_pivot"] = pl.from_pandas(piv)
+            st.session_state["last_df"] = st.session_state["last_pivot"]
+
+            st.markdown("**Сводная таблица:**")
+            st.dataframe(piv, use_container_width=True)
+            buf = io.BytesIO()
+            piv.to_csv(buf, index=False)
+            st.download_button("Скачать CSV (pivot)", buf.getvalue(), "pivot.csv", "text/csv")
+        except Exception as e:
+            st.error(f"Не удалось построить сводную таблицу: {e}")
+
