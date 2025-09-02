@@ -72,7 +72,10 @@ def is_followup_sql_edit(text: str) -> bool:
     return any(p in t for p in triggers)
 
 def _extract_last_sql_from_history() -> str | None:
-    # ищем последний блок ```sql ... ``` в ответах ассистента
+    """
+    Достаём последний SQL из истории сообщений ассистента.
+    Ищем последний блок ```sql ... ``` и возвращаем его содержимое.
+    """
     for m in reversed(st.session_state.get("messages", [])):
         if m.get("role") != "assistant":
             continue
@@ -83,30 +86,92 @@ def _extract_last_sql_from_history() -> str | None:
     return None
 
 def get_last_sql() -> str | None:
-    """Единая точка получения последнего SQL: сначала кеш, иначе — из истории."""
+    """
+    Единая точка получения последнего SQL.
+    1) если в session_state лежит last_sql — берём его,
+    2) иначе — вынимаем из истории ассистента.
+    """
     return st.session_state.get("last_sql") or _extract_last_sql_from_history()
 
 def is_smalltalk(text: str) -> bool:
+    """
+    Простейшее распознавание «смолтока»: приветствия и «что ты умеешь».
+    Это перехватывается ДО RAG/SQL, чтобы не было «Данных нет».
+    """
     t = (text or "").lower().strip()
-    return any(x in t for x in ["привет", "здравствуйте", "добрый день", "добрый вечер", "hello", "hi"])
+    return any(x in t for x in [
+        "привет", "здравствуйте", "добрый день", "добрый вечер", "hello", "hi",
+        "что ты умеешь", "что ты можешь", "чем можешь помочь", "как дела"
+    ])
 
 def is_list_tables_intent(text: str) -> bool:
+    """
+    Распознаём «покажи список таблиц».
+    Важно: если упомянут 'rag', это не SQL-список.
+    """
     t = (text or "").lower()
-    return any(x in t for x in ["какие есть таблицы", "список таблиц", "show tables", "schema", "схема"]) and "rag" not in t
+    return any(x in t for x in [
+        "какие есть таблицы", "список таблиц", "show tables", "schema", "схема"
+    ]) and "rag" not in t
 
 def is_list_rag_intent(text: str) -> bool:
+    """
+    Распознаём «что есть в RAG (индексе документации)».
+    """
     t = (text or "").lower()
-    return ("rag" in t) and any(x in t for x in ["какие есть", "какие файлы", "какие документы", "список", "покажи"])
+    return ("rag" in t) and any(x in t for x in [
+        "какие есть", "какие файлы", "какие документы", "список", "покажи", "что есть"
+    ])
 
 def is_chart_from_last_data(text: str) -> bool:
+    """
+    Явная просьба построить график по «последнему запросу».
+    Учитываем вариант слипшегося 'последнегозапроса'.
+    """
     t = (text or "").lower()
     t_nospace = re.sub(r"\s+", "", t)
     triggers = [
-        "из последнего запроса", "из последнегозапроса",  # слипшийся вариант
+        "из последнего запроса", "из последнегозапроса",
         "по последнему запросу", "по предыдущему запросу", "по прошлому запросу",
         "из того запроса", "как в прошлый раз график",
     ]
     return any(p in t or p in t_nospace for p in triggers)
+
+# Запрещаем любые DDL/DML для безопасной выборки данных на график
+_FORBIDDEN_DML = re.compile(
+    r"(?is)\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|REPLACE|OPTIMIZE|ATTACH|DETACH|SYSTEM|KILL|RENAME|GRANT|REVOKE|CREATE)\b"
+)
+
+def _safe_fetch_df_from_sql(sql: str, limit: int = 500):
+    """
+    Безопасно выполняем ПОСЛЕДНИЙ SELECT для построения графика.
+    - Разрешены только SELECT/CTE (WITH ... SELECT).
+    - Любые DDL/DML запрещены (см. _FORBIDDEN_DML).
+    - Если нет LIMIT — добавляем 'LIMIT {limit}' в конец запроса.
+    Возвращает DataFrame (Polars/Pandas, в зависимости от клиента) или None.
+    """
+    if not sql:
+        return None
+    s = sql.strip()
+
+    # Разрешаем только WITH ... SELECT или SELECT в начале
+    if not re.match(r"(?is)^\s*(with\b.*?select\b|select\b)", s):
+        return None
+
+    # Запрет опасных команд
+    if _FORBIDDEN_DML.search(s):
+        return None
+
+    # Гарантируем LIMIT (простая, но практичная проверка)
+    if re.search(r"(?is)\blimit\s+\d+\b", s) is None:
+        s = s.rstrip().rstrip(";") + f"\nLIMIT {limit}"
+
+    try:
+        ch = ClickHouse_client()
+        return ch.query_run(s)
+    except Exception:
+        # Любые ошибки клиента/сети подавляем — вернём None
+        return None
 
 _FORBIDDEN_DML = re.compile(
     r"(?is)\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|REPLACE|OPTIMIZE|ATTACH|DETACH|SYSTEM|KILL|RENAME|GRANT|REVOKE|CREATE)\b"
@@ -198,31 +263,31 @@ _CHART_HINTS = [
 def context_first_orchestrate(user_input: str):
     """
     Ранние решения, если хватает контекста:
-      {"action": "smalltalk"}      — привет/помощь
-      {"action": "list_tables"}    — показать схему БД
-      {"action": "list_rag"}       — показать сводку индекса RAG
-      {"action": "chart_from_last"}— график по последнему SQL
-      {"action": "sql_edit", "prev_sql": "..."} — правка прошлого SQL
-      None — нет раннего решения, идём в общий роутер
+      {"action": "smalltalk"}         — привет/подсказка «что умею»
+      {"action": "list_tables"}       — список таблиц/колонок из ClickHouse
+      {"action": "list_rag"}          — краткая сводка RAG-индекса
+      {"action": "chart_from_last"}   — график по последнему SQL
+      {"action": "sql_edit","prev_sql": "..."} — правка прошлого SQL
+      None                            — идём в общий роутер
     """
-    # 0) smalltalk
+    # 0) smalltalk — отвечаем сразу и не идём в RAG
     if is_smalltalk(user_input):
         return {"action": "smalltalk", "reason": "context:smalltalk"}
 
-    # 0.1) список таблиц (SQL-схема)
+    # 0.1) список таблиц — сразу показываем схему
     if is_list_tables_intent(user_input):
         return {"action": "list_tables", "reason": "context:list_tables"}
 
-    # 0.2) что есть в RAG-индексе
+    # 0.2) что есть в RAG — показываем сводку индекса
     if is_list_rag_intent(user_input):
         return {"action": "list_rag", "reason": "context:list_rag"}
 
-    # 1) график из последнего запроса — если есть последний SQL в истории
+    # 1) график по последнему SQL — если он есть в истории
     if is_chart_intent(user_input) and is_chart_from_last_data(user_input):
         if get_last_sql():
             return {"action": "chart_from_last", "reason": "context:last_sql_in_history"}
 
-    # 2) правка предыдущего SQL
+    # 2) правка предыдущего SQL — если найдётся в истории
     prev = st.session_state.get("last_sql") or _extract_last_sql_from_history()
     if prev:
         st.session_state["last_sql"] = prev
@@ -230,6 +295,7 @@ def context_first_orchestrate(user_input: str):
             return {"action": "sql_edit", "prev_sql": prev, "reason": "context:followup_with_prev_sql"}
 
     return None
+
 
 def is_chart_intent(text: str) -> bool:
     t = (text or "").lower()
@@ -432,7 +498,7 @@ for msg in st.session_state.messages:
 # ---------- Основной ввод ----------
 user_input = st.chat_input("Введите вопрос…")
 if not user_input:
-    # Sticky визуализация (когда нет нового сообщения)
+    # Sticky визуализация: если включена, берём последний SQL из истории и строим график
     if st.session_state.get("viz_active"):
         last_sql = get_last_sql()
         if last_sql:
@@ -443,6 +509,7 @@ if not user_input:
                 except Exception as e:
                     st.warning(f"Не удалось построить график: {e}")
         st.stop()
+
 
 # новое сообщение — сброс "липкости" (по желанию)
 st.session_state["viz_active"] = False
@@ -456,21 +523,24 @@ with st.chat_message("user"):
 
 chart_requested = is_chart_intent(user_input)
 # --- CONTEXT-FIRST ---
+# --- CONTEXT-FIRST: попытка решить задачу, не включая RAG/SQL ---
 early = context_first_orchestrate(user_input)
 if early:
     if early["action"] == "smalltalk":
+        # Дружелюбное приветствие + что умею
         with st.chat_message("assistant"):
             st.markdown(
                 "Привет! Чем могу помочь?\n\n"
                 "Я умею:\n"
                 "• отвечать по документации (RAG)\n"
-                "• выполнять SQL к ClickHouse и показывать таблицы/графики\n"
+                "• выполнять SQL к ClickHouse и строить таблицы/графики\n"
                 "• строить график по последнему запросу — скажите «сделай график (из последнего запроса)»."
             )
         st.session_state.messages.append({"role": "assistant", "content": "Привет! Чем могу помочь? См. подсказки выше."})
         st.stop()
 
     if early["action"] == "list_tables":
+        # Показать список таблиц и колонок (фильтр по разрешённым)
         ch = ClickHouse_client()
         database = "db1"
         allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]
@@ -487,6 +557,7 @@ if early:
         st.stop()
 
     if early["action"] == "list_rag":
+        # Краткая сводка индекса RAG (количество чанков и примеры источников)
         try:
             import chromadb
             chroma = chromadb.PersistentClient(path=CHROMA_PATH)
@@ -512,22 +583,26 @@ if early:
         st.stop()
 
     if early["action"] == "chart_from_last":
+        # Построить график по последнему SQL (лениво, без генерации нового SQL)
         last_sql = get_last_sql()
         if not last_sql:
             with st.chat_message("assistant"):
                 st.info("Не нашёл последний SQL в истории. Сначала выполните запрос.")
             st.session_state.messages.append({"role": "assistant", "content": "Нет последнего SQL для графика."})
             st.stop()
+
         df_last = _safe_fetch_df_from_sql(last_sql, limit=500)
         if df_last is None:
             with st.chat_message("assistant"):
                 st.info("Не удалось безопасно получить данные по последнему SQL. Запустите запрос ещё раз.")
             st.session_state.messages.append({"role": "assistant", "content": "Не удалось получить данные для графика."})
             st.stop()
+
         st.session_state["viz_active"] = True
         st.session_state["viz_text"] = user_input
         with st.chat_message("assistant"):
             render_auto_chart(df_last, user_input, key_prefix="main_viz")
+
         st.session_state.messages.append({
             "role": "assistant",
             "content": "**Визуализация по последнему SQL (без нового SQL).**\n\n" + f"```sql\n{last_sql}\n```"
@@ -535,18 +610,13 @@ if early:
         st.stop()
 
     if early["action"] == "sql_edit":
+        # Принудительно в SQL-путь с готовым prev_sql из контекста
         force_sql = True
         mode, decided_by = "sql", early.get("reason", "context")
         prev_sql = early["prev_sql"]
 else:
-    prev_sql = None
+    prev_sql = None  # если ранних решений нет
 
-force_sql = False
-if is_followup_sql_edit(user_input) and st.session_state.get("last_sql"):
-    mode, decided_by = "sql", "followup-edit"
-    force_sql = True
-else:
-    mode, decided_by = route_question(user_input, model=model, use_llm_fallback=True)
 
 if override != "Auto" and not force_sql:
     mode = "rag" if override == "RAG" else "sql"
@@ -699,6 +769,7 @@ else:
                 st.write(f"[{i}] {d['source']} — {d['path']}  (score={d['score']:.4f})")
 
 # --- Построить график по последнему SQL (если просили, а режим был не SQL) ---
+# --- Построить график по последнему SQL (если просили, а режим был не SQL) ---
 if chart_requested and mode != "sql":
     last_sql = get_last_sql()
     if last_sql:
@@ -710,3 +781,4 @@ if chart_requested and mode != "sql":
                 render_auto_chart(df_last, user_input, key_prefix="main_viz")
             except Exception as e:
                 st.warning(f"Не удалось построить график: {e}")
+
