@@ -152,14 +152,17 @@ if user_input:
         else:
             code = m_plotly.group(1).strip()
 
-            # Базовая песочница: запрещаем опасные конструкции
-            banned = re.compile(
-                r"\b(import|open|exec|eval|__|subprocess|socket|os\\.|sys\\.|Path\\(|write|remove|unlink|requests|httpx)\b",
+            # безопасная регулярка + raw-string
+            BANNED_RE = re.compile(
+                r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
+                r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                 re.IGNORECASE,
             )
-            if banned.search(code):
+
+            if BANNED_RE.search(code):
                 st.error("Код графика отклонён (запрещённые конструкции).")
             else:
+                # exec(...)
                 try:
                     df = st.session_state["last_df"].to_pandas()  # df доступен коду
                     safe_globals = {"pd": pd, "px": px, "go": go, "df": df}
