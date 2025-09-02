@@ -106,13 +106,38 @@ def is_smalltalk(text: str) -> bool:
 
 def is_list_tables_intent(text: str) -> bool:
     """
-    Распознаём «покажи список таблиц».
-    Важно: если упомянут 'rag', это не SQL-список.
+    Распознаём любые формулировки про список таблиц (SQL), включая разговорные варианты.
+    Важно: если упомянут 'rag' — это НЕ SQL-список.
     """
-    t = (text or "").lower()
-    return any(x in t for x in [
-        "какие есть таблицы", "список таблиц", "show tables", "schema", "схема"
-    ]) and "rag" not in t
+    t = (text or "").lower().strip()
+    if "rag" in t:
+        return False
+
+    # Нормализуем пробелы/дефисы — ловим "какие-таблицы", "какие таблицы у тебя есть" и т.п.
+    t_nospace = re.sub(r"\s+", " ", t)
+    t_compact = re.sub(r"[\s\-]+", "", t)
+
+    # Наиболее частые паттерны
+    patterns = [
+        r"\bкакие\s+есть\s+таблиц",          # какие есть таблицы
+        r"\bсписок\s+таблиц\b",              # список таблиц
+        r"\bshow\s+tables\b",                # show tables
+        r"\bschema\b",                       # schema
+        r"\bсхема\b",                        # схема
+        r"\bкакие\s+таблицы\s+у\s+тебя\s+есть\b",    # какие таблицы у тебя есть
+        r"\bтаблиц[ыаи]?\s+какие\s+есть\b",         # таблицы какие есть
+        r"\bпокажи\s+(мне\s+)?таблиц",               # покажи (мне) таблицы
+        r"\bчто\s+за\s+таблиц"                       # что за таблицы
+    ]
+
+    # Совпадение по любому из паттернов...
+    if any(re.search(p, t_nospace) for p in patterns):
+        return True
+
+    # ...или общий «страховочный» признак: есть слово «таблиц/таблицы» и вопрос/индикатор списка
+    weak = (("таблиц" in t or "таблицы" in t) and any(k in t for k in ["какие", "список", "покажи"]))
+    return weak
+
 
 def is_list_rag_intent(text: str) -> bool:
     """
@@ -495,6 +520,25 @@ with st.chat_message("user"):
 
 
 chart_requested = is_chart_intent(user_input)
+
+# Страховка: если запрос — про список таблиц, обслуживаем ЗДЕСЬ же и выходим,
+# чтобы гарантированно не уйти в генерацию SQL или RAG.
+if is_list_tables_intent(user_input):
+    ch = ClickHouse_client()
+    database = "db1"
+    allowed_tables = ["total_active_users", "total_active_users_rep_mobile_total"]  # ваш фильтр
+    schema = ch.get_schema(database=database, tables=allowed_tables)
+    with st.chat_message("assistant"):
+        if not schema:
+            st.info("Схема пуста или недоступна.")
+        else:
+            st.markdown("**Доступные таблицы (фильтр разрешённых):**")
+            for tname, cols in schema.items():
+                cols_s = ", ".join([c for c, _ in cols])
+                st.markdown(f"- `{tname}` — {cols_s}")
+    st.session_state.messages.append({"role": "assistant", "content": "Вывел список доступных таблиц."})
+    st.stop()
+
 # --- CONTEXT-FIRST ---
 # --- CONTEXT-FIRST: попытка решить задачу, не включая RAG/SQL ---
 early = context_first_orchestrate(user_input)
