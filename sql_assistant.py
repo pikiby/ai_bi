@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple, Any, Optional
 from openai import OpenAI
 from clickhouse_client import ClickHouse_client
 
+
 # ---------- БЕЗОПАСНОСТЬ ----------
 FORBIDDEN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|RENAME|ATTACH|DETACH|OPTIMIZE|CREATE|KILL|SYSTEM|GRANT|REVOKE)\b",

@@ -5,6 +5,14 @@ import pandas as pd
 import plotly.express as px
 from openai import OpenAI
 from clickhouse_client import ClickHouse_client
+import re
+import retriever
+import sys
+import subprocess
+
+# Пути/имена для базы знаний (ChromaDB)
+CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")
+COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")
 
 st.set_page_config(page_title="AI SQL Assistant", page_icon="💬")
 
@@ -54,8 +62,47 @@ if user_input:
     with st.chat_message("assistant"):
         st.markdown(reply)
 
+    # --- База знаний (RAG) ---
+    with st.sidebar:
+        st.header("База знаний (RAG)")
+        st.caption(f"Коллекция: {COLLECTION_NAME!r} · Путь: {CHROMA_PATH!r}")
+
+        if st.button("Переиндексировать docs/"):
+            with st.status("Индексируем документы…", expanded=True) as status:
+                env = os.environ.copy()
+                env["KB_COLLECTION_NAME"] = COLLECTION_NAME
+                env["KB_CHROMA_PATH"] = CHROMA_PATH
+                proc = subprocess.run([sys.executable, "ingest.py"],
+                                    capture_output=True, text=True, env=env)
+                st.code(proc.stdout or "(нет stdout)")
+                if proc.returncode == 0:
+                    status.update(label="Готово", state="complete")
+                else:
+                    st.error(proc.stderr)
+
+     # --- Проверка RAG
+    m = re.search(r"```rag\\s*(.*?)```", reply, re.DOTALL | re.IGNORECASE)
+    if m:
+        rag_query = m.group(1).strip()
+        hits = retriever.retrieve(rag_query, k=5)
+        context = "\n\n".join([h["text"] for h in hits])
+        msgs = (
+            [{"role": "system", "content": SYSTEM_PROMPT}]
+            + st.session_state.messages
+            + [{"role": "system", "content": f"Контекст базы знаний:\\n{context}"}]
+        )
+        rag_resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=msgs,
+        )
+        rag_reply = rag_resp.choices[0].message.content
+        st.session_state.messages.append({"role": "assistant", "content": rag_reply})
+        with st.chat_message("assistant"):
+            st.markdown(rag_reply)
+
+
     # Если ответ содержит SQL → выполнить
-    import re
+    
     m = re.search(r"```sql\s*(.*?)```", reply, re.DOTALL | re.IGNORECASE)
     if m:
         sql = m.group(1).strip()
