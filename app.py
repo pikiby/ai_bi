@@ -135,6 +135,25 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
         pdf.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
 
+def _history_zip_bytes() -> bytes:
+    """Собрать ZIP с историей результатов (таблицы: csv+xlsx+sql, графики: html)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, item in enumerate(st.session_state["results"], start=1):
+            base = f"{idx:03d}_{item['kind']}_{item['ts'].replace(':','-')}"
+            if item["kind"] == "table" and isinstance(item.get("df_pl"), pl.DataFrame):
+                pdf = item["df_pl"].to_pandas()
+                zf.writestr(f"{base}.csv", _df_to_csv_bytes(pdf))
+                zf.writestr(f"{base}.xlsx", _df_to_xlsx_bytes(pdf, "Result"))
+                sql = (item.get("meta") or {}).get("sql")
+                if sql:
+                    zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
+            elif item["kind"] == "chart" and isinstance(item.get("fig"), go.Figure):
+                html_buf = io.StringIO()
+                item["fig"].write_html(html_buf, include_plotlyjs="cdn", full_html=True)
+                zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
+    return buf.getvalue()
+
 
 # ----------------------- Сайдбар -----------------------
 
@@ -183,31 +202,14 @@ with st.sidebar:
                 file_name="result.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-
+    # Кнопка скачивания архива
     st.subheader("Экспорт истории (ZIP)")
-    if st.button("Скачать ZIP"):
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for idx, item in enumerate(st.session_state["results"], start=1):
-                base = f"{idx:03d}_{item['kind']}_{item['ts'].replace(':','-')}"
-                if item["kind"] == "table" and isinstance(item.get("df_pl"), pl.DataFrame):
-                    pdf = item["df_pl"].to_pandas()
-                    zf.writestr(f"{base}.csv", _df_to_csv_bytes(pdf))
-                    zf.writestr(f"{base}.xlsx", _df_to_xlsx_bytes(pdf, "Result"))
-                    sql = (item.get("meta") or {}).get("sql")
-                    if sql:
-                        zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
-                elif item["kind"] == "chart" and isinstance(item.get("fig"), go.Figure):
-                    # Сохраним HTML графика
-                    html_buf = io.StringIO()
-                    item["fig"].write_html(html_buf, include_plotlyjs="cdn", full_html=True)
-                    zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
-        st.download_button(
-            "Скачать архив",
-            data=buf.getvalue(),
-            file_name="history.zip",
-            mime="application/zip",
-        )
+    st.download_button(
+        "Скачать историю чата (zip)",
+        data=_history_zip_bytes(),
+        file_name="history.zip",
+        mime="application/zip",
+    )
 
     st.divider()
     if st.button("Очистить историю результатов"):
