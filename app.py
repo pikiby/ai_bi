@@ -303,9 +303,9 @@ if user_input:
 
         # 2b) Финальный ответ/SQL с учётом контекста
         exec_msgs = (
-            [{"role": "system", "content": prompts_map["rag"]}] +   # <<< важная замена
+            [{"role": "system", "content": prompts_map["sql"]}] +  # <<< КЛЮЧЕВАЯ ЗАМЕНА
             st.session_state["messages"] +
-            [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по этому контексту."}]
+            [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по этому контексту. Если нужных таблиц нет — скажи об этом и не пиши SQL."}]
         )
         try:
             final_reply = client.chat.completions.create(
