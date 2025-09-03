@@ -395,9 +395,31 @@ if user_input:
             else:
                 try:
                     pdf = st.session_state["last_df"].to_pandas()
+                    # --- Хелперы проверки колонок ---
+                    def col(*names):
+                        """
+                        Вернёт первое подходящее имя колонки из перечисленных.
+                        Если ни одно не найдено — поднимет понятную ошибку.
+                        """
+                        for n in names:
+                            if isinstance(n, str) and n in pdf.columns:
+                                return n
+                        raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(pdf.columns)}")
+
+                    def has_col(name: str) -> bool:
+                        return isinstance(name, str) and name in pdf.columns
+
+                    COLS = list(pdf.columns)  # можно подсветить пользователю доступные имена
+
                     safe_globals = {
                         "__builtins__": {"len": len, "range": range, "min": min, "max": max},
-                        "pd": pd, "px": px, "go": go, "df": pdf,
+                        "pd": pd,
+                        "px": px,
+                        "go": go,
+                        "df": pdf,   # исходные данные (только чтение)
+                        "col": col,  # <<< добавили
+                        "has_col": has_col,
+                        "COLS": COLS,
                     }
                     local_vars = {}
                     exec(code, safe_globals, local_vars)
