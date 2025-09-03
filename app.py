@@ -231,15 +231,6 @@ if st.session_state["results"]:
     for item in st.session_state["results"]:
         _render_result(item)
 
-# Кнопка скачивания истории — рендерится ПОСЛЕ формирования результатов,
-# поэтому архив собирается из актуального st.session_state["results"]
-st.download_button(
-    "Скачать историю чата (zip)",
-    data=_history_zip_bytes(),
-    file_name="history.zip",
-    mime="application/zip",
-    disabled=not st.session_state["results"],  # на всякий случай
-)
 
 # Поле ввода внизу
 user_input = st.chat_input("Введите запрос…")
@@ -521,3 +512,17 @@ if user_input:
                             st.error(f"Повтор также не удался: {e2}")
                     else:
                         st.error(f"Ошибка выполнения кода графика: {e}")
+
+# --- Кнопка скачивания архива В САМОМ НИЗУ ---
+# ВАЖНО: размещена после обработки user_input, SQL/Plotly и _push_result(...),
+# поэтому архив собирается с учётом самых свежих результатов уже на первом клике.
+if st.session_state["results"]:
+    st.divider()
+st.download_button(
+    "Скачать историю чата (zip)",
+    data=_history_zip_bytes(),
+    file_name="history.zip",
+    mime="application/zip",
+    disabled=(len(st.session_state["results"]) == 0),
+)
+
