@@ -119,21 +119,23 @@ def _render_result(item: dict):
             st.dataframe(pdf)
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
-            # Делаем стабильные уникальные ключи для кнопок и читаемые имена файлов.
+            # Две широкие кнопки рядышком слева: 40% + 40% + 20% (пустой «спейсер»)
             ts = (item.get("ts") or "table").replace(":", "-")
 
             try:
-                col_csv, col_xlsx, _ = st.columns([1, 1, 8], gap="small")  # Streamlit ≥1.25
+                col_csv, col_xlsx, _ = st.columns([4, 4, 2], gap="small")  # Streamlit ≥ 1.36
             except TypeError:
-                col_csv, col_xlsx, _ = st.columns([1, 1, 8])              # fallback для старых версий
+                col_csv, col_xlsx, _ = st.columns([4, 4, 2])               # fallback на старых версиях
 
             with col_csv:
+                # use_container_width делает кнопку широкой в своей колонке
                 st.download_button(
                     "Скачать CSV",
                     data=_df_to_csv_bytes(pdf),
                     file_name=f"table_{ts}.csv",
                     mime="text/csv",
                     key=f"dl_csv_{ts}",
+                    use_container_width=True,
                 )
             with col_xlsx:
                 st.download_button(
@@ -142,6 +144,7 @@ def _render_result(item: dict):
                     file_name=f"table_{ts}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"dl_xlsx_{ts}",
+                    use_container_width=True,
                 )
 
 
