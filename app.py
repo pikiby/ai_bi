@@ -203,13 +203,6 @@ with st.sidebar:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
     # Кнопка скачивания архива
-    st.subheader("Экспорт истории (ZIP)")
-    st.download_button(
-        "Скачать историю чата (zip)",
-        data=_history_zip_bytes(),
-        file_name="history.zip",
-        mime="application/zip",
-    )
 
     st.divider()
     if st.button("Очистить историю результатов"):
@@ -237,6 +230,16 @@ if st.session_state["results"]:
     st.markdown("### История результатов")
     for item in st.session_state["results"]:
         _render_result(item)
+
+# Кнопка скачивания истории — рендерится ПОСЛЕ формирования результатов,
+# поэтому архив собирается из актуального st.session_state["results"]
+st.download_button(
+    "Скачать историю чата (zip)",
+    data=_history_zip_bytes(),
+    file_name="history.zip",
+    mime="application/zip",
+    disabled=not st.session_state["results"],  # на всякий случай
+)
 
 # Поле ввода внизу
 user_input = st.chat_input("Введите запрос…")
