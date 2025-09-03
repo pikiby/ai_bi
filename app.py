@@ -242,10 +242,10 @@ if st.session_state["messages"]:
             st.markdown(m["content"])
 
 # Рендер истории результатов (если есть)
-if st.session_state["results"]:
-    st.markdown("### История результатов")
-    for item in st.session_state["results"]:
-        _render_result(item)
+# if st.session_state["results"]:
+#     st.markdown("### История результатов")
+#     for item in st.session_state["results"]:
+#         _render_result(item)
 
 
 # Поле ввода внизу
@@ -384,158 +384,158 @@ if user_input:
     with st.chat_message("assistant"):
         st.markdown(final_reply)
 
-    # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
-    m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-    if m_sql:
-        sql = m_sql.group(1).strip()
-        try:
-            ch = ClickHouse_client()
-            df_any = ch.query_run(sql)  # ожидается polars.DataFrame
-            if isinstance(df_any, pl.DataFrame):
-                df_pl = df_any
+        # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
+        m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        if m_sql:
+            sql = m_sql.group(1).strip()
+            try:
+                ch = ClickHouse_client()
+                df_any = ch.query_run(sql)  # ожидается polars.DataFrame
+                if isinstance(df_any, pl.DataFrame):
+                    df_pl = df_any
+                else:
+                    # на всякий случай: если драйвер вернул pandas
+                    df_pl = pl.from_pandas(df_any) if isinstance(df_any, pd.DataFrame) else None
+
+                st.session_state["last_df"] = df_pl
+                if df_pl is not None:
+                    _push_result("table", df_pl=df_pl, meta={"sql": sql})
+                    _render_result(st.session_state["results"][-1])
+                else:
+                    st.error("Драйвер вернул неожиданный формат данных.")
+            except Exception as e:
+                st.error(f"Ошибка выполнения SQL: {e}")
+
+        # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
+        m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        if m_plotly:
+            if st.session_state["last_df"] is None:
+                st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                # на всякий случай: если драйвер вернул pandas
-                df_pl = pl.from_pandas(df_any) if isinstance(df_any, pd.DataFrame) else None
+                code = m_plotly.group(1).strip()
 
-            st.session_state["last_df"] = df_pl
-            if df_pl is not None:
-                _push_result("table", df_pl=df_pl, meta={"sql": sql})
-                _render_result(st.session_state["results"][-1])
-            else:
-                st.error("Драйвер вернул неожиданный формат данных.")
-        except Exception as e:
-            st.error(f"Ошибка выполнения SQL: {e}")
+                # Базовая защита: не допускаем опасные конструкции
+                BANNED_RE = re.compile(
+                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
+                    r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
+                    re.IGNORECASE,
+                )
+                # >>> Перед проверкой уберём комментарии и тройные строки
+                code_scan = code
+                # многострочные ''' ... ''' и """ ... """
+                code_scan = re.sub(r"'''[\s\S]*?'''", "", code_scan)
+                code_scan = re.sub(r'"""[\s\S]*?"""', "", code_scan)
+                # однострочные комментарии: # ...
+                code_scan = re.sub(r"(?m)#.*$", "", code_scan)
 
-    # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
-    m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-    if m_plotly:
-        if st.session_state["last_df"] is None:
-            st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
-        else:
-            code = m_plotly.group(1).strip()
+                if BANNED_RE.search(code_scan):
+                    st.error("Код графика отклонён (запрещённые конструкции).")
+                else:
+                    try:
+                        pdf = st.session_state["last_df"].to_pandas()
+                        # --- Хелперы проверки колонок ---
+                        def col(*names):
+                            """
+                            Вернёт первое подходящее имя колонки из перечисленных.
+                            Если ни одно не найдено — поднимет понятную ошибку.
+                            """
+                            for n in names:
+                                if isinstance(n, str) and n in pdf.columns:
+                                    return n
+                            raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(pdf.columns)}")
 
-            # Базовая защита: не допускаем опасные конструкции
-            BANNED_RE = re.compile(
-                r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
-                r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
-                re.IGNORECASE,
-            )
-            # >>> Перед проверкой уберём комментарии и тройные строки
-            code_scan = code
-            # многострочные ''' ... ''' и """ ... """
-            code_scan = re.sub(r"'''[\s\S]*?'''", "", code_scan)
-            code_scan = re.sub(r'"""[\s\S]*?"""', "", code_scan)
-            # однострочные комментарии: # ...
-            code_scan = re.sub(r"(?m)#.*$", "", code_scan)
+                        def has_col(name: str) -> bool:
+                            return isinstance(name, str) and name in pdf.columns
 
-            if BANNED_RE.search(code_scan):
-                st.error("Код графика отклонён (запрещённые конструкции).")
-            else:
-                try:
-                    pdf = st.session_state["last_df"].to_pandas()
-                    # --- Хелперы проверки колонок ---
-                    def col(*names):
-                        """
-                        Вернёт первое подходящее имя колонки из перечисленных.
-                        Если ни одно не найдено — поднимет понятную ошибку.
-                        """
-                        for n in names:
-                            if isinstance(n, str) and n in pdf.columns:
-                                return n
-                        raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(pdf.columns)}")
+                        COLS = list(pdf.columns)  # можно подсветить пользователю доступные имена
 
-                    def has_col(name: str) -> bool:
-                        return isinstance(name, str) and name in pdf.columns
+                        safe_globals = {
+                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                            "pd": pd,
+                            "px": px,
+                            "go": go,
+                            "df": pdf,   # исходные данные (только чтение)
+                            "col": col,  # <<< добавили
+                            "has_col": has_col,
+                            "COLS": COLS,
+                        }
+                        local_vars = {}
+                        exec(code, safe_globals, local_vars)
 
-                    COLS = list(pdf.columns)  # можно подсветить пользователю доступные имена
+                        fig = local_vars.get("fig")
+                        if isinstance(fig, go.Figure):
+                            _push_result("chart", fig=fig, meta={})
+                            _render_result(st.session_state["results"][-1])
+                        else:
+                            st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
+                    except Exception as e:
+                        # Если ошибка связана с выбором колонок (наш helper col(...) кинул KeyError),
+                        # попробуем один автоматический ретрай: напомним модели доступные колонки.
+                        err_text = str(e)
+                        needs_retry = isinstance(e, KeyError) or "Нет ни одной из колонок" in err_text
 
-                    safe_globals = {
-                        "__builtins__": {"len": len, "range": range, "min": min, "max": max},
-                        "pd": pd,
-                        "px": px,
-                        "go": go,
-                        "df": pdf,   # исходные данные (только чтение)
-                        "col": col,  # <<< добавили
-                        "has_col": has_col,
-                        "COLS": COLS,
-                    }
-                    local_vars = {}
-                    exec(code, safe_globals, local_vars)
+                        if needs_retry:
+                            try:
+                                _pdf = st.session_state["last_df"].to_pandas()
+                                _cols_list = list(_pdf.columns)
+                                retry_hint = (
+                                    "Ошибка выбора колонок при построении графика: "
+                                    + err_text
+                                    + "\nДоступные колонки: "
+                                    + ", ".join(map(str, _cols_list))
+                                    + "\nСгенерируй НОВЫЙ код для переменной fig, используя ТОЛЬКО эти имена через col(...)."
+                                )
 
-                    fig = local_vars.get("fig")
-                    if isinstance(fig, go.Figure):
-                        _push_result("chart", fig=fig, meta={})
-                        _render_result(st.session_state["results"][-1])
-                    else:
-                        st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
-                except Exception as e:
-                    # Если ошибка связана с выбором колонок (наш helper col(...) кинул KeyError),
-                    # попробуем один автоматический ретрай: напомним модели доступные колонки.
-                    err_text = str(e)
-                    needs_retry = isinstance(e, KeyError) or "Нет ни одной из колонок" in err_text
+                                retry_msgs = (
+                                    [{"role": "system", "content": prompts_map["plotly"]},
+                                    {"role": "system", "content": retry_hint}]
+                                    + st.session_state["messages"]
+                                )
+                                retry_reply = client.chat.completions.create(
+                                    model=OPENAI_MODEL,
+                                    messages=retry_msgs,
+                                    temperature=0,
+                                ).choices[0].message.content
 
-                    if needs_retry:
-                        try:
-                            _pdf = st.session_state["last_df"].to_pandas()
-                            _cols_list = list(_pdf.columns)
-                            retry_hint = (
-                                "Ошибка выбора колонок при построении графика: "
-                                + err_text
-                                + "\nДоступные колонки: "
-                                + ", ".join(map(str, _cols_list))
-                                + "\nСгенерируй НОВЫЙ код для переменной fig, используя ТОЛЬКО эти имена через col(...)."
-                            )
+                                # Повторно ищем блок ```plotly``` и пытаемся исполнить
+                                m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
+                                if m_plotly_retry:
+                                    code_retry = m_plotly_retry.group(1).strip()
 
-                            retry_msgs = (
-                                [{"role": "system", "content": prompts_map["plotly"]},
-                                 {"role": "system", "content": retry_hint}]
-                                + st.session_state["messages"]
-                            )
-                            retry_reply = client.chat.completions.create(
-                                model=OPENAI_MODEL,
-                                messages=retry_msgs,
-                                temperature=0,
-                            ).choices[0].message.content
-
-                            # Повторно ищем блок ```plotly``` и пытаемся исполнить
-                            m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
-                            if m_plotly_retry:
-                                code_retry = m_plotly_retry.group(1).strip()
-
-                                # Повторная базовая проверка безопасности
-                                code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
-                                code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
-                                code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
-                                if BANNED_RE.search(code_scan2):
-                                    st.error("Код графика (повтор) отклонён (запрещённые конструкции).")
-                                else:
-                                    # Выполняем повторный код в том же «песочном» окружении
-                                    # Собираем такое же безопасное окружение, как в первом запуске
-                                    safe_globals_retry = {
-                                        "__builtins__": {"len": len, "range": range, "min": min, "max": max},
-                                        "pd": pd,
-                                        "px": px,
-                                        "go": go,
-                                        "df": pdf,      # данные только для чтения
-                                        "col": col,
-                                        "has_col": has_col,
-                                        "COLS": COLS,
-                                    }
-                                    local_vars = {}
-                                    exec(code_retry, safe_globals_retry, local_vars)
-                                    fig = local_vars.get("fig")
-
-                                    if isinstance(fig, go.Figure):
-                                        _push_result("chart", fig=fig, meta={})
-                                        _render_result(st.session_state["results"][-1])
+                                    # Повторная базовая проверка безопасности
+                                    code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
+                                    code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
+                                    code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
+                                    if BANNED_RE.search(code_scan2):
+                                        st.error("Код графика (повтор) отклонён (запрещённые конструкции).")
                                     else:
-                                        st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
-                            else:
-                                st.error("Повтор: ассистент не вернул блок ```plotly```.")
-                        except Exception as e2:
-                            st.error(f"Повтор также не удался: {e2}")
-                    else:
-                        st.error(f"Ошибка выполнения кода графика: {e}")
+                                        # Выполняем повторный код в том же «песочном» окружении
+                                        # Собираем такое же безопасное окружение, как в первом запуске
+                                        safe_globals_retry = {
+                                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                                            "pd": pd,
+                                            "px": px,
+                                            "go": go,
+                                            "df": pdf,      # данные только для чтения
+                                            "col": col,
+                                            "has_col": has_col,
+                                            "COLS": COLS,
+                                        }
+                                        local_vars = {}
+                                        exec(code_retry, safe_globals_retry, local_vars)
+                                        fig = local_vars.get("fig")
+
+                                        if isinstance(fig, go.Figure):
+                                            _push_result("chart", fig=fig, meta={})
+                                            _render_result(st.session_state["results"][-1])
+                                        else:
+                                            st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
+                                else:
+                                    st.error("Повтор: ассистент не вернул блок ```plotly```.")
+                            except Exception as e2:
+                                st.error(f"Повтор также не удался: {e2}")
+                        else:
+                            st.error(f"Ошибка выполнения кода графика: {e}")
 
 # --- Кнопка скачивания архива В САМОМ НИЗУ ---
 # ВАЖНО: размещена после обработки user_input, SQL/Plotly и _push_result(...),
