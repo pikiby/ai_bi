@@ -43,14 +43,21 @@ client = OpenAI()
 
 # ----------------------- Состояние приложения -----------------------
 
+# история чата
 if "messages" not in st.session_state:
-    st.session_state["messages"] = []  # история чата
+    st.session_state["messages"] = []  
 
+# история результатов (таблицы/графики)
 if "results" not in st.session_state:
-    st.session_state["results"] = []   # история результатов (таблицы/графики)
+    st.session_state["results"] = []   
 
+#  последний df (polars), для построения графиков
 if "last_df" not in st.session_state:
-    st.session_state["last_df"] = None # последний df (polars), для построения графиков
+    st.session_state["last_df"] = None
+
+# кэш последнего непустого RAG-контекста (используем как фолбэк)
+if "last_rag_ctx" not in st.session_state:
+    st.session_state["last_rag_ctx"] = ""
 
 # ----------------------- Вспомогательные функции -----------------------
 
@@ -305,6 +312,14 @@ if user_input:
                 st.warning(f"Не удалось получить контекст из базы знаний: {e}")
 
         context = "\n\n".join([h.get("text", "") for h in hits if h.get("text")])
+
+        # если нашли непустой контекст — сохраняем в кэш; если пусто — берём последний удачный
+        if context.strip():
+            st.session_state["last_rag_ctx"] = context
+        else:
+            cached = st.session_state.get("last_rag_ctx", "")
+            if cached:
+                context = cached
 
         # 2b) Финальный ответ/SQL с учётом контекста
         exec_msgs = (
