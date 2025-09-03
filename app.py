@@ -382,20 +382,25 @@ if user_input:
                 r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                 re.IGNORECASE,
             )
-            if BANNED_RE.search(code):
-                st.error("Код графика отклонён: обнаружены запрещённые конструкции.")
+            # >>> Перед проверкой уберём комментарии и тройные строки
+            code_scan = code
+            # многострочные ''' ... ''' и """ ... """
+            code_scan = re.sub(r"'''[\s\S]*?'''", "", code_scan)
+            code_scan = re.sub(r'"""[\s\S]*?"""', "", code_scan)
+            # однострочные комментарии: # ...
+            code_scan = re.sub(r"(?m)#.*$", "", code_scan)
+
+            if BANNED_RE.search(code_scan):
+                st.error("Код графика отклонён (запрещённые конструкции).")
             else:
                 try:
-                    # >>> Вайтлист базовых builtins; df отдаём как pandas.DataFrame
                     pdf = st.session_state["last_df"].to_pandas()
                     safe_globals = {
-                        "__builtins__": {
-                            "len": len, "range": range, "min": min, "max": max
-                        },
+                        "__builtins__": {"len": len, "range": range, "min": min, "max": max},
                         "pd": pd, "px": px, "go": go, "df": pdf,
                     }
                     local_vars = {}
-                    exec(code, safe_globals, local_vars)  # ожидается переменная fig
+                    exec(code, safe_globals, local_vars)
 
                     fig = local_vars.get("fig")
                     if isinstance(fig, go.Figure):
