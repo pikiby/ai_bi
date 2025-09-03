@@ -115,12 +115,30 @@ def _render_result(item: dict):
         df_pl = item.get("df_pl")
         if isinstance(df_pl, pl.DataFrame):
             st.markdown("**Таблица**")
-            st.dataframe(df_pl.to_pandas())
-    elif kind == "chart":
-        fig = item.get("fig")
-        if isinstance(fig, go.Figure):
-            st.markdown("**График**")
-            st.plotly_chart(fig, use_container_width=True)
+            pdf = df_pl.to_pandas()
+            st.dataframe(pdf)
+
+            # --- Кнопки скачивания ИМЕННО этой таблицы ---
+            # Делаем стабильные уникальные ключи для кнопок и читаемые имена файлов.
+            ts = (item.get("ts") or "table").replace(":", "-")
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                st.download_button(
+                    "Скачать CSV",
+                    data=_df_to_csv_bytes(pdf),
+                    file_name=f"table_{ts}.csv",
+                    mime="text/csv",
+                    key=f"dl_csv_{ts}",
+                )
+            with col_b:
+                st.download_button(
+                    "Скачать XLSX",
+                    data=_df_to_xlsx_bytes(pdf, "Result"),
+                    file_name=f"table_{ts}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_xlsx_{ts}",
+                )
 
 
 def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
@@ -183,25 +201,6 @@ with st.sidebar:
 
     st.divider()
 
-    # Экспорт последней таблицы (CSV/XLSX) и всей истории (ZIP)
-    last_tables = [it for it in st.session_state["results"] if it.get("kind") == "table"]
-    if last_tables:
-        last_tbl = last_tables[-1].get("df_pl")
-        if isinstance(last_tbl, pl.DataFrame):
-            pdf = last_tbl.to_pandas()
-            st.subheader("Экспорт последней таблицы")
-            st.download_button(
-                "Скачать CSV",
-                data=_df_to_csv_bytes(pdf),
-                file_name="result.csv",
-                mime="text/csv",
-            )
-            st.download_button(
-                "Скачать XLSX",
-                data=_df_to_xlsx_bytes(pdf, "Result"),
-                file_name="result.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
     # Кнопка скачивания архива
 
     st.divider()
