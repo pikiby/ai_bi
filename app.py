@@ -121,9 +121,13 @@ def _render_result(item: dict):
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             # Делаем стабильные уникальные ключи для кнопок и читаемые имена файлов.
             ts = (item.get("ts") or "table").replace(":", "-")
-            col_a, col_b = st.columns(2)
 
-            with col_a:
+            try:
+                col_csv, col_xlsx, _ = st.columns([1, 1, 8], gap="small")  # Streamlit ≥1.25
+            except TypeError:
+                col_csv, col_xlsx, _ = st.columns([1, 1, 8])              # fallback для старых версий
+
+            with col_csv:
                 st.download_button(
                     "Скачать CSV",
                     data=_df_to_csv_bytes(pdf),
@@ -131,7 +135,7 @@ def _render_result(item: dict):
                     mime="text/csv",
                     key=f"dl_csv_{ts}",
                 )
-            with col_b:
+            with col_xlsx:
                 st.download_button(
                     "Скачать XLSX",
                     data=_df_to_xlsx_bytes(pdf, "Result"),
