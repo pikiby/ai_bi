@@ -330,7 +330,25 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (SQL): {e}")
 
     elif mode == "plotly":
-        exec_msgs = [{"role": "system", "content": prompts_map["plotly"]}] + st.session_state["messages"]
+         # 333-Новая: передаём модели подсказку со списком доступных колонок и их типами
+        cols_hint_msg = []
+        try:
+            if st.session_state.get("last_df") is not None:
+                _pdf = st.session_state["last_df"].to_pandas()
+                # Соберём компактную справку по колонкам для системы
+                cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
+                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                )
+                cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+        except Exception:
+            # Если по каким-то причинам last_df ещё не готов — просто не добавляем подсказку
+            cols_hint_msg = []
+
+        exec_msgs = (
+            [{"role": "system", "content": prompts_map["plotly"]}]
+            + cols_hint_msg
+            + st.session_state["messages"]
+        )
         try:
             final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
@@ -431,4 +449,70 @@ if user_input:
                     else:
                         st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
                 except Exception as e:
-                    st.error(f"Ошибка выполнения кода графика: {e}")
+                    # Если ошибка связана с выбором колонок (наш helper col(...) кинул KeyError),
+                    # попробуем один автоматический ретрай: напомним модели доступные колонки.
+                    err_text = str(e)
+                    needs_retry = isinstance(e, KeyError) or "Нет ни одной из колонок" in err_text
+
+                    if needs_retry:
+                        try:
+                            _pdf = st.session_state["last_df"].to_pandas()
+                            _cols_list = list(_pdf.columns)
+                            retry_hint = (
+                                "Ошибка выбора колонок при построении графика: "
+                                + err_text
+                                + "\nДоступные колонки: "
+                                + ", ".join(map(str, _cols_list))
+                                + "\nСгенерируй НОВЫЙ код для переменной fig, используя ТОЛЬКО эти имена через col(...)."
+                            )
+
+                            retry_msgs = (
+                                [{"role": "system", "content": prompts_map["plotly"]},
+                                 {"role": "system", "content": retry_hint}]
+                                + st.session_state["messages"]
+                            )
+                            retry_reply = client.chat.completions.create(
+                                model=OPENAI_MODEL,
+                                messages=retry_msgs,
+                                temperature=0,
+                            ).choices[0].message.content
+
+                            # Повторно ищем блок ```plotly``` и пытаемся исполнить
+                            m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
+                            if m_plotly_retry:
+                                code_retry = m_plotly_retry.group(1).strip()
+
+                                # Повторная базовая проверка безопасности
+                                code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
+                                code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
+                                code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
+                                if BANNED_RE.search(code_scan2):
+                                    st.error("Код графика (повтор) отклонён (запрещённые конструкции).")
+                                else:
+                                    # Выполняем повторный код в том же «песочном» окружении
+                                    # Собираем такое же безопасное окружение, как в первом запуске
+                                    safe_globals_retry = {
+                                        "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                                        "pd": pd,
+                                        "px": px,
+                                        "go": go,
+                                        "df": pdf,      # данные только для чтения
+                                        "col": col,
+                                        "has_col": has_col,
+                                        "COLS": COLS,
+                                    }
+                                    local_vars = {}
+                                    exec(code_retry, safe_globals_retry, local_vars)
+                                    fig = local_vars.get("fig")
+
+                                    if isinstance(fig, go.Figure):
+                                        _push_result("chart", fig=fig, meta={})
+                                        _render_result(st.session_state["results"][-1])
+                                    else:
+                                        st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
+                            else:
+                                st.error("Повтор: ассистент не вернул блок ```plotly```.")
+                        except Exception as e2:
+                            st.error(f"Повтор также не удался: {e2}")
+                    else:
+                        st.error(f"Ошибка выполнения кода графика: {e}")
