@@ -159,39 +159,27 @@ def _render_result(item: dict):
         fig = item.get("fig")
         if isinstance(fig, go.Figure):
             st.markdown("**График**")
-            st.plotly_chart(fig, use_container_width=True)
 
-            # --- Кнопки скачивания ИМЕННО этого графика ---
-            # Две широкие кнопки рядом слева: 40% + 40% + 20% (пустой «спейсер»), как у таблиц
+            # Включаем клиентскую кнопку PNG в тулбаре (иконка «камера»).
+            # Это работает без нихрена лишнего: Plotly в браузере сам сформирует PNG.
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config={
+                    "displaylogo": False,
+                    "toImageButtonOptions": {"format": "png", "scale": 2}  # PNG из браузера
+                },
+            )
+
+            # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
             ts = (item.get("ts") or "chart").replace(":", "-")
-
-            # HTML-графика (самодостаточная страница)
-            html_str = fig.to_html(include_plotlyjs="cdn", full_html=True)
-            html_bytes = html_str.encode("utf-8")
-
-            # PNG-графика (через kaleido)
-            png_bytes = None
-            try:
-                png_bytes = pio.to_image(fig, format="png", scale=2)  # scale=2 для чёткости
-            except Exception as _e:
-                # kaleido не установлен/не доступен — покажем мягкое сообщение
-                st.info("PNG недоступен: требуется пакет 'kaleido'. Добавьте его в requirements и перезапустите.")
+            html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
 
             try:
-                col_png, col_html, _ = st.columns([4, 4, 2], gap="small")
+                col_html, _ = st.columns([4, 8], gap="small")  # левая широкая кнопка + спейсер
             except TypeError:
-                col_png, col_html, _ = st.columns([4, 4, 2])
+                col_html, _ = st.columns([4, 8])
 
-            with col_png:
-                st.download_button(
-                    "Скачать PNG",
-                    data=(png_bytes or b""),
-                    file_name=f"chart_{ts}.png",
-                    mime="image/png",
-                    key=f"dl_png_{ts}",
-                    use_container_width=True,
-                    disabled=(png_bytes is None),
-                )
             with col_html:
                 st.download_button(
                     "Скачать HTML",
@@ -201,6 +189,8 @@ def _render_result(item: dict):
                     key=f"dl_html_{ts}",
                     use_container_width=True,
                 )
+            # Подсказка: PNG — через кнопку в тулбаре графика (без серверов и зависимостей)
+            st.caption("PNG: используйте значок камеры на самом графике.")
 
 
 def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
