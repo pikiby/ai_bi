@@ -173,7 +173,7 @@ def _render_result(item: dict):
 
             # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
             ts = (item.get("ts") or "chart").replace(":", "-")
-            html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
+            html_bytes = fig.to_html(include_plotlyjs=True, full_html=True).encode("utf-8")
 
             try:
                 col_html, _ = st.columns([4, 8], gap="small")  # левая широкая кнопка + спейсер
@@ -220,7 +220,7 @@ def _history_zip_bytes() -> bytes:
                     zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
             elif item["kind"] == "chart" and isinstance(item.get("fig"), go.Figure):
                 html_buf = io.StringIO()
-                item["fig"].write_html(html_buf, include_plotlyjs="cdn", full_html=True)
+                item["fig"].write_html(html_buf, include_plotlyjs=True, full_html=True)
                 zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
     return buf.getvalue()
 
