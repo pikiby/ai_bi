@@ -388,7 +388,7 @@ if user_input:
     # 3) Публикуем ответ ассистента в чат и сохраняем в историю
     st.session_state["messages"].append({"role": "assistant", "content": final_reply})
     # индекс этого сообщения ассистента (нужен для привязки результатов)
-    st.session_state["last_assistant_idx"] = len(st.session_state["messages"])
+    st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     with st.chat_message("assistant"):
         st.markdown(final_reply)
 
