@@ -20,3 +20,4 @@ polars
 pandas
 tabulate   # (для .to_markdown в превью)
 XlsxWriter
+kaleido>=0.2.1
