@@ -114,6 +114,13 @@ def _push_result(kind: str, df_pl: pl.DataFrame | None = None,
         "msg_idx": st.session_state.get("last_assistant_idx"),
     })
 
+def _fig_to_html_bytes(fig: go.Figure) -> bytes:
+    """Сделать самодостаточный HTML с фиксированной палитрой Plotly (без CSS темы Streamlit)."""
+    f = go.Figure(fig)  # копия, исходный fig не трогаем
+    # Жёстко задаём стандартный шаблон и цветовую последовательность Plotly
+    f.update_layout(template="plotly", colorway=px.colors.qualitative.Plotly)
+    return f.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
+
 
 def _render_result(item: dict):
     """
@@ -173,7 +180,7 @@ def _render_result(item: dict):
 
             # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
             ts = (item.get("ts") or "chart").replace(":", "-")
-            html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
+            html_bytes = _fig_to_html_bytes(fig)
 
             try:
                 col_html, _ = st.columns([4, 8], gap="small")  # левая широкая кнопка + спейсер
@@ -219,9 +226,7 @@ def _history_zip_bytes() -> bytes:
                 if sql:
                     zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
             elif item["kind"] == "chart" and isinstance(item.get("fig"), go.Figure):
-                html_buf = io.StringIO()
-                item["fig"].write_html(html_buf, include_plotlyjs="cdn", full_html=True)
-                zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
+                zf.writestr(f"{base}.html", _fig_to_html_bytes(item["fig"]))
     return buf.getvalue()
 
 
