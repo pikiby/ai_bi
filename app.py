@@ -25,6 +25,8 @@ import retriever
 import importlib
 import prompts
 
+pio.templates.default = "plotly"
+
 # ----------------------- Базовые настройки страницы -----------------------
 
 # Из уважения к предпочтениям — без emoji в иконке
@@ -164,10 +166,11 @@ def _render_result(item: dict):
             # Это работает без нихрена лишнего: Plotly в браузере сам сформирует PNG.
             st.plotly_chart(
                 fig,
+                theme=None,  # важно: не мешаем Streamlit-тему, чтобы цвета совпадали с экспортом
                 use_container_width=True,
                 config={
                     "displaylogo": False,
-                    "toImageButtonOptions": {"format": "png", "scale": 2}  # PNG из браузера
+                    "toImageButtonOptions": {"format": "png", "scale": 2}
                 },
             )
 
