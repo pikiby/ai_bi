@@ -6,9 +6,7 @@ import os
 import re
 import io
 import zipfile
-import subprocess
 from datetime import datetime
-import sys
 
 import streamlit as st
 import pandas as pd
@@ -176,6 +174,34 @@ def _extract_sql_info(sql: str | None, pdf: pd.DataFrame | None) -> dict:
 
     return info
 
+def _tables_index_hint() -> str:
+    """
+    Компактная «память» для модели: список ранее построенных таблиц с номерами,
+    заголовками (если уже задавались) и краткой выжимкой из SQL (источники и период).
+    Эту строку добавляем как system-сообщение перед роутером/SQL.
+    """
+    lines = []
+    for item in st.session_state.get("results", []):
+        if item.get("kind") != "table":
+            continue
+        n = _table_number_for(item)
+        meta = item.get("meta") or {}
+        title = (meta.get("title") or "").strip()
+        explain = (meta.get("explain") or "").strip()
+        sql = (meta.get("sql") or "").strip()
+        # Скармливаем модели только самое нужное: название/пояснение и выжимку о периоде/источниках
+        info = _extract_sql_info(sql, None)
+        src = ", ".join(info.get("tables") or [])
+        period = info.get("period") or "период не указан"
+        head = f"Таблица {n}"
+        if title:
+            head += f": {title}"
+        lines.append(f"{head}\nИсточник(и): {src or '—'}; Период: {period}\nSQL:\n{sql}\n")
+    if not lines:
+        return "Ранее таблицы не создавались."
+    return "Справка по ранее созданным таблицам:\n\n" + "\n".join(lines)
+
+
 def _render_result(item: dict):
     """
     Отрисовка одного элемента истории результатов.
@@ -187,33 +213,38 @@ def _render_result(item: dict):
         if isinstance(df_pl, pl.DataFrame):
             pdf = df_pl.to_pandas()
 
-            # --- Заголовок "Таблица N: ..." ---
+            # --- Заголовок из meta.title, fallback: старая эвристика ---
             n = _table_number_for(item)
-            sql = (item.get("meta") or {}).get("sql")
-            meta = _extract_sql_info(sql, pdf)
+            meta = item.get("meta") or {}
+            title = (meta.get("title") or "").strip()
+            explain = (meta.get("explain") or "").strip()
+            sql = (meta.get("sql") or "").strip()
 
-            # Компактный заголовок: если есть LIMIT → "Топ N", иначе — общая формулировка
-            if meta.get("limit"):
-                # Пытаемся угадать «ведущий» столбец (город, категория и т.д.), иначе просто "строк"
-                lead = None
-                for c in meta["columns"]:
-                    if re.search(r"(city|город|category|катег|product|товар|region|регион)", c, flags=re.IGNORECASE):
-                        lead = c
-                        break
-                sub = f'Топ {meta["limit"]}' + (f" (по {lead})" if lead else "")
-            else:
-                sub = "Результаты запроса"
+            if not title:
+                # Fallback: если модель не дала title — формируем «разумный» заголовок из LIMIT и колонок
+                info = _extract_sql_info(sql, pdf)
+                if info.get("limit"):
+                    lead = None
+                    for c in info["columns"]:
+                        if re.search(r"(city|город|category|катег|product|товар|region|регион|name|назв)", c, flags=re.IGNORECASE):
+                            lead = c; break
+                    title = f'Топ {info["limit"]}' + (f" по «{lead}»" if lead else "")
+                else:
+                    title = "Результаты запроса"
 
-            st.markdown(f"### Таблица {n}: {sub}")
+            st.markdown(f"### Таблица {n}: {title}")
 
             # --- Сама таблица ---
             st.dataframe(pdf)
 
-            # --- Краткая подпись под таблицей: источник, поля, период ---
-            src = ", ".join(meta["tables"]) if meta["tables"] else "не указан"
-            cols = ", ".join(meta["columns"]) if meta["columns"] else "—"
-            period = meta.get("period") or "период не указан"
-            st.caption(f"Источник: {src}. Поля: {cols}. Период: {period}.")
+            # --- Подпись под таблицей: prefer explain от модели; fallback — выжимка из SQL ---
+            if explain:
+                st.caption(explain)
+            else:
+                info = _extract_sql_info(sql, pdf)
+                src = ", ".join(info.get("tables") or []) or "источник не указан"
+                period = info.get("period") or "период не указан"
+                st.caption(f"Источник: {src}. Период: {period}.")
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             ts = (item.get("ts") or "table").replace(":", "-")
@@ -360,12 +391,6 @@ if st.session_state["messages"]:
                     if item.get("msg_idx") == i:
                         _render_result(item)
 
-# Рендер истории результатов (если есть)
-# if st.session_state["results"]:
-#     st.markdown("### История результатов")
-#     for item in st.session_state["results"]:
-#         _render_result(item)
-
 
 # Поле ввода внизу
 user_input = st.chat_input("Введите запрос…")
@@ -382,6 +407,7 @@ if user_input:
 
     # 1) Маршрутизация: ждём ровно ```mode ...``` где в тексте sql|rag|plotly
     router_msgs = (
+        [{"role": "system", "content": _tables_index_hint()}] +  # <<< новая «память» по таблицам
         [{"role": "system", "content": prompts_map["router"]}] +
         st.session_state["messages"]
     )
@@ -442,7 +468,8 @@ if user_input:
 
         # 2b) Финальный ответ/SQL с учётом контекста
         exec_msgs = (
-            [{"role": "system", "content": prompts_map["sql"]}] +  # <<< КЛЮЧЕВАЯ ЗАМЕНА
+            [{"role": "system", "content": _tables_index_hint()}] +  # <<< память
+            [{"role": "system", "content": prompts_map["sql"]}] +  # <<< как и было
             st.session_state["messages"] +
             [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по этому контексту. Если нужных таблиц нет — скажи об этом и не пиши SQL."}]
         )
@@ -457,7 +484,11 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
 
     elif mode == "sql":
-        exec_msgs = [{"role": "system", "content": prompts_map["sql"]}] + st.session_state["messages"]
+        exec_msgs = (
+            [{"role": "system", "content": _tables_index_hint()}] +  # <<< память
+            [{"role": "system", "content": prompts_map["sql"]}] +
+            st.session_state["messages"]
+        )
         try:
             final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
@@ -509,6 +540,14 @@ if user_input:
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_sql:
             sql = m_sql.group(1).strip()
+            # Пытаемся вытащить дополнительные блоки:
+            m_title = re.search(r"```title\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+            m_explain = re.search(r"```explain\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+            meta_extra = {
+                "sql": sql,
+                "title": (m_title.group(1).strip() if m_title else None),
+                "explain": (m_explain.group(1).strip() if m_explain else None),
+            }
             try:
                 ch = ClickHouse_client()
                 df_any = ch.query_run(sql)  # ожидается polars.DataFrame
@@ -520,7 +559,7 @@ if user_input:
 
                 st.session_state["last_df"] = df_pl
                 if df_pl is not None:
-                    _push_result("table", df_pl=df_pl, meta={"sql": sql})
+                    _push_result("table", df_pl=df_pl, meta=meta_extra)
                     _render_result(st.session_state["results"][-1])
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
