@@ -15,6 +15,7 @@ import pandas as pd
 import polars as pl
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio  # для to_image(fig, format="png")
 
 from openai import OpenAI
 from clickhouse_client import ClickHouse_client
@@ -119,6 +120,7 @@ def _render_result(item: dict):
     Отрисовка одного элемента истории результатов.
     """
     kind = item.get("kind")
+    # Блок для отрисовывания таблиц
     if kind == "table":
         df_pl = item.get("df_pl")
         if isinstance(df_pl, pl.DataFrame):
@@ -151,12 +153,54 @@ def _render_result(item: dict):
                     key=f"dl_xlsx_{ts}",
                     use_container_width=True,
                 )
-
+    
+    # Блок для отрисовывания чартов
     elif kind == "chart":
         fig = item.get("fig")
         if isinstance(fig, go.Figure):
             st.markdown("**График**")
             st.plotly_chart(fig, use_container_width=True)
+
+            # --- Кнопки скачивания ИМЕННО этого графика ---
+            # Две широкие кнопки рядом слева: 40% + 40% + 20% (пустой «спейсер»), как у таблиц
+            ts = (item.get("ts") or "chart").replace(":", "-")
+
+            # HTML-графика (самодостаточная страница)
+            html_str = fig.to_html(include_plotlyjs="cdn", full_html=True)
+            html_bytes = html_str.encode("utf-8")
+
+            # PNG-графика (через kaleido)
+            png_bytes = None
+            try:
+                png_bytes = pio.to_image(fig, format="png", scale=2)  # scale=2 для чёткости
+            except Exception as _e:
+                # kaleido не установлен/не доступен — покажем мягкое сообщение
+                st.info("PNG недоступен: требуется пакет 'kaleido'. Добавьте его в requirements и перезапустите.")
+
+            try:
+                col_png, col_html, _ = st.columns([4, 4, 2], gap="small")
+            except TypeError:
+                col_png, col_html, _ = st.columns([4, 4, 2])
+
+            with col_png:
+                st.download_button(
+                    "Скачать PNG",
+                    data=(png_bytes or b""),
+                    file_name=f"chart_{ts}.png",
+                    mime="image/png",
+                    key=f"dl_png_{ts}",
+                    use_container_width=True,
+                    disabled=(png_bytes is None),
+                )
+            with col_html:
+                st.download_button(
+                    "Скачать HTML",
+                    data=html_bytes,
+                    file_name=f"chart_{ts}.html",
+                    mime="text/html",
+                    key=f"dl_html_{ts}",
+                    use_container_width=True,
+                )
 
 
 def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
