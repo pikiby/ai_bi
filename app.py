@@ -116,6 +116,65 @@ def _push_result(kind: str, df_pl: pl.DataFrame | None = None,
         "msg_idx": st.session_state.get("last_assistant_idx"),
     })
 
+# Порядковый номер текущей таблицы среди уже отрисованных результатов.
+def _table_number_for(item: dict) -> int:
+    n = 0
+    for it in st.session_state.get("results", []):
+        if it.get("kind") == "table":
+            n += 1
+        if it is item:
+            break
+    return n
+
+
+# Достаём из SQL краткие сведения для подписи: таблицы, поля, период, лимит.
+# Всё максимально компактно и устойчиво к разным диалектам.
+def _extract_sql_info(sql: str | None, pdf: pd.DataFrame | None) -> dict:
+ 
+    if not sql:
+        sql = ""
+    info = {"tables": [], "columns": [], "period": None, "limit": None}
+
+    # Таблицы из FROM и JOIN
+    for pat in [r"\bFROM\s+([a-zA-Z0-9_.`\"]+)", r"\bJOIN\s+([a-zA-Z0-9_.`\"]+)"]:
+        info["tables"] += [m.group(1).strip("`\"") for m in re.finditer(pat, sql, flags=re.IGNORECASE)]
+
+    # Столбцы из SELECT, если удалось вычленить; иначе — первые 6 из датафрейма
+    m_sel = re.search(r"\bSELECT\s+(.*?)\bFROM\b", sql, flags=re.IGNORECASE | re.DOTALL)
+    cols = []
+    if m_sel:
+        raw = m_sel.group(1)
+        parts = [p.strip() for p in raw.split(",")]
+        for p in parts:
+            # Берём алиас после AS, иначе — хвостовое слово (напр. users.city → city)
+            m_as = re.search(r"\bAS\s+([a-zA-Z0-9_`\"]+)\b", p, flags=re.IGNORECASE)
+            if m_as:
+                c = m_as.group(1).strip("`\"")
+            else:
+                c = re.split(r"\s+", p)[-1]
+                c = c.split(".")[-1].strip("`\"")
+            # отфильтруем служебные * и функции
+            if c != "*" and re.match(r"^[a-zA-Z0-9_]+$", c or ""):
+                cols.append(c)
+    if not cols and isinstance(pdf, pd.DataFrame):
+        cols = list(pdf.columns[:6])
+    info["columns"] = cols[:10]  # верхняя граница на всякий случай
+
+    # Период: BETWEEN '...' AND '...' или пары сравнений с датой
+    m_bt = re.search(r"\bBETWEEN\s*'([^']+)'\s*AND\s*'([^']+)'", sql, flags=re.IGNORECASE)
+    if m_bt:
+        info["period"] = f"{m_bt.group(1)} — {m_bt.group(2)}"
+    else:
+        dates = re.findall(r"'(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2})?)'", sql)
+        if len(dates) >= 2:
+            info["period"] = f"{dates[0]} — {dates[1]}"
+
+    # LIMIT n
+    m_lim = re.search(r"\bLIMIT\s+(\d+)\b", sql, flags=re.IGNORECASE)
+    if m_lim:
+        info["limit"] = int(m_lim.group(1))
+
+    return info
 
 def _render_result(item: dict):
     """
@@ -126,9 +185,35 @@ def _render_result(item: dict):
     if kind == "table":
         df_pl = item.get("df_pl")
         if isinstance(df_pl, pl.DataFrame):
-            st.markdown("**Таблица**")
             pdf = df_pl.to_pandas()
+
+            # --- Заголовок "Таблица N: ..." ---
+            n = _table_number_for(item)
+            sql = (item.get("meta") or {}).get("sql")
+            meta = _extract_sql_info(sql, pdf)
+
+            # Компактный заголовок: если есть LIMIT → "Топ N", иначе — общая формулировка
+            if meta.get("limit"):
+                # Пытаемся угадать «ведущий» столбец (город, категория и т.д.), иначе просто "строк"
+                lead = None
+                for c in meta["columns"]:
+                    if re.search(r"(city|город|category|катег|product|товар|region|регион)", c, flags=re.IGNORECASE):
+                        lead = c
+                        break
+                sub = f'Топ {meta["limit"]}' + (f" (по {lead})" if lead else "")
+            else:
+                sub = "Результаты запроса"
+
+            st.markdown(f"### Таблица {n}: {sub}")
+
+            # --- Сама таблица ---
             st.dataframe(pdf)
+
+            # --- Краткая подпись под таблицей: источник, поля, период ---
+            src = ", ".join(meta["tables"]) if meta["tables"] else "не указан"
+            cols = ", ".join(meta["columns"]) if meta["columns"] else "—"
+            period = meta.get("period") or "период не указан"
+            st.caption(f"Источник: {src}. Поля: {cols}. Период: {period}.")
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             ts = (item.get("ts") or "table").replace(":", "-")
