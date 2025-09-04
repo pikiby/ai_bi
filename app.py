@@ -227,42 +227,33 @@ def _history_zip_bytes() -> bytes:
                 zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
     return buf.getvalue()
 
-
 # ----------------------- Сайдбар -----------------------
-
 with st.sidebar:
-    st.header("Данные / экспорт")
+    # Единственная кнопка — переиндексация базы знаний
+    # Комментарий: держим всё максимально компактно, без заголовков/разделителей,
+    #               статус и краткий итог показываем прямо под кнопкой.
+    if st.button("Переиндексировать базу", use_container_width=True):
+        start_ts = datetime.now()
+        with st.status("Индексируем…", expanded=False) as status:
+            try:
+                # Ленивая загрузка, чтобы не тянуть зависимости, пока кнопка не нажата
+                from ingest import run_ingest
 
-    # Кнопка пересоздания/обновления индекса базы знаний
-    with st.expander("Переиндексация базы знаний"):
-        if st.button("Запустить ingest.py"):
-            with st.status("Индексируем…", expanded=True) as status:
-                try:
-                    script_path = os.path.join(os.path.dirname(__file__), "ingest.py")
-                    proc = subprocess.run(
-                        [sys.executable, "ingest.py"],
-                        capture_output=True, text=True, check=False
-                    )
-                    st.code(proc.stdout or "(пусто)")
-                    if proc.returncode == 0:
-                        status.update(label="Готово", state="complete")
-                        st.success("Индекс обновлён.")
-                        st.rerun()  # сразу обновим интерфейс
-                    else:
-                        status.update(label="Ошибка", state="error")
-                        st.error(proc.stderr or "Неизвестная ошибка")
-                except Exception as e:
-                    st.error(f"Не удалось запустить ingest.py: {e}")
+                stats = run_ingest()  # запускаем индексацию и получаем сводку
+                dur = (datetime.now() - start_ts).total_seconds()
 
-    st.divider()
-
-    # Кнопка скачивания архива
-
-    st.divider()
-    if st.button("Очистить историю результатов"):
-        st.session_state["results"].clear()
-        st.session_state["last_df"] = None
-        st.rerun()
+                # Короткий итог без «воды»
+                status.update(label="Готово", state="complete")
+                st.success(
+                    f'Файлов: {stats.get("files", 0)} | '
+                    f'Чанков: {stats.get("chunks", 0)} | '
+                    f'Добавлено: {stats.get("added", 0)} | '
+                    f'{dur:.1f} c'
+                )
+            except Exception as e:
+                # Показываем краткую ошибку, чтобы не «шуметь» трейсами в интерфейсе
+                status.update(label="Ошибка", state="error")
+                st.error(f"Индексирование не удалось: {e}")
 
 # ----------------------- Основной layout -----------------------
 
