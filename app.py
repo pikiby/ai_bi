@@ -109,7 +109,8 @@ def _push_result(kind: str, df_pl: pl.DataFrame | None = None,
         "ts": datetime.now().isoformat(timespec="seconds"),
         "df_pl": df_pl,     # polars.DataFrame (для таблицы/экспорта)
         "fig": fig,         # plotly.graph_objects.Figure (для графика/экспорта)
-        "meta": meta or {}
+        "meta": meta or {},
+        "msg_idx": st.session_state.get("last_assistant_idx"),
     })
 
 
@@ -237,9 +238,14 @@ if _prompts_warn:
 
 # Рендер существующей истории чата
 if st.session_state["messages"]:
-    for m in st.session_state["messages"]:
+    for i, m in enumerate(st.session_state["messages"]):
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
+            if m["role"] == "assistant":
+                # >>> все результаты, привязанные к этому ответу
+                for item in st.session_state["results"]:
+                    if item.get("msg_idx") == i:
+                        _render_result(item)
 
 # Рендер истории результатов (если есть)
 # if st.session_state["results"]:
@@ -381,6 +387,8 @@ if user_input:
 
     # 3) Публикуем ответ ассистента в чат и сохраняем в историю
     st.session_state["messages"].append({"role": "assistant", "content": final_reply})
+    # индекс этого сообщения ассистента (нужен для привязки результатов)
+    st.session_state["last_assistant_idx"] = len(st.session_state["messages"])
     with st.chat_message("assistant"):
         st.markdown(final_reply)
 
