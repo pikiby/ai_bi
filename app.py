@@ -28,7 +28,7 @@ pio.templates.default = "plotly"
 # ----------------------- Базовые настройки страницы -----------------------
 
 # Из уважения к предпочтениям — без emoji в иконке
-st.set_page_config(page_title="AI SQL Assistant")
+st.set_page_config(page_title="Ассистент аналитики")
 
 # ----------------------- Константы окружения -----------------------
 
@@ -401,7 +401,43 @@ with st.sidebar:
 
 # ----------------------- Основной layout -----------------------
 
-st.title("AI SQL Assistant")
+# Красивый стартовый блок с кратким описанием и быстрыми действиями.
+# Появляется только если чат ещё пуст, чтобы не загромождать интерфейс во время работы.
+if not st.session_state.get("messages"):
+    with st.container():
+        # Небольшой «hero»-блок с мягким градиентом и скруглением
+        st.markdown(
+            """
+            <div style="padding:16px;border:1px solid #E5E7EB;border-radius:16px;
+                        background:linear-gradient(180deg,#ffffff 0%, #fafafa 100%);">
+              <div style="font-size:22px;font-weight:700;margin-bottom:6px;">
+                Ассистент аналитики: база знаний + SQL
+              </div>
+              <div style="color:#4b5563;line-height:1.5;margin-bottom:12px;">
+                Отвечает по базе знаний (RAG) и строит корректные SQL-запросы к вашей БД.
+                Начните с одного из быстрых вариантов ниже.
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        c1, c2 = st.columns([1, 1], gap="small")
+
+        with c1:
+            # Быстрый старт для RAG: простая формулировка запроса к базе знаний
+            if st.button("Сделать запрос к базе знаний", use_container_width=True):
+                q = ("Дай краткое резюме из базы знаний по метрике конверсии: определение, "
+                     "формула расчёта и типичные источники данных (3–5 пунктов).")
+                # Добавляем пользовательское сообщение в историю и перезапускаем, чтобы сработал обычный пайплайн
+                st.session_state.setdefault("messages", []).append({"role": "user", "content": q})
+                st.rerun()
+
+        with c2:
+            # Быстрый старт для SQL: шаблон частого «топ N» (по умолчанию — агрегирование)
+            if st.button("Простой SQL-запрос", use_container_width=True):
+                q = "Сделай топ 10 городов по количеству новых пользователей за последние 30 дней."
+                st.session_state.setdefault("messages", []).append({"role": "user", "content": q})
+                st.rerun()
 
 # Предупреждения о пропущенных блоках промптов (если есть)
 _prompts_map, _prompts_warn = _reload_prompts()
