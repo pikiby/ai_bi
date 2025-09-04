@@ -8,6 +8,9 @@
 ## Назначение
 Ежедневная статистика оплат в мобильном приложении по платформам и ценовым категориям, включая возвраты (App Store и ЮKassa). Для месячных отчётов суммируйте значения за дни месяца.
 
+**Терминология:** под «сумма оплат» понимается выражение `IOS_PL + Android_PL`.
+
+
 ## Хранилище и движок
 - БД: `db1`
 - Таблица: `mobile_report_rep_mobile_full`
@@ -100,7 +103,22 @@ ORDER BY partner_uuid
 
 ## Примеры запросов (с алиасами)
 
-1) Итог по платформам за последнюю дату:
+
+4) Сумма оплат за месяц (агрегирование по дням):
+```sql
+WITH month_bounds AS (
+  SELECT toDate('2025-08-01') AS m_start, addMonths(toDate('2025-08-01'), 1) AS m_end
+)
+SELECT
+  t.partner_uuid AS `идентификатор партнёра`,
+  sum(t.IOS_PL + t.Android_PL) AS `сумма оплат за месяц`
+FROM db1.mobile_report_rep_mobile_full AS t
+CROSS JOIN month_bounds
+WHERE t.report_date >= m_start AND t.report_date < m_end
+GROUP BY t.partner_uuid;
+```
+
+1) Сумма оплат за последнюю дату:
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
@@ -108,11 +126,11 @@ WITH max_dt AS (
 )
 SELECT
   t.partner_uuid AS `идентификатор партнёра`,
-  t.IOS_PL     AS `iOS: сумма платежей за день`,
-  t.Android_PL AS `Android: сумма платежей за день`
+  (t.IOS_PL + t.Android_PL) AS `сумма оплат за день`
 FROM db1.mobile_report_rep_mobile_full AS t
 INNER JOIN max_dt USING(report_date);
 ```
+
 
 2) Месячный отчёт (сумма за август 2025):
 ```sql
