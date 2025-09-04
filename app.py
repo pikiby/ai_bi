@@ -15,7 +15,7 @@ import pandas as pd
 import polars as pl
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.io as pio  # для to_image(fig, format="png")
+import plotly.io as pio  # экспорт PNG/SVG через kaleido
 
 from openai import OpenAI
 from clickhouse_client import ClickHouse_client
@@ -159,23 +159,28 @@ def _render_result(item: dict):
         fig = item.get("fig")
         if isinstance(fig, go.Figure):
             st.markdown("**График**")
-            st.plotly_chart(fig, use_container_width=True)
+            # Отрисовка с кнопкой камеры в тулбаре на всякий случай
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config={"displaylogo": False, "toImageButtonOptions": {"format": "png", "scale": 2}},
+            )
 
             # --- Кнопки скачивания ИМЕННО этого графика ---
-            # Две широкие кнопки рядом слева: 40% + 40% + 20% (пустой «спейсер»), как у таблиц
+            # Две широкие кнопки слева: 40% + 40% + 20% (спейсер), как у таблиц
             ts = (item.get("ts") or "chart").replace(":", "-")
 
-            # HTML-графика (самодостаточная страница)
-            html_str = fig.to_html(include_plotlyjs="cdn", full_html=True)
-            html_bytes = html_str.encode("utf-8")
+            # HTML (самодостаточная страница)
+            html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
 
-            # PNG-графика (через kaleido)
+            # PNG через kaleido (если не установлен/сломался — покажем понятную причину)
             png_bytes = None
+            png_err = None
             try:
-                png_bytes = pio.to_image(fig, format="png", scale=2)  # scale=2 для чёткости
-            except Exception as _e:
-                # kaleido не установлен/не доступен — покажем мягкое сообщение
-                st.info("PNG недоступен: требуется пакет 'kaleido'. Добавьте его в requirements и перезапустите.")
+                # Явно просим движок kaleido; scale=2 для чёткости
+                png_bytes = fig.to_image(format="png", scale=2, engine="kaleido")
+            except Exception as e:
+                png_err = str(e)
 
             try:
                 col_png, col_html, _ = st.columns([4, 4, 2], gap="small")
@@ -192,6 +197,10 @@ def _render_result(item: dict):
                     use_container_width=True,
                     disabled=(png_bytes is None),
                 )
+                if png_err:
+                    # Покажем настоящую причину, а не обобщённое сообщение
+                    st.caption(f"PNG недоступен: {png_err}")
+
             with col_html:
                 st.download_button(
                     "Скачать HTML",
@@ -232,6 +241,12 @@ def _history_zip_bytes() -> bytes:
                 html_buf = io.StringIO()
                 item["fig"].write_html(html_buf, include_plotlyjs="cdn", full_html=True)
                 zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
+                # Попробуем PNG
+                try:
+                    png = item["fig"].to_image(format="png", scale=2, engine="kaleido")
+                    zf.writestr(f"{base}.png", png)
+                except Exception:
+                    pass  # если Kaleido недоступен — просто пропустим PNG
     return buf.getvalue()
 
 
