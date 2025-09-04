@@ -203,21 +203,19 @@ def _tables_index_hint() -> str:
 
 def _strip_llm_blocks(text: str) -> str:
     """
-    Удаляет из ответа модели служебные блоки:
-    ```title ...```, ```explain ...```, ```sql ...``` (и, на всякий случай, ```rag ...```),
-    чтобы эти куски не дублировались в чате. Всё остальное оставляем как есть.
+    Удаляет служебные блоки из ответа модели:
+    ```title```, ```explain```, ```sql```, ```rag```, а также код для графиков
+    из ```python```/```plotly``` — чтобы не дублировать их в чате.
     """
     if not text:
         return text
-    # Удаляем по типам тройных бэктиков
-    for tag in ("title", "explain", "sql", "rag"):
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
             text,
             flags=re.IGNORECASE | re.DOTALL,
         )
-    # Схлопываем лишние пустые строки
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
 
@@ -327,9 +325,18 @@ def _render_result(item: dict):
             except TypeError:
                 col_html, _ = st.columns([4, 8])
 
+            # --- Свернутый блок с исходным кодом Plotly (по кнопке) ---
+            meta = item.get("meta") or {}
+            plotly_src = (meta.get("plotly_code") or "").strip()
+            with st.expander("Показать код Plotly", expanded=False):
+                if plotly_src:
+                    st.code(plotly_src, language="python")
+                else:
+                    st.caption("Код недоступен для этого графика.")
+
             with col_html:
                 st.download_button(
-                    "Скачать интерактивный график",
+                    "Скачать график",
                     data=html_bytes,
                     file_name=f"chart_{ts}.html",
                     mime="text/html",
@@ -629,7 +636,9 @@ if user_input:
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-        if m_plotly:
+        m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
+        if plotly_code:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
@@ -685,7 +694,7 @@ if user_input:
 
                         fig = local_vars.get("fig")
                         if isinstance(fig, go.Figure):
-                            _push_result("chart", fig=fig, meta={})
+                            _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
                             _render_result(st.session_state["results"][-1])
                         else:
                             st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
@@ -747,7 +756,7 @@ if user_input:
                                         fig = local_vars.get("fig")
 
                                         if isinstance(fig, go.Figure):
-                                            _push_result("chart", fig=fig, meta={})
+                                            _push_result("chart", fig=fig, meta={"plotly_code": code_retry})
                                             _render_result(st.session_state["results"][-1])
                                         else:
                                             st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
