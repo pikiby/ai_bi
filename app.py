@@ -162,23 +162,43 @@ def _render_result(item: dict):
 
             # Включаем клиентскую кнопку PNG в тулбаре (иконка «камера»).
             # Это работает без нихрена лишнего: Plotly в браузере сам сформирует PNG.
+        # --- Готовим «показ/экспортную» копию и раскрашиваем монохромные трейсы ---
+            fig_show = go.Figure(fig)  # не трогаем исходный fig из истории
+            palette = px.colors.qualitative.Plotly
+            # частые «монохромные» значения, которые задаёт модель
+            _mono = {None, "black", "#000", "#000000", "grey", "gray", "#888", "#808080"}
+
+            for i, tr in enumerate(fig_show.data):
+                # line.color для Scatter/Bar и пр.
+                if hasattr(tr, "line"):
+                    c = getattr(tr.line, "color", None)
+                    if c in _mono:
+                        tr.line.color = palette[i % len(palette)]
+                # marker.color для Bar/Scatter и пр.
+                if hasattr(tr, "marker"):
+                    c = getattr(tr.marker, "color", None)
+                    if c in _mono:
+                        tr.marker.color = palette[i % len(palette)]
+                # градиенты (heatmap/choropleth) — даём цветовою шкалу, если не задана или моно
+                if hasattr(tr, "colorscale"):
+                    cs = getattr(tr, "colorscale", None)
+                    if cs in _mono or cs is None:
+                        tr.colorscale = "Viridis"
+
+            # Цветной шаблон + палитра по умолчанию
+            fig_show.update_layout(template="plotly", colorway=palette)
+
+            # Показ в приложении без наложения темы Streamlit
             st.plotly_chart(
-                fig,
+                fig_show,
                 use_container_width=True,
                 config={"displaylogo": False, "toImageButtonOptions": {"format": "png", "scale": 2}},
-                theme=None,  # <<< не накладываем монохромную тему Streamlit на фигуру
+                theme=None,
             )
 
-            # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
+            # --- Кнопка «Скачать HTML» (самодостаточный файл, со встроенным plotly.js) ---
             ts = (item.get("ts") or "chart").replace(":", "-")
-            # Делаем копию и принудительно задаём цветной шаблон/палитру
-            fig_export = go.Figure(fig)
-            fig_export.update_layout(template="plotly", colorway=px.colors.qualitative.Plotly)
-            # (необязательно, но полезно для heatmap/choropleth без явной шкалы)
-            for tr in fig_export.data:
-                if hasattr(tr, "colorscale") and getattr(tr, "colorscale", None) is None:
-                    tr.colorscale = "Viridis"
-            html_bytes = fig_export.to_html(include_plotlyjs=True, full_html=True).encode("utf-8")
+            html_bytes = fig_show.to_html(include_plotlyjs=True, full_html=True).encode("utf-8")
 
             try:
                 col_html, _ = st.columns([4, 8], gap="small")  # левая широкая кнопка + спейсер
@@ -194,7 +214,7 @@ def _render_result(item: dict):
                     key=f"dl_html_{ts}",
                     use_container_width=True,
                 )
-            # Подсказка: PNG — через кнопку в тулбаре графика (без серверов и зависимостей)
+
             st.caption("PNG: используйте значок камеры на самом графике.")
 
 
