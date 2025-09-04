@@ -165,15 +165,20 @@ def _render_result(item: dict):
             st.plotly_chart(
                 fig,
                 use_container_width=True,
-                config={
-                    "displaylogo": False,
-                    "toImageButtonOptions": {"format": "png", "scale": 2}  # PNG из браузера
-                },
+                config={"displaylogo": False, "toImageButtonOptions": {"format": "png", "scale": 2}},
+                theme=None,  # <<< не накладываем монохромную тему Streamlit на фигуру
             )
 
             # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
             ts = (item.get("ts") or "chart").replace(":", "-")
-            html_bytes = fig.to_html(include_plotlyjs=True, full_html=True).encode("utf-8")
+            # Делаем копию и принудительно задаём цветной шаблон/палитру
+            fig_export = go.Figure(fig)
+            fig_export.update_layout(template="plotly", colorway=px.colors.qualitative.Plotly)
+            # (необязательно, но полезно для heatmap/choropleth без явной шкалы)
+            for tr in fig_export.data:
+                if hasattr(tr, "colorscale") and getattr(tr, "colorscale", None) is None:
+                    tr.colorscale = "Viridis"
+            html_bytes = fig_export.to_html(include_plotlyjs=True, full_html=True).encode("utf-8")
 
             try:
                 col_html, _ = st.columns([4, 8], gap="small")  # левая широкая кнопка + спейсер
@@ -219,8 +224,14 @@ def _history_zip_bytes() -> bytes:
                 if sql:
                     zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
             elif item["kind"] == "chart" and isinstance(item.get("fig"), go.Figure):
+                # Копия фигуры с цветным шаблоном для корректного HTML
+                fig_export = go.Figure(item["fig"])
+                fig_export.update_layout(template="plotly", colorway=px.colors.qualitative.Plotly)
+                for tr in fig_export.data:
+                    if hasattr(tr, "colorscale") and getattr(tr, "colorscale", None) is None:
+                        tr.colorscale = "Viridis"
                 html_buf = io.StringIO()
-                item["fig"].write_html(html_buf, include_plotlyjs=True, full_html=True)
+                fig_export.write_html(html_buf, include_plotlyjs=True, full_html=True)
                 zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
     return buf.getvalue()
 
