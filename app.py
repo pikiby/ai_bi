@@ -201,6 +201,26 @@ def _tables_index_hint() -> str:
         return "Ранее таблицы не создавались."
     return "Справка по ранее созданным таблицам:\n\n" + "\n".join(lines)
 
+def _strip_llm_blocks(text: str) -> str:
+    """
+    Удаляет из ответа модели служебные блоки:
+    ```title ...```, ```explain ...```, ```sql ...``` (и, на всякий случай, ```rag ...```),
+    чтобы эти куски не дублировались в чате. Всё остальное оставляем как есть.
+    """
+    if not text:
+        return text
+    # Удаляем по типам тройных бэктиков
+    for tag in ("title", "explain", "sql", "rag"):
+        text = re.sub(
+            rf"```{tag}\s*.*?```",
+            "",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    # Схлопываем лишние пустые строки
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
 
 def _render_result(item: dict):
     """
@@ -245,6 +265,14 @@ def _render_result(item: dict):
                 src = ", ".join(info.get("tables") or []) or "источник не указан"
                 period = info.get("period") or "период не указан"
                 st.caption(f"Источник: {src}. Период: {period}.")
+            
+            # --- Свернутый блок с SQL запроса (по кнопке) ---
+            sql = (meta.get("sql") or "").strip()
+            with st.expander("Показать SQL", expanded=False):
+                if sql:
+                    st.code(sql, language="sql")
+                else:
+                    st.caption("SQL недоступен для этой таблицы.")
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             ts = (item.get("ts") or "table").replace(":", "-")
@@ -534,7 +562,10 @@ if user_input:
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     with st.chat_message("assistant"):
-        st.markdown(final_reply)
+        # Не показываем служебные блоки title/explain/sql — они теперь рендерятся у таблицы
+        cleaned = _strip_llm_blocks(final_reply)
+        if cleaned:
+            st.markdown(cleaned)
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
