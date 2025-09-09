@@ -551,10 +551,14 @@ if user_input:
 
         # 2b) Финальный ответ/SQL с учётом контекста
         exec_msgs = (
-            [{"role": "system", "content": _tables_index_hint()}] +  # <<< память
-            [{"role": "system", "content": prompts_map["sql"]}] +  # <<< как и было
-            st.session_state["messages"] +
-            [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nОтвечай кратко и строго по этому контексту. Если нужных таблиц нет — скажи об этом и не пиши SQL."}]
+            [{"role": "system", "content": _tables_index_hint()}]
+            + [
+                {"role": "system", "content": prompts_map["sql"]},
+                {"role": "system", "content": "Если пользователь просит визуализацию (график/диаграмму), верни сразу после блока ```sql``` ещё и блок ```plotly```."},
+                {"role": "system", "content": prompts_map["plotly"]},
+            ]
+            + st.session_state["messages"]
+            + [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nИнструкции: строго придерживайся контексту. Если нужных таблиц нет — скажи об этом и не пиши SQL."}]
         )
         try:
             final_reply = client.chat.completions.create(
@@ -568,9 +572,14 @@ if user_input:
 
     elif mode == "sql":
         exec_msgs = (
-            [{"role": "system", "content": _tables_index_hint()}] +  # <<< память
-            [{"role": "system", "content": prompts_map["sql"]}] +
-            st.session_state["messages"]
+            [{"role": "system", "content": _tables_index_hint()}]
+            + [
+                {"role": "system", "content": prompts_map["sql"]},
+                # Небольшой мост: объясняем, что график — в той же реплике
+                {"role": "system", "content": "Если пользователь просит визуализацию (график/диаграмму), верни сразу после блока ```sql``` ещё и блок ```plotly```."},
+                {"role": "system", "content": prompts_map["plotly"]},
+            ]
+            + st.session_state["messages"]
         )
         try:
             final_reply = client.chat.completions.create(
