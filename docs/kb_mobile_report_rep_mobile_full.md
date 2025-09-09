@@ -1,5 +1,8 @@
 # «Оплаты мобильного приложения в день» — db1.mobile_report_rep_mobile_full
 
+Tags: #KnowledgeBase
+Links: [[mobile_report_rep_mobile_full]]
+
 ## Названия таблицы
 
 **Короткое имя (человекочитаемое):** Оплаты мобильного приложения в день  
