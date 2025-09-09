@@ -1,7 +1,17 @@
+---
+id: table_mobile_report_rep_mobile_full
+title: Оплаты мобильного приложения в день
+db: db1
+short_description: "Ежедневная статистика оплат в мобильном приложении по платформам и ценовым категориям; включает возвраты (App Store и ЮKassa). Для месячных отчётов суммируйте значения за дни месяца."
+synonyms:
+- оплаты мобильного приложения
+- платежи App Store
+- платежи ЮKassa
+- мобильный iOS
+- мобильный Android
+type: table
+---
 # «Оплаты мобильного приложения в день» — db1.mobile_report_rep_mobile_full
-
-Tags: #KnowledgeBase
-Links: [[mobile_report_rep_mobile_full]]
 
 ## Названия таблицы
 
@@ -61,43 +71,44 @@ ORDER BY partner_uuid
 ```
 
 ## Поля и алиасы
-| Поле                              | Тип     | Алиас (человекочитаемое)                           |
-|---                                |---      |---                                                 |
-| `report_date`                     | `Date`  | `дата отчёта`                                      |
-| `partner_uuid`                    | `String`| `идентификатор партнёра`                           |
-| `city`                            | `String`| `название города`                                  |
-| `IOS_PL`                          | `Int64` | `iOS: сумма платежей за день`                      |
-| `appstore_count_85`               | `UInt64`| `App Store: покупок 85 за день`                    |
-| `appstore_count_85_refunded`      | `UInt64`| `App Store: возвратов 85 за день`                  |
-| `appstore_count_69`               | `UInt64`| `App Store: покупок 69 за день`                    |
-| `appstore_count_69_refunded`      | `UInt64`| `App Store: возвратов 69 за день`                  |
-| `appstore_count_499`              | `UInt64`| `App Store: покупок 499 за день`                   |
-| `appstore_count_499_refunded`     | `UInt64`| `App Store: возвратов 499 за день`                 |
-| `appstore_count_2390`             | `UInt64`| `App Store: покупок 2390 за день`                  |
-| `appstore_count_2390_refunded`    | `UInt64`| `App Store: возвратов 2390 за день`                |
-| `appstore_count_1`                | `UInt64`| `App Store: покупок 1 за день`                     |
-| `appstore_count_1_refunded`       | `UInt64`| `App Store: возвратов 1 за день`                   |
-| `refunded_amount_appstore`        | `Int64` | `App Store: сумма возвратов за день`               |
-| `Android_PL`                      | `Int64` | `Android: сумма платежей за день`                  |
-| `yookassa_count_85`               | `UInt64`| `ЮKassa: оплат 85 за день`                         |
-| `yookassa_count_85_refunded`      | `UInt64`| `ЮKassa: возвратов 85 за день`                     |
-| `yookassa_count_69`               | `UInt64`| `ЮKassa: оплат 69 за день`                         |
-| `yookassa_count_69_refunded`      | `UInt64`| `ЮKassa: возвратов 69 за день`                     |
-| `yookassa_count_35`               | `UInt64`| `ЮKassa: оплат 35 за день`                         |
-| `yookassa_count_35_refunded`      | `UInt64`| `ЮKassa: возвратов 35 за день`                     |
-| `yookassa_count_1`                | `UInt64`| `ЮKassa: оплат 1 за день`                          |
-| `yookassa_count_1_refunded`       | `UInt64`| `ЮKassa: возвратов 1 за день`                      |
-| `yookassa_count_499`              | `UInt64`| `ЮKassa: оплат 499 за день`                        |
-| `yookassa_count_499_refunded`     | `UInt64`| `ЮKassa: возвратов 499 за день`                    |
-| `yookassa_count_249`              | `UInt64`| `ЮKassa: оплат 249 за день`                        |
-| `yookassa_count_249_refunded`     | `UInt64`| `ЮKassa: возвратов 249 за день`                    |
-| `yookassa_count_2390`             | `UInt64`| `ЮKassa: оплат 2390 за день`                       |
-| `yookassa_count_2390_refunded`    | `UInt64`| `ЮKassa: возвратов 2390 за день`                   |
-| `refunded_amount_yookassa`        | `Int64` | `ЮKassa: сумма возвратов за день`                  |
+| Поле                           | Тип      | Алиас (человекочитаемое)             |
+| ------------------------------ | -------- | ------------------------------------ |
+| `report_date`                  | `Date`   | `дата отчёта`                        |
+| `partner_uuid`                 | `String` | `идентификатор партнёра`             |
+| `city`                         | `String` | `название города`                    |
+| `IOS_PL`                       | `Int64`  | `iOS: сумма платежей за день`        |
+| `appstore_count_85`            | `UInt64` | `App Store: покупок 85 за день`      |
+| `appstore_count_85_refunded`   | `UInt64` | `App Store: возвратов 85 за день`    |
+| `appstore_count_69`            | `UInt64` | `App Store: покупок 69 за день`      |
+| `appstore_count_69_refunded`   | `UInt64` | `App Store: возвратов 69 за день`    |
+| `appstore_count_499`           | `UInt64` | `App Store: покупок 499 за день`     |
+| `appstore_count_499_refunded`  | `UInt64` | `App Store: возвратов 499 за день`   |
+| `appstore_count_2390`          | `UInt64` | `App Store: покупок 2390 за день`    |
+| `appstore_count_2390_refunded` | `UInt64` | `App Store: возвратов 2390 за день`  |
+| `appstore_count_1`             | `UInt64` | `App Store: покупок 1 за день`       |
+| `appstore_count_1_refunded`    | `UInt64` | `App Store: возвратов 1 за день`     |
+| `refunded_amount_appstore`     | `Int64`  | `App Store: сумма возвратов за день` |
+| `Android_PL`                   | `Int64`  | `Android: сумма платежей за день`    |
+| `yookassa_count_85`            | `UInt64` | `ЮKassa: оплат 85 за день`           |
+| `yookassa_count_85_refunded`   | `UInt64` | `ЮKassa: возвратов 85 за день`       |
+| `yookassa_count_69`            | `UInt64` | `ЮKassa: оплат 69 за день`           |
+| `yookassa_count_69_refunded`   | `UInt64` | `ЮKassa: возвратов 69 за день`       |
+| `yookassa_count_35`            | `UInt64` | `ЮKassa: оплат 35 за день`           |
+| `yookassa_count_35_refunded`   | `UInt64` | `ЮKassa: возвратов 35 за день`       |
+| `yookassa_count_1`             | `UInt64` | `ЮKassa: оплат 1 за день`            |
+| `yookassa_count_1_refunded`    | `UInt64` | `ЮKassa: возвратов 1 за день`        |
+| `yookassa_count_499`           | `UInt64` | `ЮKassa: оплат 499 за день`          |
+| `yookassa_count_499_refunded`  | `UInt64` | `ЮKassa: возвратов 499 за день`      |
+| `yookassa_count_249`           | `UInt64` | `ЮKassa: оплат 249 за день`          |
+| `yookassa_count_249_refunded`  | `UInt64` | `ЮKassa: возвратов 249 за день`      |
+| `yookassa_count_2390`          | `UInt64` | `ЮKassa: оплат 2390 за день`         |
+| `yookassa_count_2390_refunded` | `UInt64` | `ЮKassa: возвратов 2390 за день`     |
+| `refunded_amount_yookassa`     | `Int64`  | `ЮKassa: сумма возвратов за день`    |
 
 > Примечание к ценам 85/69/499/2390/249/35/1: единицы соответствуют исходным транзакциям; при необходимости уточните валюту/номинал.
 
 ## Частые срезы/фильтры
+- Сумма оплат = IOS_PL + ANDROID_PL
 - По дате: `report_date`
 - По партнёру: `partner_uuid`
 - По городу: `city`
@@ -172,3 +183,8 @@ LIMIT 10;
 - Данные — **за день** (не накопительные). Для месячных значений агрегируйте по датам месяца (например, `sum(...)` с фильтром по месяцу).
 - NULL-политика/дефолты и источники данных не описаны.
 - Партиционирование не указано в DDL.
+
+<!-- ai-ignore:start -->
+Tags: #KnowledgeBase
+Links: [[mobile_report_rep_mobile_full]]
+<!-- ai-ignore:end -->
