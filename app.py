@@ -102,7 +102,7 @@ def _reload_prompts():
         ),
         "sql": _get(
             "RULES_SQL",
-            "Режим SQL. Верни лаконичный ответ с одним блоком ```sql ...``` и не добавляй ничего лишнего."
+            "Режим SQL. Верни лаконичный ответ с одним блоком ```sql-run ...```"
         ),
         "rag": _get(
             "RULES_RAG",
@@ -110,7 +110,7 @@ def _reload_prompts():
         ),
         "plotly": _get(
             "RULES_PLOTLY",
-            "Режим PLOTLY. Верни ровно один блок ```plotly``` с кодом, создающим переменную fig."
+            "Режим PLOTLY. Верни ровно один блок ```plotly-run``` с кодом, создающим fig."
         ),
     }
     return p_map, warn
@@ -227,7 +227,7 @@ def _strip_llm_blocks(text: str) -> str:
     """
     if not text:
         return text
-    for tag in ("title", "explain", "sql", "rag", "python", "plotly"):
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "sql-run", "python-run", "plotly-run"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
@@ -660,7 +660,7 @@ if user_input:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                code = m_plotly.group(1).strip()
+                code = m_plotly
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
@@ -746,8 +746,7 @@ if user_input:
                                 ).choices[0].message.content
 
                                 # Повторно ищем блок ```plotly``` и пытаемся исполнить
-                                m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
-                                if m_plotly_retry:
+                                m_plotly_retry = re.search(r"```plotly-run\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
                                     code_retry = m_plotly_retry.group(1).strip()
 
                                     # Повторная базовая проверка безопасности
@@ -755,7 +754,7 @@ if user_input:
                                     code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
                                     if BANNED_RE.search(code_scan2):
-                                        st.error("Код графика (повтор) отклонён (запрещённые конструкции).")
+                                        st.error("Повтор: ассистент не вернул блок ```plotly-run```.")
                                     else:
                                         # Выполняем повторный код в том же «песочном» окружении
                                         # Собираем такое же безопасное окружение, как в первом запуске
