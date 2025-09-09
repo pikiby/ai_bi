@@ -36,6 +36,24 @@ CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")   # было, веро�
 COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")  # было, вероятно: "kb_default"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
+# --- Авто-индексация при старте (однократно на процесс) ---
+# Включается флагом окружения: KB_AUTO_INGEST_ON_START=1
+@st.cache_resource  # гарантирует запуск ровно один раз на процесс Streamlit
+def _auto_ingest_once():
+    from ingest import run_ingest  # ленивый импорт, чтобы не тянуть зависимости зря
+    return run_ingest()
+
+if os.getenv("KB_AUTO_INGEST_ON_START", "0") == "1":
+    try:
+        stats = _auto_ingest_once()
+        # Короткое уведомление в сайдбар без «воды»
+        st.sidebar.success(
+            f'Индекс обновлён: файлов {stats.get("files",0)}, '
+            f'чанков {stats.get("chunks",0)}, добавлено {stats.get("added",0)}'
+        )
+    except Exception as e:
+        st.sidebar.error(f"Автоиндексация не удалась: {e}")
+
 
 # ----------------------- Клиент OpenAI -----------------------
 

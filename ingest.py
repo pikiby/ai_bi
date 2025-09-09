@@ -139,7 +139,7 @@ def run_ingest(
         return {"files": len(docs), "chunks": 0, "added": 0}
 
     # добавляем документы БЕЗ явных embeddings — Chroma посчитает сама
-    collection.add(
+    collection.upsert(
         ids=[x["id"] for x in payload],
         documents=[x["text"] for x in payload],
         metadatas=[{"source": x["source"], "path": x["path"]} for x in payload],
