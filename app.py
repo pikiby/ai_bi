@@ -102,7 +102,7 @@ def _reload_prompts():
         ),
         "sql": _get(
             "RULES_SQL",
-            "Режим SQL. Верни лаконичный ответ с одним блоком ```sql-run ...```"
+            "Режим SQL. Верни лаконичный ответ с одним блоком ```sql ...``` и не добавляй ничего лишнего."
         ),
         "rag": _get(
             "RULES_RAG",
@@ -110,7 +110,7 @@ def _reload_prompts():
         ),
         "plotly": _get(
             "RULES_PLOTLY",
-            "Режим PLOTLY. Верни ровно один блок ```plotly-run``` с кодом, создающим fig."
+            "Режим PLOTLY. Верни ровно один блок ```plotly``` с кодом, создающим переменную fig."
         ),
     }
     return p_map, warn
@@ -227,7 +227,7 @@ def _strip_llm_blocks(text: str) -> str:
     """
     if not text:
         return text
-    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "sql-run", "python-run", "plotly-run"):
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
@@ -623,7 +623,7 @@ if user_input:
             st.markdown(cleaned)
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
-        m_sql = re.search(r"```sql-run\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_sql:
             sql = m_sql.group(1).strip()
             # Пытаемся вытащить дополнительные блоки:
@@ -653,14 +653,14 @@ if user_input:
                 st.error(f"Ошибка выполнения SQL: {e}")
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
-        m_plotly = re.search(r"```plotly-run\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-        m_python = re.search(r"```python-run\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
         if plotly_code:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                code = plotly_code 
+                code = m_plotly.group(1).strip()
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
@@ -715,7 +715,7 @@ if user_input:
                             _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
                             _render_result(st.session_state["results"][-1])
                         else:
-                            st.error("Ожидается, что код в ```plotly-run```/```python-run``` создаст переменную fig (plotly.graph_objects.Figure).")
+                            st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
                     except Exception as e:
                         # Если ошибка связана с выбором колонок (наш helper col(...) кинул KeyError),
                         # попробуем один автоматический ретрай: напомним модели доступные колонки.
@@ -746,17 +746,16 @@ if user_input:
                                 ).choices[0].message.content
 
                                 # Повторно ищем блок ```plotly``` и пытаемся исполнить
-                                m_plotly_retry = re.search(r"```plotly-run\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
-                                if not m_plotly_retry:
-                                    st.error("Повтор: ассистент не вернул блок ```plotly-run```.")
-                                else:
+                                m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
+                                if m_plotly_retry:
                                     code_retry = m_plotly_retry.group(1).strip()
-                                    # ↓ дальше ваша проверка/exec для code_retry
+
+                                    # Повторная базовая проверка безопасности
                                     code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
-                                    code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_retry)
+                                    code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
                                     if BANNED_RE.search(code_scan2):
-                                        st.error("Повтор: код отклонён (запрещённые конструкции).")
+                                        st.error("Код графика (повтор) отклонён (запрещённые конструкции).")
                                     else:
                                         # Выполняем повторный код в том же «песочном» окружении
                                         # Собираем такое же безопасное окружение, как в первом запуске
@@ -779,6 +778,8 @@ if user_input:
                                             _render_result(st.session_state["results"][-1])
                                         else:
                                             st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
+                                else:
+                                    st.error("Повтор: ассистент не вернул блок ```plotly```.")
                             except Exception as e2:
                                 st.error(f"Повтор также не удался: {e2}")
                         else:
