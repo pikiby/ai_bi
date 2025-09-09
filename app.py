@@ -660,7 +660,7 @@ if user_input:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                code = m_plotly
+                code = plotly_code 
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
@@ -715,7 +715,7 @@ if user_input:
                             _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
                             _render_result(st.session_state["results"][-1])
                         else:
-                            st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
+                            st.error("Ожидается, что код в ```plotly-run```/```python-run``` создаст переменную fig (plotly.graph_objects.Figure).")
                     except Exception as e:
                         # Если ошибка связана с выбором колонок (наш helper col(...) кинул KeyError),
                         # попробуем один автоматический ретрай: напомним модели доступные колонки.
@@ -747,14 +747,16 @@ if user_input:
 
                                 # Повторно ищем блок ```plotly``` и пытаемся исполнить
                                 m_plotly_retry = re.search(r"```plotly-run\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
+                                if not m_plotly_retry:
+                                    st.error("Повтор: ассистент не вернул блок ```plotly-run```.")
+                                else:
                                     code_retry = m_plotly_retry.group(1).strip()
-
-                                    # Повторная базовая проверка безопасности
+                                    # ↓ дальше ваша проверка/exec для code_retry
                                     code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
-                                    code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
+                                    code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_retry)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
                                     if BANNED_RE.search(code_scan2):
-                                        st.error("Повтор: ассистент не вернул блок ```plotly-run```.")
+                                        st.error("Повтор: код отклонён (запрещённые конструкции).")
                                     else:
                                         # Выполняем повторный код в том же «песочном» окружении
                                         # Собираем такое же безопасное окружение, как в первом запуске
