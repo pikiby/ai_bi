@@ -623,7 +623,7 @@ if user_input:
             st.markdown(cleaned)
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
-        m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        m_sql = re.search(r"```sql-run\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_sql:
             sql = m_sql.group(1).strip()
             # Пытаемся вытащить дополнительные блоки:
@@ -653,8 +653,8 @@ if user_input:
                 st.error(f"Ошибка выполнения SQL: {e}")
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
-        m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-        m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        m_plotly = re.search(r"```plotly-run\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        m_python = re.search(r"```python-run\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
         if plotly_code:
             if st.session_state["last_df"] is None:
