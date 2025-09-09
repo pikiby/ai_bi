@@ -779,8 +779,6 @@ if user_input:
                                             _render_result(st.session_state["results"][-1])
                                         else:
                                             st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
-                                else:
-                                    st.error("Повтор: ассистент не вернул блок ```plotly```.")
                             except Exception as e2:
                                 st.error(f"Повтор также не удался: {e2}")
                         else:
