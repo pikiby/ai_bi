@@ -4,11 +4,14 @@ title: Подъезды УК
 url: https://datalens.yandex.cloud/30n2r023pay0o-podezdy-uk
 short_description: "Адресный отчёт по подъездам УК/ТСЖ: квартиры, пользователи, платящие, подписки, выручка."
 synonyms:
-- подъезды
-- адресный фонд
-- управляющие компании
-- ТСЖ
+  - подъезды
+  - адресный фонд
+  - управляющие компании
+  - ТСЖ
 type: dashboard
+tags:
+  - KnowledgeBase
+source: "[[d_uk_adresses_subscribtions]]"
 ---
 # Отчёт по подъездам УК/ТСЖ
 
@@ -48,8 +51,3 @@ type: dashboard
 - Где список УК с контактами?
 - Как найти ТСЖ с максимальным числом подписок?
 - Можно ли получить ссылку на отчёт уже с фильтром по УК «Х»?
-
-<!-- ai-ignore:start -->
-Tags: #KnowledgeBase 
-Links: [[dh_Подъезды УК]]
-<!-- ai-ignore:end -->
