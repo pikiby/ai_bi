@@ -25,6 +25,20 @@ import prompts
 
 pio.templates.default = "plotly"
 
+
+def _ask_openai(messages: list[dict], model: str, temperature: float = 0.0) -> str:
+    """
+    Унифицированный вызов модели через Responses API.
+    Принимает тот же список сообщений, что и Chat Completions.
+    Возвращает чистый текстовый ответ (output_text).
+    """
+    resp = client.responses.create(
+        model=model,
+        input=messages,
+        temperature=temperature,
+    )
+    return resp.output_text or ""
+
 # ----------------------- Базовые настройки страницы -----------------------
 
 # Из уважения к предпочтениям — без emoji в иконке
@@ -495,11 +509,11 @@ if user_input:
         st.session_state["messages"]
     )
     try:
-        route = client.chat.completions.create(
+        route = _ask_openai(
             model=OPENAI_MODEL,
             messages=router_msgs,
-            temperature=0.0,
-        ).choices[0].message.content
+            temperature=0.1,
+        )
     except Exception as e:
         route = "```mode\nsql\n```"
         st.warning(f"Роутер недоступен, переключаюсь в 'sql': {e}")
@@ -516,11 +530,11 @@ if user_input:
         # 2a) Просим краткий RAG-запрос (блок ```rag ...```)
         rag_msgs = [{"role": "system", "content": prompts_map["rag"]}] + st.session_state["messages"]
         try:
-            rag_draft = client.chat.completions.create(
+            rag_draft = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=rag_msgs,
-                temperature=0.2,
-            ).choices[0].message.content
+                temperature=0.1,
+            )
         except Exception as e:
             rag_draft = ""
             st.error(f"Не удалось получить RAG-запрос: {e}")
@@ -561,11 +575,11 @@ if user_input:
             + [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nИнструкции: строго придерживайся контексту. Если нужных таблиц нет — скажи об этом и не пиши SQL."}]
         )
         try:
-            final_reply = client.chat.completions.create(
+            final_reply = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
-                temperature=0.2,
-            ).choices[0].message.content
+                temperature=0.1,
+            )
         except Exception as e:
             final_reply = "Не удалось получить ответ в режиме RAG."
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
@@ -582,11 +596,11 @@ if user_input:
             + st.session_state["messages"]
         )
         try:
-            final_reply = client.chat.completions.create(
+            final_reply = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
-                temperature=0.2,
-            ).choices[0].message.content
+                temperature=0.1,
+            )
         except Exception as e:
             final_reply = "Не удалось получить ответ в режиме SQL."
             st.error(f"Ошибка на шаге ответа (SQL): {e}")
@@ -612,11 +626,11 @@ if user_input:
             + st.session_state["messages"]
         )
         try:
-            final_reply = client.chat.completions.create(
+            final_reply = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
-                temperature=0.2,
-            ).choices[0].message.content
+                temperature=0.1,
+            )
         except Exception as e:
             final_reply = "Не удалось получить код графика."
             st.error(f"Ошибка на шаге ответа (Plotly): {e}")
@@ -748,11 +762,11 @@ if user_input:
                                     {"role": "system", "content": retry_hint}]
                                     + st.session_state["messages"]
                                 )
-                                retry_reply = client.chat.completions.create(
+                                retry_reply = _ask_openai(
                                     model=OPENAI_MODEL,
                                     messages=retry_msgs,
-                                    temperature=0,
-                                ).choices[0].message.content
+                                    temperature=0.0,
+                                )
 
                                 # Повторно ищем блок ```plotly``` и пытаемся исполнить
                                 m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
