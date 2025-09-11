@@ -613,11 +613,20 @@ if user_input:
                     )
                 
                 # Дедупликация по документу (одна запись на источник)
+                seen = set()            # ← fix: инициализируем множество источников
+                unique_hits = []        # ← fix: аккумулируем уникальные хиты
+
                 for h in hits:
                     src = (h.get("source") or h.get("path") or "").strip().lower()
-                    if src and src not in seen:
-                        unique_hits.append(h)
-                        seen.add(src)
+                    if src:
+                        if src not in seen:
+                            unique_hits.append(h)
+                            seen.add(src)
+                    else:
+                        # элементы без source/path (например, наш «каталог» из docs/) тоже сохраняем
+                        if h.get("text"):
+                            unique_hits.append(h)
+
                 hits = unique_hits
             except Exception as e:
                 st.warning(f"Не удалось получить контекст из базы знаний: {e}")
@@ -752,7 +761,8 @@ if user_input:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                code = m_plotly.group(1).strip()
+                # fix: если модель вернула ```python```, а не ```plotly```
+                code = (m_plotly.group(1) if m_plotly else m_python.group(1)).strip()
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
