@@ -10,6 +10,8 @@ synonyms:
 - мобильный iOS
 - мобильный Android
 type: table
+tags: #KnowledgeBase
+source: [[mobile_report_rep_mobile_full]]
 ---
 # «Оплаты мобильного приложения в день» — db1.mobile_report_rep_mobile_full
 
@@ -105,8 +107,10 @@ ORDER BY partner_uuid
 | `yookassa_count_2390_refunded` | `UInt64` | `ЮKassa: возвратов 2390 за день`     |
 | `refunded_amount_yookassa`     | `Int64`  | `ЮKassa: сумма возвратов за день`    |
 
-> Примечание к ценам 85/69/499/2390/249/35/1: единицы соответствуют исходным транзакциям; при необходимости уточните валюту/номинал.
+## Примечания
 
+  -Примечание к ценам 85/69/499/2390/249/35/1: единицы соответствуют исходным транзакциям; при необходимости уточните валюту/номинал.
+  -Примечание по дате.** Поле даты в этой таблице — `report_date`. Используйте его в фильтрах/агрегациях (`WHERE`, `GROUP BY`, `max(report_date)`).
 ## Частые срезы/фильтры
 - Сумма оплат = IOS_PL + ANDROID_PL
 - По дате: `report_date`
@@ -184,8 +188,3 @@ LIMIT 10;
 - NULL-политика/дефолты и источники данных не описаны.
 - Партиционирование не указано в DDL.
 - Это b2c платежи. Не b2b
-
-<!-- ai-ignore:start -->
-Tags: #KnowledgeBase
-Links: [[mobile_report_rep_mobile_full]]
-<!-- ai-ignore:end -->
