@@ -204,7 +204,50 @@ def _dashboards_catalog_from_docs(doc_dir: str = KB_DOCS_DIR) -> str:
 
     return "\n".join(items) if items else "В базе знаний дашборды не найдены."
 
+def _tables_catalog_from_docs(doc_dir: str = KB_DOCS_DIR) -> str:
+    """
+    Читает front matter у *.md и возвращает список таблиц:
+    «Название — `db.table` — краткое описание».
+    Без PyYAML: берём поля простыми регексами +fallback извлечение db.table из текста.
+    """
+    items = []
+    for fp in glob.glob(f"{doc_dir}/*.md"):
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                s = f.read()
+        except Exception:
+            continue
 
+        m = re.search(r"^---\s*(.*?)\s*---", s, re.DOTALL | re.MULTILINE)
+        if not m:
+            continue
+        fm = m.group(1)
+
+        def _field(name: str) -> str:
+            mm = re.search(rf"^{name}:\s*(.+)$", fm, re.MULTILINE)
+            return (mm.group(1).strip().strip('"\'')) if mm else ""
+
+        if (_field("type") or "").lower() != "table":
+            continue
+
+        title = _field("title") or fp.split("/")[-1]
+        desc  = _field("short_description")
+        fqtn  = _field("db_table") or _field("table")  # поддержим оба варианта
+
+        if not fqtn:
+            # fallback: ищем первое упоминание db.table в тексте
+            m2 = re.search(r"\b([a-z0-9_]+)\.([a-z0-9_]+)\b", s, re.IGNORECASE)
+            if m2:
+                fqtn = f"{m2.group(1)}.{m2.group(2)}"
+
+        line = f"- {title}"
+        if fqtn:
+            line += f" — `{fqtn}`"
+        if desc:
+            line += f" — {desc}"
+        items.append(line)
+
+    return "\n".join(items) if items else "В базе знаний таблицы не найдены."
 
 # Достаём из SQL краткие сведения для подписи: таблицы, поля, период, лимит.
 # Всё максимально компактно и устойчиво к разным диалектам.
@@ -594,15 +637,30 @@ if user_input:
         hits = []
         if rag_query:
             try:
-                LIST_INTENT_RE = re.compile(r"\b(перечисли|какие\s+есть|все\s+доступные|дашборд\w*|dashboard\w*)\b", re.IGNORECASE)
+                LIST_INTENT_RE = re.compile(r"\b(перечисли|список|каталог|какие\s+есть|все\s+доступные|ресурсы|дашборд\w*|dashboard\w*|таблиц\w*)\b", re.IGNORECASE)
                 if LIST_INTENT_RE.search(rag_query):
-                    # 🔎 Запрошен список — даём каталог из docs/ без эмбеддинг-поиска
-                    catalog = _dashboards_catalog_from_docs(KB_DOCS_DIR)
-                    hits = [{"text": catalog}]  # единый контекст из каталога
-                    # Подскажем модели не писать SQL:
+                    ql = rag_query.lower()
+                    ask_dash = ("дашбор" in ql or "dashboard" in ql)
+                    ask_tab  = ("таблиц" in ql or "table" in ql)
+
+                    # Если явно просили только один тип — фильтруем; иначе показываем оба.
+                    parts = []
+                    if not ask_tab or (ask_dash and not ask_tab):
+                        d = _dashboards_catalog_from_docs(KB_DOCS_DIR)
+                        if d.strip():
+                            parts.append("Дашборды:\n" + d)
+                    if not ask_dash or (ask_tab and not ask_dash):
+                        t = _tables_catalog_from_docs(KB_DOCS_DIR)
+                        if t.strip():
+                            parts.append("Таблицы (доступны для SQL):\n" + t)
+
+                    catalog = "\n\n".join([p for p in parts if p.strip()]) or "В каталоге нет ресурсов."
+                    hits = [{"text": catalog}]  # единый контекст из полного каталога
+
+                    # Нейтральная системная подсказка: не ограничиваемся дашбордами
                     st.session_state["messages"].append({
                         "role": "system",
-                        "content": "Пользователь просит перечислить дашборды. Ответь списком, без SQL."
+                        "content": "Пользователь просит перечислить ресурсы. Ответь списком. Для дашбордов — ссылка (если есть), для таблиц — полное имя `db.table`. SQL не выводи."
                     })
                 else:
                     k = 10
