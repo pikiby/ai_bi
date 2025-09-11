@@ -612,10 +612,23 @@ if user_input:
 
     m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
     mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
-    if mode not in {"sql", "rag", "plotly"}:
+    if mode not in {"sql", "rag", "plotly", "catalog"}:
         mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
 
     final_reply = ""
+
+    if mode == "catalog":
+        d = _dashboards_catalog_from_docs(KB_DOCS_DIR)   # уже есть у вас
+        t = _tables_catalog_from_docs(KB_DOCS_DIR)       # ваша функция для таблиц
+        catalog = "\n\n".join([
+            "Дашборды:\n" + (d.strip() or "не найдены."),
+            "Таблицы (доступны для SQL):\n" + (t.strip() or "не найдены."),
+        ])
+        final_reply = catalog
+        st.session_state["messages"].append({"role": "assistant", "content": final_reply})
+        with st.chat_message("assistant"):
+            st.markdown(final_reply)
+        st.stop()
 
     # 2) Выполнение по выбранному режиму
     if mode == "rag":
@@ -637,38 +650,12 @@ if user_input:
         hits = []
         if rag_query:
             try:
-                LIST_INTENT_RE = re.compile(r"\b(перечисли|список|каталог|какие\s+есть|все\s+доступные|ресурсы|дашборд\w*|dashboard\w*|таблиц\w*)\b", re.IGNORECASE)
-                if LIST_INTENT_RE.search(rag_query):
-                    ql = rag_query.lower()
-                    ask_dash = ("дашбор" in ql or "dashboard" in ql)
-                    ask_tab  = ("таблиц" in ql or "table" in ql)
-
-                    # Если явно просили только один тип — фильтруем; иначе показываем оба.
-                    parts = []
-                    if not ask_tab or (ask_dash and not ask_tab):
-                        d = _dashboards_catalog_from_docs(KB_DOCS_DIR)
-                        if d.strip():
-                            parts.append("Дашборды:\n" + d)
-                    if not ask_dash or (ask_tab and not ask_dash):
-                        t = _tables_catalog_from_docs(KB_DOCS_DIR)
-                        if t.strip():
-                            parts.append("Таблицы (доступны для SQL):\n" + t)
-
-                    catalog = "\n\n".join([p for p in parts if p.strip()]) or "В каталоге нет ресурсов."
-                    hits = [{"text": catalog}]  # единый контекст из полного каталога
-
-                    # Нейтральная системная подсказка: не ограничиваемся дашбордами
-                    st.session_state["messages"].append({
-                        "role": "system",
-                        "content": "Пользователь просит перечислить ресурсы. Ответь списком. Для дашбордов — ссылка (если есть), для таблиц — полное имя `db.table`. SQL не выводи."
-                    })
-                else:
-                    k = 10
-                    hits = retriever.retrieve(
-                        rag_query, k=k,
-                        chroma_path=CHROMA_PATH,
-                        collection_name=COLLECTION_NAME,
-                    )
+                k = 10
+                hits = retriever.retrieve(
+                    rag_query, k=k,
+                    chroma_path=CHROMA_PATH,
+                    collection_name=COLLECTION_NAME,
+                )
                 
                 # Дедупликация по документу (одна запись на источник)
                 seen = set()            # ← fix: инициализируем множество источников
