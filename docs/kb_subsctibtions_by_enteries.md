@@ -60,23 +60,23 @@ ORDER BY report_date;
 ```
 
 ## Поля и алиасы
-| Поле                          | Тип     | Алиас (человекочитаемое)                  |
-| ----------------------------- | ------- | ----------------------------------------- |
-| `report_date`                 | Date    | Дата                                      |
-| `full_address`                | String  | Полный адрес                              |
-| `city`                        | String  | Город                                     |
-| `installation_point_id`       | Int64   | ID точки установки/узла                   |
-| `flats_count`                 | Int16   | Количество квартир по БД                  |
-| `flats_count_range`           | Int16   | Количество квартир (диапазон от партнёра) |
-| `address_uuid`                | String  | Идентификатор подъезда (главный юнит)     |
-| `partner_uuid`                | String  | Идентификатор партнёра                    |
-| `subscribed_citizen_id_count` | UInt64  | Подписок в подъезде                       |
-| `tariff_full`                 | String  | Тариф (полное наименование)               |
-| `company_name`                | String  | Название фирмы                            |
-| `tin`                         | String  | ИНН                                       |
-| `partner_lk`                  | String  | Личный кабинет                            |
-| `subscribtion_rate`           | Float64 | Доля подписанных от `flats_count`         |
-| `subscribtion_rate_range`     | Float64 | Доля подписанных от `flats_count_range`   |
+| Поле                          | Тип     | Алиас (человекочитаемое)                   |
+| ----------------------------- | ------- | -----------------------------------------  |
+| `report_date`                 | Date    | `Дата отчета`                              |
+| `full_address`                | String  | `Полный адрес`                             |
+| `city`                        | String  | `Город`                                    |
+| `installation_point_id`       | Int64   | `ID точки установки/узла`                  |
+| `flats_count`                 | Int16   | `Количество квартир по БД`                 |
+| `flats_count_range`           | Int16   | `Количество квартир (диапазон от партнёра)`|
+| `address_uuid`                | String  | `Идентификатор подъезда (главный юнит)`    |
+| `partner_uuid`                | String  | `Идентификатор партнёра`                   |
+| `subscribed_citizen_id_count` | UInt64  | `Подписок в подъезде`                      |
+| `tariff_full`                 | String  | `Тариф (полное наименование)`              |
+| `company_name`                | String  | `Название фирмы`                           |
+| `tin`                         | String  | `ИНН`                                      |
+| `partner_lk`                  | String  | `Личный кабинет`                           |
+| `subscribtion_rate`           | Float64 | `Доля подписанных от flats_count`          |
+| `subscribtion_rate_range`     | Float64 | `Доля подписанных от flats_count_range`    |
 
 > Примечания к полям:  
 > - `address_uuid` — **главный юнит**, адрес конкретного подъезда.  
