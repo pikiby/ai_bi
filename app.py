@@ -29,14 +29,24 @@ pio.templates.default = "plotly"
 def _ask_openai(messages: list[dict], model: str, temperature: float = 0.0) -> str:
     """
     Унифицированный вызов модели через Responses API.
-    Принимает тот же список сообщений, что и Chat Completions.
-    Возвращает чистый текстовый ответ (output_text).
+    Для семейств, где temperature не поддерживается (gpt-5*, o3*, o4*), не передаём его.
+    Для gpt-5 дополнительно задаём компактный стиль ответа.
     """
-    resp = client.responses.create(
-        model=model,
-        input=messages,
-        temperature=temperature,
-    )
+    args = {
+        "model": model,
+        "input": messages,
+    }
+
+    # Температура поддерживается не всеми моделями Responses API.
+    # Для gpt-5 / o3 / o4 и т.п. параметр не передаём вовсе.
+    low_model = (model or "").lower()
+    if not (low_model.startswith("gpt-5") or low_model.startswith("o3") or low_model.startswith("o4")):
+        args["temperature"] = temperature
+    else:
+        # Не обязательно, но полезно для дисциплины ответа gpt-5
+        args["extra_body"] = {"reasoning_effort": "minimal", "verbosity": "low"}
+
+    resp = client.responses.create(**args)
     return resp.output_text or ""
 
 # ----------------------- Базовые настройки страницы -----------------------
