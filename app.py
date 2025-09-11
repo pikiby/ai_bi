@@ -44,7 +44,7 @@ def _ask_openai(messages: list[dict], model: str, temperature: float = 0.0) -> s
         args["temperature"] = temperature
     else:
         # Не обязательно, но полезно для дисциплины ответа gpt-5
-        args["extra_body"] = {"reasoning_effort": "minimal", "verbosity": "low"}
+        args["reasoning"] = {"effort": "low"}
 
     resp = client.responses.create(**args)
     return resp.output_text or ""
