@@ -555,12 +555,22 @@ if user_input:
         hits = []
         if rag_query:
             try:
-                k = 40 if re.search(r"(перечисли|все\s+доступные\s+ресурсы|какие\s+есть\s+(?:таблицы|дашборды)|каталог|список)", rag_query.lower()) else 10
+                LIST_INTENT_RE = re.compile(r"\b(перечисли|список|каталог|какие\s+есть|все\s+доступные|дашборды|таблицы)\b",re.IGNORECASE)
+                k = 100 if LIST_INTENT_RE.search(rag_query) else 10
                 hits = retriever.retrieve(
                     rag_query, k=k,
                     chroma_path=CHROMA_PATH,
                     collection_name=COLLECTION_NAME,
                 )
+                unique_hits, seen = [], set()
+                
+                # Дедупликация по документу (одна запись на источник)
+                for h in hits:
+                    src = (h.get("source") or h.get("path") or "").strip().lower()
+                    if src and src not in seen:
+                        unique_hits.append(h)
+                        seen.add(src)
+                hits = unique_hits
             except Exception as e:
                 st.warning(f"Не удалось получить контекст из базы знаний: {e}")
 
