@@ -555,8 +555,9 @@ if user_input:
         hits = []
         if rag_query:
             try:
+                k = 40 if re.search(r"(перечисли|все\s+доступные\s+ресурсы|какие\s+есть\s+(?:таблицы|дашборды)|каталог|список)", rag_query.lower()) else 10
                 hits = retriever.retrieve(
-                    rag_query, k=5,
+                    rag_query, k=k,
                     chroma_path=CHROMA_PATH,
                     collection_name=COLLECTION_NAME,
                 )
