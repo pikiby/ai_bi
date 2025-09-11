@@ -23,6 +23,9 @@ import retriever
 import importlib
 import prompts
 
+import glob 
+
+KB_DOCS_DIR = os.getenv("KB_DOCS_DIR", "docs")  # путь к Markdown c базой знаний
 pio.templates.default = "plotly"
 
 
@@ -165,6 +168,42 @@ def _table_number_for(item: dict) -> int:
         if it is item:
             break
     return n
+
+def _dashboards_catalog_from_docs(doc_dir: str = KB_DOCS_DIR) -> str:
+    """
+    Читает front matter у *.md и возвращает список дашбордов (title + url + short_description).
+    Без зависимостей (yaml), парсим простым регексом.
+    """
+    items = []
+    for fp in glob.glob(f"{doc_dir}/*.md"):
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                s = f.read()
+        except Exception:
+            continue
+
+        m = re.search(r"^---\s*(.*?)\s*---", s, re.DOTALL | re.MULTILINE)
+        if not m:
+            continue
+        fm = m.group(1)
+
+        def _field(name: str) -> str:
+            mm = re.search(rf"^{name}:\s*(.+)$", fm, re.MULTILINE)
+            return (mm.group(1).strip().strip('"\'')) if mm else ""
+
+        if (_field("type") or "").lower() != "dashboard":
+            continue
+
+        title = _field("title") or fp.split("/")[-1]
+        url   = _field("url")
+        desc  = _field("short_description")
+        line  = f"- «{title}»" + (f" — {desc}" if desc else "")
+        if url:
+            line += f"\n  Ссылка: {url}"
+        items.append(line)
+
+    return "\n".join(items) if items else "В базе знаний дашборды не найдены."
+
 
 
 # Достаём из SQL краткие сведения для подписи: таблицы, поля, период, лимит.
@@ -555,14 +594,23 @@ if user_input:
         hits = []
         if rag_query:
             try:
-                LIST_INTENT_RE = re.compile(r"\b(перечисли|список|каталог|какие\s+есть|все\s+доступные|дашборды|таблицы)\b",re.IGNORECASE)
-                k = 100 if LIST_INTENT_RE.search(rag_query) else 10
-                hits = retriever.retrieve(
-                    rag_query, k=k,
-                    chroma_path=CHROMA_PATH,
-                    collection_name=COLLECTION_NAME,
-                )
-                unique_hits, seen = [], set()
+                LIST_INTENT_RE = re.compile(r"\b(перечисли|какие\s+есть|все\s+доступные|дашборд\w*|dashboard\w*)\b", re.IGNORECASE)
+                if LIST_INTENT_RE.search(rag_query):
+                    # 🔎 Запрошен список — даём каталог из docs/ без эмбеддинг-поиска
+                    catalog = _dashboards_catalog_from_docs(KB_DOCS_DIR)
+                    hits = [{"text": catalog}]  # единый контекст из каталога
+                    # Подскажем модели не писать SQL:
+                    st.session_state["messages"].append({
+                        "role": "system",
+                        "content": "Пользователь просит перечислить дашборды. Ответь списком, без SQL."
+                    })
+                else:
+                    k = 10
+                    hits = retriever.retrieve(
+                        rag_query, k=k,
+                        chroma_path=CHROMA_PATH,
+                        collection_name=COLLECTION_NAME,
+                    )
                 
                 # Дедупликация по документу (одна запись на источник)
                 for h in hits:
