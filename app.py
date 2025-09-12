@@ -845,12 +845,17 @@ if user_input:
                         COLS = list(pdf.columns)  # можно подсветить пользователю доступные имена
 
                         safe_globals = {
-                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                            "__builtins__": {
+                                "len": len, "range": range, "min": min, "max": max,
+                                "dict": dict, "list": list, "tuple": tuple, "set": set,
+                                "sum": sum, "abs": abs, "round": round, "sorted": sorted,
+                                "enumerate": enumerate, "zip": zip,
+                            },
                             "pd": pd,
                             "px": px,
                             "go": go,
-                            "df": pdf,   # исходные данные (только чтение)
-                            "col": col,  # <<< добавили
+                            "df": pdf,
+                            "col": col,
                             "has_col": has_col,
                             "COLS": COLS,
                         }
