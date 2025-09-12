@@ -15,11 +15,11 @@ tags:
   - "#KnowledgeBase"
 ---
 
-# «Подписки и квартиры по подъездам» — db1.t_subsctibtions_by_enteries
+# «Подписки и квартиры по подъездам» — t_subsctibtions_by_enteries
 
 ## Названия таблицы
 **Короткое имя (человекочитаемое):** Подписки и Квартиры по подъездам  
-**Тех. имя:** `db1.t_subsctibtions_by_enteries`
+**Тех. имя:** `t_subsctibtions_by_enteries`
 
 ## Назначение
 Таблица даёт ежедневный срез по подъездам (unit = `address_uuid`): число квартир, число подписок и показатели проникновения (по фактическому и партнёрскому диапазону квартир). Используется для аналитики проникновения, контроля качества справочников и мониторинга партнёров.
@@ -37,7 +37,7 @@ tags:
 
 ## DDL
 ```sql
-CREATE TABLE db1.t_subsctibtions_by_enteries
+CREATE TABLE t_subsctibtions_by_enteries
 (
     `report_date` Date,
     `full_address` String,
@@ -106,7 +106,7 @@ ORDER BY report_date;
 ```sql
 WITH last_dt AS (
   SELECT report_date
-  FROM db1.t_subsctibtions_by_enteries
+  FROM t_subsctibtions_by_enteries
   GROUP BY report_date
   HAVING sum(subscribed_citizen_id_count) > 0
   ORDER BY report_date DESC
@@ -119,7 +119,7 @@ SELECT
   sum(t.subscribed_citizen_id_count)       AS `подписок`,
   sum(t.flats_count)                       AS `квартир (факт)`,
   `подписок` / nullIf(`квартир (факт)`, 0) AS `доля подписки`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 INNER JOIN last_dt USING (report_date)
 GROUP BY t.address_uuid
 HAVING `квартир (факт)` > 0
@@ -140,7 +140,7 @@ SELECT
   sum(t.flats_count_range)                                 AS `квартир (диапазон)`,
   `подписок за месяц` / nullIf(`квартир (факт)`, 0)        AS `доля (факт)`,
   `подписок за месяц` / nullIf(`квартир (диапазон)`, 0)    AS `доля (диапазон)`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 CROSS JOIN bounds
 WHERE t.report_date >= d1 AND t.report_date < d2
 GROUP BY t.partner_uuid;
@@ -150,7 +150,7 @@ GROUP BY t.partner_uuid;
 ```sql
 WITH last_dt AS (
   SELECT report_date
-  FROM db1.t_subsctibtions_by_enteries
+  FROM t_subsctibtions_by_enteries
   GROUP BY report_date
   HAVING sum(subscribed_citizen_id_count) > 0
   ORDER BY report_date DESC
@@ -164,7 +164,7 @@ SELECT
   sum(t.flats_count_range) AS `диапазон`,
   abs(`диапазон` - `факт`) AS `дельта`,
   `дельта` / nullIf(`факт`, 0) AS `отн_дельта`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 INNER JOIN last_dt USING (report_date)
 GROUP BY t.address_uuid
 HAVING `факт` > 0 AND `диапазон` > 0 AND `отн_дельта` >= 0.2
@@ -176,7 +176,7 @@ LIMIT 50;
 ```sql
 WITH last_dt AS (
   SELECT report_date
-  FROM db1.t_subsctibtions_by_enteries
+  FROM t_subsctibtions_by_enteries
   GROUP BY report_date
   HAVING sum(subscribed_citizen_id_count) > 0
   ORDER BY report_date DESC
@@ -187,7 +187,7 @@ SELECT
   sum(t.subscribed_citizen_id_count) AS `подписок`,
   sum(t.flats_count)                 AS `квартир`,
   `подписок` / nullIf(`квартир`, 0)  AS `доля`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 INNER JOIN last_dt USING (report_date)
 GROUP BY t.city
 HAVING `квартир` > 0
@@ -204,7 +204,7 @@ SELECT
   flats_count_range                           AS flats_range,
   subscriptions / nullIf(flats_fact, 0)       AS rate_fact,
   subscriptions / nullIf(flats_range, 0)      AS rate_range
-FROM db1.t_subsctibtions_by_enteries
+FROM t_subsctibtions_by_enteries
 WHERE address_uuid = '<<ADDRESS_UUID>>'
 ORDER BY report_date;
 ```
