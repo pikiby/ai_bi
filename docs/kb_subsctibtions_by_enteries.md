@@ -25,8 +25,8 @@ tags:
 Таблица даёт ежедневный срез по подъездам (unit = `address_uuid`): число квартир, число подписок и показатели проникновения (по фактическому и партнёрскому диапазону квартир). Используется для аналитики проникновения, контроля качества справочников и мониторинга партнёров.
 
 **Определения и формулы:**  
-- `subscribtion_rate = subscribed_citizen_id_count / flats_count`  
-- `subscribtion_rate_range = subscribed_citizen_id_count / flats_count_range`  
+- `subscribtion_rate = subscribed_citizen_id_count / flats_count * 100`  
+- `subscribtion_rate_range = subscribed_citizen_id_count / flats_count_range * 100`  
 Рекомендуется безопасное деление: `x / nullIf(y, 0)`.
 
 ## Хранилище и движок
@@ -72,17 +72,20 @@ ORDER BY report_date;
 | `partner_uuid`                | String  | `Идентификатор партнёра`                   |
 | `subscribed_citizen_id_count` | UInt64  | `Подписок в подъезде`                      |
 | `tariff_full`                 | String  | `Тариф (полное наименование)`              |
-| `company_name`                | String  | `Название фирмы`                           |
+| `company_name`                | String  | `Название компании`                           |
 | `tin`                         | String  | `ИНН`                                      |
 | `partner_lk`                  | String  | `Личный кабинет`                           |
 | `subscribtion_rate`           | Float64 | `Доля подписанных от flats_count`          |
 | `subscribtion_rate_range`     | Float64 | `Доля подписанных от flats_count_range`    |
 
-> Примечания к полям:  
-> - `address_uuid` — **главный юнит**, адрес конкретного подъезда.  
-> - `flats_count` — количество квартир по базе данных.  
-> - `flats_count_range` задаётся партнёром и может отличаться от факта.  
-> - Используйте безопасное деление: `subscribed_citizen_id_count / nullIf(flats_count, 0)` и аналогично для `flats_count_range`.
+## Примечания к полям:  
+- `company_name` - это название компании, партнеры, фирмы, названия личных кабинетов.
+- `partner_lk` - это личный кабинет партнеров, личный кабинет компаний, ЛК
+- `subscribtion_rate` - процент процент проникновения в подъезд, Доля подписанных от flats_count в подъезде
+- `address_uuid` — **главный юнит**, адрес конкретного подъезда.  
+- `flats_count` — количество квартир по базе данных.  
+- `flats_count_range` задаётся партнёром и может отличаться от факта.  
+- Используйте безопасное деление: `subscribed_citizen_id_count / nullIf(flats_count, 0)` и аналогично для `flats_count_range`.
 
 ## Частые срезы/фильтры
 - По дате (`report_date`), чаще всего — **последняя доступная дата**.  
