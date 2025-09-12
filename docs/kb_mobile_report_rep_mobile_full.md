@@ -13,12 +13,12 @@ type: table
 tags: #KnowledgeBase
 source: [[mobile_report_rep_mobile_full]]
 ---
-# «Оплаты мобильного приложения в день» — mobile_report_rep_mobile_full
+# «Оплаты мобильного приложения в день» — db1.mobile_report_rep_mobile_full
 
 ## Названия таблицы
 
 **Короткое имя (человекочитаемое):** Оплаты мобильного приложения в день  
-**Тех. имя:** `mobile_report_rep_mobile_full`
+**Тех. имя:** `db1.mobile_report_rep_mobile_full`
 
 ## Назначение
 Ежедневная статистика оплат в мобильном приложении по платформам и ценовым категориям, включая возвраты (App Store и ЮKassa). Для месячных отчётов суммируйте значения за дни месяца.
@@ -34,7 +34,7 @@ source: [[mobile_report_rep_mobile_full]]
 
 ## DDL
 ```sql
-CREATE TABLE mobile_report_rep_mobile_full
+CREATE TABLE db1.mobile_report_rep_mobile_full
 (
     `report_date` Date,
     `partner_uuid` String,
@@ -130,7 +130,7 @@ WITH month_bounds AS (
 SELECT
   t.partner_uuid AS `идентификатор партнёра`,
   sum(t.IOS_PL + t.Android_PL) AS `сумма оплат за месяц`
-FROM mobile_report_rep_mobile_full AS t
+FROM db1.mobile_report_rep_mobile_full AS t
 CROSS JOIN month_bounds
 WHERE t.report_date >= m_start AND t.report_date < m_end
 GROUP BY t.partner_uuid;
@@ -140,12 +140,12 @@ GROUP BY t.partner_uuid;
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
-  FROM mobile_report_rep_mobile_full
+  FROM db1.mobile_report_rep_mobile_full
 )
 SELECT
   t.partner_uuid AS `идентификатор партнёра`,
   (t.IOS_PL + t.Android_PL) AS `сумма оплат за день`
-FROM mobile_report_rep_mobile_full AS t
+FROM db1.mobile_report_rep_mobile_full AS t
 INNER JOIN max_dt USING(report_date);
 ```
 
@@ -159,7 +159,7 @@ SELECT
   t.partner_uuid AS `идентификатор партнёра`,
   sum(t.IOS_PL)     AS `iOS: сумма платежей за месяц`,
   sum(t.Android_PL) AS `Android: сумма платежей за месяц`
-FROM mobile_report_rep_mobile_full AS t
+FROM db1.mobile_report_rep_mobile_full AS t
 CROSS JOIN month_bounds
 WHERE t.report_date >= m_start AND t.report_date < m_end
 GROUP BY t.partner_uuid;
@@ -169,12 +169,12 @@ GROUP BY t.partner_uuid;
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
-  FROM mobile_report_rep_mobile_full
+  FROM db1.mobile_report_rep_mobile_full
 )
 SELECT
   t.city AS `название города`,
   t.appstore_count_499 AS `App Store: покупок 499 за день`
-FROM mobile_report_rep_mobile_full AS t
+FROM db1.mobile_report_rep_mobile_full AS t
 INNER JOIN max_dt USING(report_date)
 ORDER BY 2 DESC
 LIMIT 10;
