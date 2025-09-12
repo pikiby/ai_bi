@@ -61,7 +61,7 @@ st.set_page_config(page_title="Ассистент аналитики")
 
 CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")   # было, вероятно: "./chroma"
 COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")  # было, вероятно: "kb_default"
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")
 
 # --- Авто-индексация при старте (однократно на процесс) ---
 # Включается флагом окружения: KB_AUTO_INGEST_ON_START=1
