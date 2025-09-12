@@ -604,7 +604,7 @@ if user_input:
         route = _ask_openai(
             model=OPENAI_MODEL,
             messages=router_msgs,
-            temperature=0.3,
+            temperature=0.2,
         )
     except Exception as e:
         route = "```mode\nsql\n```"
@@ -638,7 +638,7 @@ if user_input:
             rag_draft = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=rag_msgs,
-                temperature=0.3,
+                temperature=0.2,
             )
         except Exception as e:
             rag_draft = ""
@@ -701,7 +701,7 @@ if user_input:
             final_reply = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
-                temperature=0.3,
+                temperature=0.2,
             )
         except Exception as e:
             final_reply = "Не удалось получить ответ в режиме RAG."
@@ -722,7 +722,7 @@ if user_input:
             final_reply = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
-                temperature=0.3,
+                temperature=0.2,
             )
         except Exception as e:
             final_reply = "Не удалось получить ответ в режиме SQL."
@@ -752,7 +752,7 @@ if user_input:
             final_reply = _ask_openai(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
-                temperature=0.3,
+                temperature=0.2,
             )
         except Exception as e:
             final_reply = "Не удалось получить код графика."
@@ -889,7 +889,7 @@ if user_input:
                                 retry_reply = _ask_openai(
                                     model=OPENAI_MODEL,
                                     messages=retry_msgs,
-                                    temperature=0.3,
+                                    temperature=0.2,
                                 )
 
                                 # Повторно ищем блок ```plotly``` и пытаемся исполнить
