@@ -15,18 +15,18 @@ tags:
   - "#KnowledgeBase"
 ---
 
-# «Подписки и квартиры по подъездам» — db1.t_subsctibtions_by_enteries
+# «Подписки и квартиры по подъездам» — t_subsctibtions_by_enteries
 
 ## Названия таблицы
 **Короткое имя (человекочитаемое):** Подписки и Квартиры по подъездам  
-**Тех. имя:** `db1.t_subsctibtions_by_enteries`
+**Тех. имя:** `t_subsctibtions_by_enteries`
 
 ## Назначение
 Таблица даёт ежедневный срез по подъездам (unit = `address_uuid`): число квартир, число подписок и показатели проникновения (по фактическому и партнёрскому диапазону квартир). Используется для аналитики проникновения, контроля качества справочников и мониторинга партнёров.
 
 **Определения и формулы:**  
-- `subscribtion_rate = subscribed_citizen_id_count / flats_count * 100`  
-- `subscribtion_rate_range = subscribed_citizen_id_count / flats_count_range * 100`  
+- `subscribtion_rate = subscribed_citizen_id_count / flats_count`  
+- `subscribtion_rate_range = subscribed_citizen_id_count / flats_count_range`  
 Рекомендуется безопасное деление: `x / nullIf(y, 0)`.
 
 ## Хранилище и движок
@@ -37,7 +37,7 @@ tags:
 
 ## DDL
 ```sql
-CREATE TABLE db1.t_subsctibtions_by_enteries
+CREATE TABLE t_subsctibtions_by_enteries
 (
     `report_date` Date,
     `full_address` String,
@@ -60,32 +60,29 @@ ORDER BY report_date;
 ```
 
 ## Поля и алиасы
-| Поле                          | Тип     | Алиас (человекочитаемое)                   |
-| ----------------------------- | ------- | -----------------------------------------  |
-| `report_date`                 | Date    | `Дата отчета`                              |
-| `full_address`                | String  | `Полный адрес`                             |
-| `city`                        | String  | `Город`                                    |
-| `installation_point_id`       | Int64   | `ID точки установки/узла`                  |
-| `flats_count`                 | Int16   | `Количество квартир по БД`                 |
-| `flats_count_range`           | Int16   | `Количество квартир (диапазон от партнёра)`|
-| `address_uuid`                | String  | `Идентификатор подъезда (главный юнит)`    |
-| `partner_uuid`                | String  | `Идентификатор партнёра`                   |
-| `subscribed_citizen_id_count` | UInt64  | `Подписок в подъезде`                      |
-| `tariff_full`                 | String  | `Тариф (полное наименование)`              |
-| `company_name`                | String  | `Название компании`                           |
-| `tin`                         | String  | `ИНН`                                      |
-| `partner_lk`                  | String  | `Личный кабинет`                           |
-| `subscribtion_rate`           | Float64 | `Доля подписанных от flats_count`          |
-| `subscribtion_rate_range`     | Float64 | `Доля подписанных от flats_count_range`    |
+| Поле                          | Тип     | Алиас (человекочитаемое)                  |
+| ----------------------------- | ------- | ----------------------------------------- |
+| `report_date`                 | Date    | Дата                                      |
+| `full_address`                | String  | Полный адрес                              |
+| `city`                        | String  | Город                                     |
+| `installation_point_id`       | Int64   | ID точки установки/узла                   |
+| `flats_count`                 | Int16   | Количество квартир по БД                  |
+| `flats_count_range`           | Int16   | Количество квартир (диапазон от партнёра) |
+| `address_uuid`                | String  | Идентификатор подъезда (главный юнит)     |
+| `partner_uuid`                | String  | Идентификатор партнёра                    |
+| `subscribed_citizen_id_count` | UInt64  | Подписок в подъезде                       |
+| `tariff_full`                 | String  | Тариф (полное наименование)               |
+| `company_name`                | String  | Название фирмы                            |
+| `tin`                         | String  | ИНН                                       |
+| `partner_lk`                  | String  | Личный кабинет                            |
+| `subscribtion_rate`           | Float64 | Доля подписанных от `flats_count`         |
+| `subscribtion_rate_range`     | Float64 | Доля подписанных от `flats_count_range`   |
 
-## Примечания к полям:  
-- `company_name` - это название компании, партнеры, фирмы, названия личных кабинетов.
-- `partner_lk` - это личный кабинет партнеров, личный кабинет компаний, ЛК
-- `subscribtion_rate` - процент процент проникновения в подъезд, Доля подписанных от flats_count в подъезде
-- `address_uuid` — **главный юнит**, адрес конкретного подъезда.  
-- `flats_count` — количество квартир по базе данных.  
-- `flats_count_range` задаётся партнёром и может отличаться от факта.  
-- Используйте безопасное деление: `subscribed_citizen_id_count / nullIf(flats_count, 0)` и аналогично для `flats_count_range`.
+> Примечания к полям:  
+> - `address_uuid` — **главный юнит**, адрес конкретного подъезда.  
+> - `flats_count` — количество квартир по базе данных.  
+> - `flats_count_range` задаётся партнёром и может отличаться от факта.  
+> - Используйте безопасное деление: `subscribed_citizen_id_count / nullIf(flats_count, 0)` и аналогично для `flats_count_range`.
 
 ## Частые срезы/фильтры
 - По дате (`report_date`), чаще всего — **последняя доступная дата**.  
@@ -106,7 +103,7 @@ ORDER BY report_date;
 ```sql
 WITH last_dt AS (
   SELECT report_date
-  FROM db1.t_subsctibtions_by_enteries
+  FROM t_subsctibtions_by_enteries
   GROUP BY report_date
   HAVING sum(subscribed_citizen_id_count) > 0
   ORDER BY report_date DESC
@@ -119,7 +116,7 @@ SELECT
   sum(t.subscribed_citizen_id_count)       AS `подписок`,
   sum(t.flats_count)                       AS `квартир (факт)`,
   `подписок` / nullIf(`квартир (факт)`, 0) AS `доля подписки`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 INNER JOIN last_dt USING (report_date)
 GROUP BY t.address_uuid
 HAVING `квартир (факт)` > 0
@@ -140,7 +137,7 @@ SELECT
   sum(t.flats_count_range)                                 AS `квартир (диапазон)`,
   `подписок за месяц` / nullIf(`квартир (факт)`, 0)        AS `доля (факт)`,
   `подписок за месяц` / nullIf(`квартир (диапазон)`, 0)    AS `доля (диапазон)`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 CROSS JOIN bounds
 WHERE t.report_date >= d1 AND t.report_date < d2
 GROUP BY t.partner_uuid;
@@ -150,7 +147,7 @@ GROUP BY t.partner_uuid;
 ```sql
 WITH last_dt AS (
   SELECT report_date
-  FROM db1.t_subsctibtions_by_enteries
+  FROM t_subsctibtions_by_enteries
   GROUP BY report_date
   HAVING sum(subscribed_citizen_id_count) > 0
   ORDER BY report_date DESC
@@ -164,7 +161,7 @@ SELECT
   sum(t.flats_count_range) AS `диапазон`,
   abs(`диапазон` - `факт`) AS `дельта`,
   `дельта` / nullIf(`факт`, 0) AS `отн_дельта`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 INNER JOIN last_dt USING (report_date)
 GROUP BY t.address_uuid
 HAVING `факт` > 0 AND `диапазон` > 0 AND `отн_дельта` >= 0.2
@@ -176,7 +173,7 @@ LIMIT 50;
 ```sql
 WITH last_dt AS (
   SELECT report_date
-  FROM db1.t_subsctibtions_by_enteries
+  FROM t_subsctibtions_by_enteries
   GROUP BY report_date
   HAVING sum(subscribed_citizen_id_count) > 0
   ORDER BY report_date DESC
@@ -187,7 +184,7 @@ SELECT
   sum(t.subscribed_citizen_id_count) AS `подписок`,
   sum(t.flats_count)                 AS `квартир`,
   `подписок` / nullIf(`квартир`, 0)  AS `доля`
-FROM db1.t_subsctibtions_by_enteries AS t
+FROM t_subsctibtions_by_enteries AS t
 INNER JOIN last_dt USING (report_date)
 GROUP BY t.city
 HAVING `квартир` > 0
@@ -204,7 +201,7 @@ SELECT
   flats_count_range                           AS flats_range,
   subscriptions / nullIf(flats_fact, 0)       AS rate_fact,
   subscriptions / nullIf(flats_range, 0)      AS rate_range
-FROM db1.t_subsctibtions_by_enteries
+FROM t_subsctibtions_by_enteries
 WHERE address_uuid = '<<ADDRESS_UUID>>'
 ORDER BY report_date;
 ```

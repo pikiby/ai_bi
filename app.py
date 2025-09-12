@@ -23,34 +23,7 @@ import retriever
 import importlib
 import prompts
 
-import glob 
-
-KB_DOCS_DIR = os.getenv("KB_DOCS_DIR", "docs")  # путь к Markdown c базой знаний
 pio.templates.default = "plotly"
-
-
-def _ask_openai(messages: list[dict], model: str, temperature: float = 0.0) -> str:
-    """
-    Унифицированный вызов модели через Responses API.
-    Для семейств, где temperature не поддерживается (gpt-5*, o3*, o4*), не передаём его.
-    Для gpt-5 дополнительно задаём компактный стиль ответа.
-    """
-    args = {
-        "model": model,
-        "input": messages,
-    }
-
-    # Температура поддерживается не всеми моделями Responses API.
-    # Для gpt-5 / o3 / o4 и т.п. параметр не передаём вовсе.
-    low_model = (model or "").lower()
-    if not (low_model.startswith("gpt-5") or low_model.startswith("o3") or low_model.startswith("o4")):
-        args["temperature"] = temperature
-    else:
-        # Не обязательно, но полезно для дисциплины ответа gpt-5
-        args["reasoning"] = {"effort": "low"}
-
-    resp = client.responses.create(**args)
-    return resp.output_text or ""
 
 # ----------------------- Базовые настройки страницы -----------------------
 
@@ -169,85 +142,6 @@ def _table_number_for(item: dict) -> int:
             break
     return n
 
-def _dashboards_catalog_from_docs(doc_dir: str = KB_DOCS_DIR) -> str:
-    """
-    Читает front matter у *.md и возвращает список дашбордов (title + url + short_description).
-    Без зависимостей (yaml), парсим простым регексом.
-    """
-    items = []
-    for fp in glob.glob(f"{doc_dir}/*.md"):
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                s = f.read()
-        except Exception:
-            continue
-
-        m = re.search(r"^---\s*(.*?)\s*---", s, re.DOTALL | re.MULTILINE)
-        if not m:
-            continue
-        fm = m.group(1)
-
-        def _field(name: str) -> str:
-            mm = re.search(rf"^{name}:\s*(.+)$", fm, re.MULTILINE)
-            return (mm.group(1).strip().strip('"\'')) if mm else ""
-
-        if (_field("type") or "").lower() != "dashboard":
-            continue
-
-        title = _field("title") or fp.split("/")[-1]
-        url   = _field("url")
-        desc  = _field("short_description")
-        line  = f"- «{title}»" + (f" — {desc}" if desc else "")
-        if url:
-            line += f"\n  Ссылка: {url}"
-        items.append(line)
-
-    return "\n".join(items) if items else "В базе знаний дашборды не найдены."
-
-def _tables_catalog_from_docs(doc_dir: str = KB_DOCS_DIR) -> str:
-    """
-    Читает front matter у *.md и возвращает список таблиц:
-    «Название — `db.table` — краткое описание».
-    Без PyYAML: берём поля простыми регексами +fallback извлечение db.table из текста.
-    """
-    items = []
-    for fp in glob.glob(f"{doc_dir}/*.md"):
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                s = f.read()
-        except Exception:
-            continue
-
-        m = re.search(r"^---\s*(.*?)\s*---", s, re.DOTALL | re.MULTILINE)
-        if not m:
-            continue
-        fm = m.group(1)
-
-        def _field(name: str) -> str:
-            mm = re.search(rf"^{name}:\s*(.+)$", fm, re.MULTILINE)
-            return (mm.group(1).strip().strip('"\'')) if mm else ""
-
-        if (_field("type") or "").lower() != "table":
-            continue
-
-        title = _field("title") or fp.split("/")[-1]
-        desc  = _field("short_description")
-        fqtn  = _field("db_table") or _field("table")  # поддержим оба варианта
-
-        if not fqtn:
-            # fallback: ищем первое упоминание db.table в тексте
-            m2 = re.search(r"\b([a-z0-9_]+)\.([a-z0-9_]+)\b", s, re.IGNORECASE)
-            if m2:
-                fqtn = f"{m2.group(1)}.{m2.group(2)}"
-
-        line = f"- {title}"
-        if fqtn:
-            line += f" — `{fqtn}`"
-        if desc:
-            line += f" — {desc}"
-        items.append(line)
-
-    return "\n".join(items) if items else "В базе знаний таблицы не найдены."
 
 # Достаём из SQL краткие сведения для подписи: таблицы, поля, период, лимит.
 # Всё максимально компактно и устойчиво к разным диалектам.
@@ -601,45 +495,32 @@ if user_input:
         st.session_state["messages"]
     )
     try:
-        route = _ask_openai(
+        route = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=router_msgs,
-            temperature=0.2,
-        )
+            temperature=0.0,
+        ).choices[0].message.content
     except Exception as e:
         route = "```mode\nsql\n```"
         st.warning(f"Роутер недоступен, переключаюсь в 'sql': {e}")
 
     m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
     mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
-    if mode not in {"sql", "rag", "plotly", "catalog"}:
+    if mode not in {"sql", "rag", "plotly"}:
         mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
 
     final_reply = ""
-
-    if mode == "catalog":
-        d = _dashboards_catalog_from_docs(KB_DOCS_DIR)   # уже есть у вас
-        t = _tables_catalog_from_docs(KB_DOCS_DIR)       # ваша функция для таблиц
-        catalog = "\n\n".join([
-            "Дашборды:\n" + (d.strip() or "не найдены."),
-            "Таблицы (доступны для SQL):\n" + (t.strip() or "не найдены."),
-        ])
-        final_reply = catalog
-        st.session_state["messages"].append({"role": "assistant", "content": final_reply})
-        with st.chat_message("assistant"):
-            st.markdown(final_reply)
-        st.stop()
 
     # 2) Выполнение по выбранному режиму
     if mode == "rag":
         # 2a) Просим краткий RAG-запрос (блок ```rag ...```)
         rag_msgs = [{"role": "system", "content": prompts_map["rag"]}] + st.session_state["messages"]
         try:
-            rag_draft = _ask_openai(
+            rag_draft = client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=rag_msgs,
                 temperature=0.2,
-            )
+            ).choices[0].message.content
         except Exception as e:
             rag_draft = ""
             st.error(f"Не удалось получить RAG-запрос: {e}")
@@ -650,29 +531,11 @@ if user_input:
         hits = []
         if rag_query:
             try:
-                k = 10
                 hits = retriever.retrieve(
-                    rag_query, k=k,
+                    rag_query, k=5,
                     chroma_path=CHROMA_PATH,
                     collection_name=COLLECTION_NAME,
                 )
-                
-                # Дедупликация по документу (одна запись на источник)
-                seen = set()            # ← fix: инициализируем множество источников
-                unique_hits = []        # ← fix: аккумулируем уникальные хиты
-
-                for h in hits:
-                    src = (h.get("source") or h.get("path") or "").strip().lower()
-                    if src:
-                        if src not in seen:
-                            unique_hits.append(h)
-                            seen.add(src)
-                    else:
-                        # элементы без source/path (например, наш «каталог» из docs/) тоже сохраняем
-                        if h.get("text"):
-                            unique_hits.append(h)
-
-                hits = unique_hits
             except Exception as e:
                 st.warning(f"Не удалось получить контекст из базы знаний: {e}")
 
@@ -698,11 +561,11 @@ if user_input:
             + [{"role": "system", "content": f"Контекст базы знаний:\n{context}\nИнструкции: строго придерживайся контексту. Если нужных таблиц нет — скажи об этом и не пиши SQL."}]
         )
         try:
-            final_reply = _ask_openai(
+            final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
                 temperature=0.2,
-            )
+            ).choices[0].message.content
         except Exception as e:
             final_reply = "Не удалось получить ответ в режиме RAG."
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
@@ -719,11 +582,11 @@ if user_input:
             + st.session_state["messages"]
         )
         try:
-            final_reply = _ask_openai(
+            final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
                 temperature=0.2,
-            )
+            ).choices[0].message.content
         except Exception as e:
             final_reply = "Не удалось получить ответ в режиме SQL."
             st.error(f"Ошибка на шаге ответа (SQL): {e}")
@@ -749,11 +612,11 @@ if user_input:
             + st.session_state["messages"]
         )
         try:
-            final_reply = _ask_openai(
+            final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=exec_msgs,
                 temperature=0.2,
-            )
+            ).choices[0].message.content
         except Exception as e:
             final_reply = "Не удалось получить код графика."
             st.error(f"Ошибка на шаге ответа (Plotly): {e}")
@@ -806,8 +669,7 @@ if user_input:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                # fix: если модель вернула ```python```, а не ```plotly```
-                code = (m_plotly.group(1) if m_plotly else m_python.group(1)).strip()
+                code = m_plotly.group(1).strip()
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
@@ -845,17 +707,12 @@ if user_input:
                         COLS = list(pdf.columns)  # можно подсветить пользователю доступные имена
 
                         safe_globals = {
-                            "__builtins__": {
-                                "len": len, "range": range, "min": min, "max": max,
-                                "dict": dict, "list": list, "tuple": tuple, "set": set,
-                                "sum": sum, "abs": abs, "round": round, "sorted": sorted,
-                                "enumerate": enumerate, "zip": zip,
-                            },
+                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
                             "pd": pd,
                             "px": px,
                             "go": go,
-                            "df": pdf,
-                            "col": col,
+                            "df": pdf,   # исходные данные (только чтение)
+                            "col": col,  # <<< добавили
                             "has_col": has_col,
                             "COLS": COLS,
                         }
@@ -891,11 +748,11 @@ if user_input:
                                     {"role": "system", "content": retry_hint}]
                                     + st.session_state["messages"]
                                 )
-                                retry_reply = _ask_openai(
+                                retry_reply = client.chat.completions.create(
                                     model=OPENAI_MODEL,
                                     messages=retry_msgs,
-                                    temperature=0.2,
-                                )
+                                    temperature=0,
+                                ).choices[0].message.content
 
                                 # Повторно ищем блок ```plotly``` и пытаемся исполнить
                                 m_plotly_retry = re.search(r"```plotly\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
