@@ -675,26 +675,55 @@ if user_input:
     final_reply = ""
 
     if mode == "catalog":
-        # Полный каталог: таблицы — из ClickHouse; дашборды — из локальной папки, если есть.
+        # Каталог ИЗ БАЗЫ ЗНАНИЙ: только то, что найдено в индексе (без ClickHouse/полной схемы)
+
+        # 1) Соберём контекст по двум запросам (дашборды и таблицы)
+        hits = []
         try:
-            _ch = ch  # используем уже созданный клиент, если он есть
-        except NameError:
-            _ch = ClickHouse_client()  # fallback: создаём новый
+            queries = [
+                "каталог дашбордов dashboard datalens список описание ссылка",
+                "перечень таблиц таблицы схема ddl описание назначение источник",
+            ]
+            for q in queries:
+                hits += retriever.retrieve(
+                    q, k=20,
+                    chroma_path=CHROMA_PATH,
+                    collection_name=COLLECTION_NAME,
+                )
+        except Exception as e:
+            st.error(f"Не удалось получить контекст из базы знаний: {e}")
+            hits = []
 
-        dashboards_md = _dashboards_catalog_from_docs(KB_DOCS_DIR)
-        tables_md = _tables_catalog_from_db(_ch, DEFAULT_DB)
+        # 2) Склеиваем текст фрагментов; защитный лимит по размеру
+        context = "\n\n---\n\n".join([h.get("text", "") for h in hits if h.get("text")])[:120000]
 
-        catalog = "\n\n".join([
-            "Дашборды:\n" + (dashboards_md.strip() or "—"),
-            "Таблицы (ClickHouse):\n" + (tables_md.strip() or "—"),
-        ])
+        # 3) Просим LLM сформировать краткий каталог СТРОГО по контексту
+        cat_sys = (
+            "Сформируй краткий каталог ТОЛЬКО по контексту ниже.\n"
+            "Выведи два раздела:\n"
+            "Дашборды — маркированный список: «Название — ссылка (если есть) — 1–2 предложения».\n"
+            "Таблицы (доступны в базе знаний) — маркированный список: «Человекочитаемое имя — `db.table` — 1–2 предложения».\n"
+            "Не придумывай элементов, которых нет в контексте. SQL не выводи. Если раздел пуст, поставь «—»."
+        )
+        msgs = [
+            {"role": "system", "content": cat_sys},
+            {"role": "system", "content": f"Контекст:\n{context}"},
+            {"role": "user", "content": user_input},
+        ]
+        try:
+            final_reply = client.chat.completions.create(
+                model=OPENAI_MODEL, messages=msgs, temperature=0
+            ).choices[0].message.content
+        except Exception as e:
+            final_reply = "Не удалось сформировать каталог из базы знаний."
+            st.error(f"Ошибка каталога: {e}")
 
-        final_reply = catalog
-        # сохраняем в историю и выводим без усечений
+        # 4) Вывод
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
         with st.chat_message("assistant"):
             st.markdown(final_reply)
         st.stop()
+
 
 
     # 2) Выполнение по выбранному режиму
