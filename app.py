@@ -594,10 +594,25 @@ if user_input:
 
     m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
     mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
-    if mode not in {"sql", "rag", "plotly"}:
+
+    if mode not in {"sql", "rag", "plotly", "catalog"}:
         mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
 
     final_reply = ""
+
+    if mode == "catalog":
+        d = _dashboards_catalog_from_docs(KB_DOCS_DIR)   # уже есть у вас
+        t = _tables_catalog_from_docs(KB_DOCS_DIR)       # ваша функция для таблиц
+        catalog = "\n\n".join([
+            "Дашборды:\n" + (d.strip() or "не найдены."),
+            "Таблицы (доступны для SQL):\n" + (t.strip() or "не найдены."),
+        ])
+        final_reply = catalog
+        st.session_state["messages"].append({"role": "assistant", "content": final_reply})
+        with st.chat_message("assistant"):
+            st.markdown(final_reply)
+        st.stop()
+
 
     # 2) Выполнение по выбранному режиму
     if mode == "rag":
