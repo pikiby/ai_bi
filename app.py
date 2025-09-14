@@ -4,6 +4,7 @@
 
 import os
 import re
+import json
 import io
 import zipfile
 from datetime import datetime
@@ -22,6 +23,11 @@ import retriever
 # >>> Горячая подгрузка prompts.py при каждом обращении
 import importlib
 import prompts
+
+# --- Каталоги и БД по умолчанию (для режима catalog) ---
+KB_DOCS_DIR = os.getenv("KB_DOCS_DIR", "kb_docs")     # папка с описаниями дашбордов (если есть)
+DEFAULT_DB = os.getenv("CLICKHOUSE_DB", "db1")        # база ClickHouse для полного каталога таблиц
+
 
 pio.templates.default = "plotly"
 
@@ -421,6 +427,74 @@ def _schema_hint(ch_client, database: str = "db1", max_tables: int = 12, max_col
     return "\n".join(lines)
 
 
+# Возвращает список дашбордов из локальной папки документов.
+# Ищем .md/.txt/.json/.yaml с упоминаниями dashboard/дашборд/DataLens.
+# Ничего не режем, показываем всё, что нашли.
+
+def _dashboards_catalog_from_docs(doc_dir: str) -> str:
+
+    if not os.path.isdir(doc_dir):
+        return "каталог документов не найден."
+
+    items: list[str] = []
+    for root, _, files in os.walk(doc_dir):
+        for fn in files:
+            low = fn.lower()
+            if not low.endswith((".md", ".txt", ".json", ".yaml", ".yml")):
+                continue
+            p = os.path.join(root, fn)
+            try:
+                with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                    txt = f.read(128 * 1024)  # читаем до 128KB
+            except Exception:
+                continue
+
+            # заголовок берем из первой Markdown-«решётки», если есть
+            title = None
+            m = re.search(r"^\s*#\s+(.+)$", txt, re.MULTILINE)
+            if m:
+                title = m.group(1).strip()
+
+            # эвристика наличия дашборда
+            if re.search(r"\b(dashboard|дашборд|дашборды|data\s*lens)\b", txt, re.IGNORECASE):
+                items.append(f"- {title or fn}")
+
+            # лёгкая поддержка JSON со списком дашбордов
+            if low.endswith(".json"):
+                try:
+                    data = json.loads(txt)
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, str) and re.search(r"dashboard|дашборд", v, re.I):
+                                items.append(f"- {k}: {v}")
+                except Exception:
+                    pass
+
+    if not items:
+        return "описаний дашбордов не найдено."
+    return "\n".join(items)
+
+
+def _tables_catalog_from_db(ch_client, database: str = "db1") -> str:
+    """
+    Возвращает ПОЛНЫЙ каталог таблиц из ClickHouse (system.columns) без сокращений.
+    Ничего не обрезаем по числу таблиц/колонок.
+    """
+    try:
+        schema: dict[str, list[tuple[str, str]]] = ch_client.get_schema(database)
+    except Exception as e:
+        # важна явная диагностика, чтобы пользователь видел причину
+        return f"не удалось получить схему БД `{database}` ({e})."
+
+    lines: list[str] = [f"Всего таблиц: {len(schema)}"]
+    # сортируем по имени таблицы для устойчивого вывода
+    for table, cols in sorted(schema.items(), key=lambda x: x[0]):
+        # показываем ВСЕ колонки (имя и тип), без усечений
+        cols_fmt = ", ".join(f"`{name}`:{ctype}" for name, ctype in cols)
+        lines.append(f"- `{database}`.`{table}` ({len(cols)} колонок): {cols_fmt}")
+    return "\n".join(lines)
+
+
 # --- 3) Выполнить SQL; при ошибке по схеме — запросить схему, перегенерировать SQL и повторить ---
 def run_sql_with_auto_schema(sql_text: str,
                              base_messages: list,
@@ -601,13 +675,22 @@ if user_input:
     final_reply = ""
 
     if mode == "catalog":
-        d = _dashboards_catalog_from_docs(KB_DOCS_DIR)   # уже есть у вас
-        t = _tables_catalog_from_docs(KB_DOCS_DIR)       # ваша функция для таблиц
+        # Полный каталог: таблицы — из ClickHouse; дашборды — из локальной папки, если есть.
+        try:
+            _ch = ch  # используем уже созданный клиент, если он есть
+        except NameError:
+            _ch = ClickHouse_client()  # fallback: создаём новый
+
+        dashboards_md = _dashboards_catalog_from_docs(KB_DOCS_DIR)
+        tables_md = _tables_catalog_from_db(_ch, DEFAULT_DB)
+
         catalog = "\n\n".join([
-            "Дашборды:\n" + (d.strip() or "не найдены."),
-            "Таблицы (доступны для SQL):\n" + (t.strip() or "не найдены."),
+            "Дашборды:\n" + (dashboards_md.strip() or "—"),
+            "Таблицы (ClickHouse):\n" + (tables_md.strip() or "—"),
         ])
+
         final_reply = catalog
+        # сохраняем в историю и выводим без усечений
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
         with st.chat_message("assistant"):
             st.markdown(final_reply)
@@ -751,7 +834,7 @@ if user_input:
                 df_any, used_sql = run_sql_with_auto_schema(
                     sql_text=sql,                        # ваш первоначальный SQL
                     base_messages=st.session_state["messages"],  # те же сообщения, что вы даёте модели
-                    ch_client=ClickHouse_client(),       # ваш клиент ClickHouse
+                    ch_client=ch,       # ваш клиент ClickHouse
                     llm_client=client,                   # ваш OpenAI-клиент
                     prompts_map=prompts_map,             # ваши системные промпты
                     model_name=OPENAI_MODEL              # имя модели
@@ -779,7 +862,7 @@ if user_input:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
-                code = m_plotly.group(1).strip()
+                code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
