@@ -394,6 +394,94 @@ def _history_zip_bytes() -> bytes:
                 zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
     return buf.getvalue()
 
+# --- 1) Узнаём: это ошибка по схеме? (таблица/колонка/идентификатор) ---
+def _is_schema_error(err_text: str) -> bool:
+    # ClickHouse коды и фразы, когда LLM «промахнулся» по схеме
+    SIGNS = ("Unknown table", "Unknown column", "Unknown identifier",
+        "There is no column",          # <<< добавьте эту фразу
+        "Code: 60",  # table doesn't exist
+        "Code: 47",  # unknown identifier
+        )  # unknown identifier
+    t = (err_text or "").strip()
+    return any(s in t for s in SIGNS)
+
+
+# --- 2) Готовим компактный хинт-снимок схемы (через ClickHouse_client.get_schema) ---
+def _schema_hint(ch_client, database: str = "db1", max_tables: int = 12, max_cols: int = 8) -> str:
+    """
+    Берём актуальную схему и сворачиваем в короткий system-хинт.
+    """
+    sch = ch_client.get_schema(database)  # <-- используем уже существующий get_schema
+    lines = [f"Схема БД `{database}` (сокращённо):"]
+    for i, (table, cols) in enumerate(sch.items()):
+        if i >= max_tables:
+            break
+        cols_s = ", ".join(f"`{c}` {t}" for c, t in (cols[:max_cols] if cols else []))
+        lines.append(f"- `{table}`: {cols_s}" if cols_s else f"- `{table}`: (пусто)")
+    return "\n".join(lines)
+
+
+# --- 3) Выполнить SQL; при ошибке по схеме — запросить схему, перегенерировать SQL и повторить ---
+def run_sql_with_auto_schema(sql_text: str,
+                             base_messages: list,
+                             ch_client,
+                             llm_client,
+                             prompts_map: dict,
+                             model_name: str,
+                             retry_delay: float = 0.35):
+    """
+    sql_text        — исходный SQL (сгенерированный LLM ранее).
+    base_messages   — ваша история/сообщения пользователя, которые вы уже подаёте модели.
+    ch_client       — экземпляр ClickHouse_client.
+    llm_client      — клиент OpenAI (или совместимый) с .chat.completions.create(...)
+    prompts_map     — ваш словарь с промптами; нужен ключ 'sql'.
+    model_name      — имя модели.
+    retry_delay     — короткая пауза перед финальным повтором.
+    Возвращает (df, used_sql)
+    """
+    import re, time
+
+    # 3.1. Первая попытка — просто выполнить
+    try:
+        df = ch_client.query_run(sql_text)
+        return df, sql_text
+    except Exception as e:
+        err = str(e)
+        if not _is_schema_error(err):
+            # не схема — пробрасываем как есть
+            raise
+
+    # 3.2. Схема понадобилась — просим у ClickHouse и даём её модели
+    hint = _schema_hint(ch_client, database="db1")
+
+    regen_msgs = (
+        [{"role": "system", "content": hint},
+         {"role": "system", "content": prompts_map["sql"]}] +
+        base_messages +
+        [{"role": "system", "content": "Перегенерируй корректный ```sql``` строго по схеме выше. Верни только блок ```sql```."}]
+    )
+
+    regen = llm_client.chat.completions.create(
+        model=model_name, messages=regen_msgs, temperature=0
+    ).choices[0].message.content
+
+    m = re.search(r"```sql\s*(.*?)```", regen, flags=re.DOTALL | re.IGNORECASE)
+    if not m:
+        raise RuntimeError("Не удалось извлечь перегенерированный SQL из ответа модели.")
+
+    sql2 = m.group(1).strip()
+
+    # 3.3. Короткий retry на сетевые/временные сбои при втором запуске
+    for _ in range(2):  # одна пауза и вторая попытка
+        try:
+            df2 = ch_client.query_run(sql2)
+            return df2, sql2
+        except Exception as e2:
+            last = str(e2)
+            time.sleep(retry_delay)
+    # если дошли сюда — оба раза не получилось
+    raise RuntimeError(f"Повтор после обновления схемы тоже упал: {last}")
+
 # ----------------------- Сайдбар -----------------------
 with st.sidebar:
     # Единственная кнопка — переиндексация базы знаний
@@ -645,7 +733,14 @@ if user_input:
             }
             try:
                 ch = ClickHouse_client()
-                df_any = ch.query_run(sql)  # ожидается polars.DataFrame
+                df_any, used_sql = run_sql_with_auto_schema(
+                    sql_text=sql,                        # ваш первоначальный SQL
+                    base_messages=st.session_state["messages"],  # те же сообщения, что вы даёте модели
+                    ch_client=ClickHouse_client(),       # ваш клиент ClickHouse
+                    llm_client=client,                   # ваш OpenAI-клиент
+                    prompts_map=prompts_map,             # ваши системные промпты
+                    model_name=OPENAI_MODEL              # имя модели
+                )
                 if isinstance(df_any, pl.DataFrame):
                     df_pl = df_any
                 else:
