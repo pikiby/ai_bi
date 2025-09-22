@@ -1,7 +1,7 @@
 ---
 id: partners_monetization_status
 title: Статус монетизации партнеров в день
-db: db1
+db: default
 short_description: "Ежедневная статистика блокировки монетизации у партнеров по точкам установки; включает процент заблокированных точек и детализацию по городам."
 synonyms:
 - статус монетизации партнеров
@@ -12,12 +12,12 @@ synonyms:
 type: table
 tags: #KnowledgeBase
 ---
-# «Статус монетизации партнеров в день» — db1.t_partners_monetization_status
+# «Статус монетизации партнеров в день» — t_partners_monetization_status
 
 ## Названия таблицы
 
 **Короткое имя (человекочитаемое):** Статус монетизации партнеров в день  
-**Тех. имя:** `db1.t_partners_monetization_status`
+**Тех. имя:** `t_partners_monetization_status`
 
 ## Назначение
 Ежедневная статистика блокировки монетизации у партнеров по точкам установки, включая процент заблокированных точек и детализацию по городам. Содержит агрегированные данные о количестве точек установки с заблокированной и разрешенной монетизацией.
@@ -26,14 +26,14 @@ tags: #KnowledgeBase
 
 
 ## Хранилище и движок
-- БД: `db1`
+- БД: `default`
 - Таблица: `t_partners_monetization_status`
 - Движок: `MergeTree`
 - Сортировка: `ORDER BY report_date`
 
 ## DDL
 ```sql
-CREATE TABLE db1.t_partners_monetization_status
+CREATE TABLE t_partners_monetization_status
 (
     `report_date` Date,
     `partner_uuid` String,
@@ -88,7 +88,7 @@ ORDER BY report_date
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
-  FROM db1.t_partners_monetization_status
+  FROM t_partners_monetization_status
 )
 SELECT
   t.partner_uuid AS `UUID партнера`,
@@ -96,7 +96,7 @@ SELECT
   t.total_installation_points AS `всего точек установки`,
   t.blocked_monetization_points AS `точек с заблокированной монетизацией`,
   t.blocked_percentage AS `процент заблокированных точек`
-FROM db1.t_partners_monetization_status AS t
+FROM t_partners_monetization_status AS t
 INNER JOIN max_dt USING(report_date);
 ```
 
@@ -104,14 +104,14 @@ INNER JOIN max_dt USING(report_date);
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
-  FROM db1.t_partners_monetization_status
+  FROM t_partners_monetization_status
 )
 SELECT
   t.company_name AS `название компании`,
   t.city AS `название города`,
   t.blocked_percentage AS `процент заблокированных точек`,
   t.total_installation_points AS `всего точек установки`
-FROM db1.t_partners_monetization_status AS t
+FROM t_partners_monetization_status AS t
 INNER JOIN max_dt USING(report_date)
 WHERE t.total_installation_points > 0
 ORDER BY t.blocked_percentage DESC
@@ -122,7 +122,7 @@ LIMIT 10;
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
-  FROM db1.t_partners_monetization_status
+  FROM t_partners_monetization_status
 )
 SELECT
   t.city AS `название города`,
@@ -130,7 +130,7 @@ SELECT
   SUM(t.total_installation_points) AS `общее количество точек`,
   SUM(t.blocked_monetization_points) AS `общее количество заблокированных точек`,
   ROUND(AVG(t.blocked_percentage), 2) AS `средний процент блокировки`
-FROM db1.t_partners_monetization_status AS t
+FROM t_partners_monetization_status AS t
 INNER JOIN max_dt USING(report_date)
 WHERE t.city != ''
 GROUP BY t.city
@@ -141,14 +141,14 @@ ORDER BY 4 DESC;
 ```sql
 WITH max_dt AS (
   SELECT max(report_date) AS report_date
-  FROM db1.t_partners_monetization_status
+  FROM t_partners_monetization_status
 )
 SELECT
   t.partner_uuid AS `UUID партнера`,
   t.company_name AS `название компании`,
   t.city AS `название города`,
   t.total_installation_points AS `всего точек установки`
-FROM db1.t_partners_monetization_status AS t
+FROM t_partners_monetization_status AS t
 INNER JOIN max_dt USING(report_date)
 WHERE t.blocked_percentage = 100.0
 ORDER BY t.total_installation_points DESC;
