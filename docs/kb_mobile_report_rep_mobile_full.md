@@ -1,5 +1,5 @@
 ---
-id: table_mobile_report_rep_mobile_full
+id: mobile_report_rep_mobile_full
 title: Оплаты мобильного приложения в день
 db: db1
 short_description: "Ежедневная статистика оплат в мобильном приложении по платформам и ценовым категориям; включает возвраты (App Store и ЮKassa). Для месячных отчётов суммируйте значения за дни месяца."
@@ -11,7 +11,6 @@ synonyms:
 - мобильный Android
 type: table
 tags: #KnowledgeBase
-source: [[mobile_report_rep_mobile_full]]
 ---
 # «Оплаты мобильного приложения в день» — db1.mobile_report_rep_mobile_full
 

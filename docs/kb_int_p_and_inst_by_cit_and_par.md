@@ -1,5 +1,5 @@
 ---
-id: table_t_int_p_and_inst_by_cit_and_par
+id: t_int_p_and_inst_by_cit_and_par
 db: db1
 short_description: "Дневной срез точек установки (адресов) и домофонов по городам и компаниям/партнёрам: всего и онлайн."
 synonyms:
@@ -9,8 +9,6 @@ synonyms:
   - партнёры
   - города
 type: table
-source:
-  - "[[t_int_p_and_inst_by_cit_and_par]]"
 tags:
   - "#KnowledgeBase"
 ---

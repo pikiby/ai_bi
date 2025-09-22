@@ -1,5 +1,5 @@
 ---
-id: table_t_subsctibtions_by_enteries
+id: t_subsctibtions_by_enteries
 title: Подписки и квартиры по подъездам
 db: db1
 short_description: "Дневной срез подписок по подъездам: фактическое и партнёрское число квартир, доля подписок, разрезы по адресу, городу и партнёру."
@@ -9,8 +9,6 @@ synonyms:
   - адресные подписки
   - проникновение подписки
 type: table
-source:
-  - "[[t_subsctibtions_by_enteries]]"
 tags:
   - "#KnowledgeBase"
 ---
