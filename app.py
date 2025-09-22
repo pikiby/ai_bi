@@ -41,6 +41,8 @@ st.set_page_config(page_title="Ассистент аналитики")
 CHROMA_PATH = os.getenv("KB_CHROMA_PATH", "data/chroma")   # было, вероятно: "./chroma"
 COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")  # было, вероятно: "kb_default"
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+CATALOG_TABLES_FILE = os.getenv("KB_CATALOG_TABLES_FILE", os.path.join("docs", "kb_catalog_tables.md"))
+CATALOG_DASHBOARDS_FILE = os.getenv("KB_CATALOG_DASHBOARDS_FILE", os.path.join("docs", "kb_catalog_dashboards.md"))
 
 # --- Авто-индексация при старте (однократно на процесс) ---
 # Включается флагом окружения: KB_AUTO_INGEST_ON_START=1
@@ -403,6 +405,14 @@ def _history_zip_bytes() -> bytes:
                 item["fig"].write_html(html_buf, include_plotlyjs="cdn", full_html=True)
                 zf.writestr(f"{base}.html", html_buf.getvalue().encode("utf-8"))
     return buf.getvalue()
+
+def _read_text_file_quiet(path: str, max_bytes: int = 256 * 1024) -> str:
+    """Читает текстовый файл (если есть). Возвращает строку или пустую строку при ошибке."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read(max_bytes)
+    except Exception:
+        return ""
 
 # --- 1) Узнаём: это ошибка по схеме? (таблица/колонка/идентификатор) ---
 def _is_schema_error(err_text: str) -> bool:
@@ -816,50 +826,23 @@ if user_input:
     final_reply = ""
 
     if mode == "catalog":
-        # Каталог ИЗ БАЗЫ ЗНАНИЙ: только то, что найдено в индексе (без ClickHouse/полной схемы)
+        # Детерминированный каталог из КУРАТОРСКИХ файлов без LLM
+        text = user_input.lower()
+        want_tables = any(w in text for w in ["таблиц", "таблица", "tables", "table"])
+        want_dash = any(w in text for w in ["дашборд", "дашборды", "dashboard", "dashboards", "datalens"])
+        if not (want_tables or want_dash):
+            want_tables = True
+            want_dash = True
 
-        # 1) Соберём контекст по двум запросам (дашборды и таблицы)
-        hits = []
-        try:
-            queries = [
-                "каталог дашбордов dashboard datalens список описание ссылка",
-                "перечень таблиц таблицы схема ddl описание назначение источник",
-            ]
-            for q in queries:
-                hits += retriever.retrieve(
-                    q, k=20,
-                    chroma_path=CHROMA_PATH,
-                    collection_name=COLLECTION_NAME,
-                )
-        except Exception as e:
-            st.error(f"Не удалось получить контекст из базы знаний: {e}")
-            hits = []
+        out = []
+        if want_dash:
+            dashboards_md = _read_text_file_quiet(CATALOG_DASHBOARDS_FILE)
+            out.append("### Дашборды\n" + (dashboards_md.strip() or "—"))
+        if want_tables:
+            tables_md = _read_text_file_quiet(CATALOG_TABLES_FILE)
+            out.append("### Таблицы\n" + (tables_md.strip() or "—"))
 
-        # 2) Склеиваем текст фрагментов; защитный лимит по размеру
-        context = "\n\n---\n\n".join([h.get("text", "") for h in hits if h.get("text")])[:120000]
-
-        # 3) Просим LLM сформировать краткий каталог СТРОГО по контексту
-        cat_sys = (
-            "Сформируй краткий каталог ТОЛЬКО по контексту ниже.\n"
-            "Выведи два раздела:\n"
-            "Дашборды — маркированный список: «Название — ссылка (если есть) — 1–2 предложения».\n"
-            "Таблицы (доступны в базе знаний) — маркированный список: «Человекочитаемое имя — `db.table` — 1–2 предложения».\n"
-            "Не придумывай элементов, которых нет в контексте. SQL не выводи. Если раздел пуст, поставь «—»."
-        )
-        msgs = [
-            {"role": "system", "content": cat_sys},
-            {"role": "system", "content": f"Контекст:\n{context}"},
-            {"role": "user", "content": user_input},
-        ]
-        try:
-            final_reply = client.chat.completions.create(
-                model=OPENAI_MODEL, messages=msgs, temperature=0
-            ).choices[0].message.content
-        except Exception as e:
-            final_reply = "Не удалось сформировать каталог из базы знаний."
-            st.error(f"Ошибка каталога: {e}")
-
-        # 4) Вывод
+        final_reply = "\n\n".join(out) if out else "Каталог пуст."
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
         with st.chat_message("assistant"):
             st.markdown(final_reply)
