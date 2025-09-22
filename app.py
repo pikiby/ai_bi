@@ -626,14 +626,50 @@ def run_sql_with_auto_schema(sql_text: str,
             # не схема — пробрасываем как есть
             raise
 
-    # 3.2. Схема понадобилась — просим у ClickHouse и даём её модели
-    hint = _schema_hint(ch_client, database=DEFAULT_DB)
+    # 3.2. Схема понадобилась — составим ТОЧНЫЙ хинт по ЗАДЕЙСТВОВАННЫМ таблицам
+    # Извлекаем имена таблиц из исходного SQL
+    try:
+        tbl_names = []
+        for pat in [r"\bFROM\s+([a-zA-Z0-9_.`\"]+)", r"\bJOIN\s+([a-zA-Z0-9_.`\"]+)"]:
+            tbl_names += [m.group(1).strip('`"') for m in re.finditer(pat, sql_text, flags=re.IGNORECASE)]
+        # нормализуем к именам таблиц без префикса БД для get_schema
+        short_tbls = sorted(set([t.split(".")[-1] for t in tbl_names if t]))
+    except Exception:
+        short_tbls = []
+
+    # Берём схему только по этим таблицам с полным списком колонок
+    try:
+        precise_schema = ch_client.get_schema(DEFAULT_DB, tables=short_tbls) if short_tbls else ch_client.get_schema(DEFAULT_DB)
+    except Exception:
+        precise_schema = {}
+
+    # Собираем компактный, но полный по колонкам хинт
+    lines = [f"Схема БД `{DEFAULT_DB}` для задействованных таблиц (полный список колонок):"]
+    for table, cols in precise_schema.items():
+        cols_s = ", ".join(f"`{name}` {ctype}" for name, ctype in cols)
+        lines.append(f"- `{DEFAULT_DB}.{table}`: {cols_s}" if cols_s else f"- `{DEFAULT_DB}.{table}`: (пусто)")
+    precise_hint = "\n".join(lines)
+
+    # Попробуем извлечь отсутствующие колонки из текста ошибки
+    missing_cols = []
+    try:
+        miss_part = re.search(r"Missing columns:\s*([^\)]*?) while", err)
+        if miss_part:
+            missing_cols = re.findall(r"'([^']+)'", miss_part.group(1))
+    except Exception:
+        missing_cols = []
+
+    guard_instr = (
+        "Перегенерируй корректный ```sql``` СТРОГО по схемам выше. "
+        + (f"Не используй отсутствующие колонки: {', '.join(missing_cols)}. " if missing_cols else "")
+        + "Используй только перечисленные имена столбцов и таблиц, ничего не выдумывай. Верни только блок ```sql```."
+    )
 
     regen_msgs = (
-        [{"role": "system", "content": hint},
+        [{"role": "system", "content": precise_hint},
          {"role": "system", "content": prompts_map["sql"]}] +
         base_messages +
-        [{"role": "system", "content": "Перегенерируй корректный ```sql``` строго по схеме выше. Верни только блок ```sql```."}]
+        [{"role": "system", "content": guard_instr}]
     )
 
     regen = llm_client.chat.completions.create(
