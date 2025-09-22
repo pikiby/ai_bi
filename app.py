@@ -427,7 +427,7 @@ def _schema_hint(ch_client, database: str = "db1", max_tables: int = 12, max_col
         if i >= max_tables:
             break
         cols_s = ", ".join(f"`{c}` {t}" for c, t in (cols[:max_cols] if cols else []))
-        lines.append(f"- `{table}`: {cols_s}" if cols_s else f"- `{table}`: (пусто)")
+        lines.append(f"- `{database}.{table}`: {cols_s}" if cols_s else f"- `{database}.{table}`: (пусто)")
     return "\n".join(lines)
 
 
@@ -611,6 +611,16 @@ def run_sql_with_auto_schema(sql_text: str,
         return df, sql_text
     except Exception as e:
         err = str(e)
+        
+        # Проверяем на дублирование db1 и исправляем
+        if "db1.db1." in sql_text:
+            fixed_sql = sql_text.replace("db1.db1.", "db1.")
+            try:
+                df = ch_client.query_run(fixed_sql)
+                return df, fixed_sql
+            except Exception:
+                pass  # Если и исправленный не работает, продолжаем обычную обработку
+        
         if not _is_schema_error(err):
             # не схема — пробрасываем как есть
             raise
