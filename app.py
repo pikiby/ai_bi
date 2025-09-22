@@ -84,6 +84,10 @@ if "last_df" not in st.session_state:
 if "last_rag_ctx" not in st.session_state:
     st.session_state["last_rag_ctx"] = ""
 
+# кэш схемы БД для быстрого доступа
+if "db_schema_cache" not in st.session_state:
+    st.session_state["db_schema_cache"] = {}
+
 # ----------------------- Вспомогательные функции -----------------------
 
 def _reload_prompts():
@@ -475,6 +479,92 @@ def _dashboards_catalog_from_docs(doc_dir: str) -> str:
     return "\n".join(items)
 
 
+def _get_cached_schema(ch_client, database: str = "db1") -> dict:
+    """
+    Получает схему БД с кэшированием для быстрого доступа.
+    """
+    cache_key = f"schema_{database}"
+    
+    # Проверяем кэш
+    if cache_key in st.session_state["db_schema_cache"]:
+        return st.session_state["db_schema_cache"][cache_key]
+    
+    # Если нет в кэше, получаем из БД
+    try:
+        schema = ch_client.get_schema(database)
+        st.session_state["db_schema_cache"][cache_key] = schema
+        return schema
+    except Exception as e:
+        st.warning(f"Не удалось получить схему БД: {e}")
+        return {}
+
+def _check_table_exists(table_name: str, ch_client, database: str = "db1") -> bool:
+    """
+    Быстрая проверка существования таблицы в БД.
+    """
+    schema = _get_cached_schema(ch_client, database)
+    return table_name in schema
+
+def _enhanced_table_search(query: str, chroma_path: str, collection_name: str) -> list:
+    """
+    Улучшенный поиск таблиц в базе знаний с несколькими стратегиями.
+    """
+    hits = []
+    try:
+        # Стратегия 1: Прямой поиск по названию таблицы
+        if 't_' in query.lower():
+            table_name = None
+            words = query.split()
+            for word in words:
+                if word.startswith('t_') and len(word) > 2:
+                    table_name = word
+                    break
+            
+            if table_name:
+                hits += retriever.retrieve(
+                    f"таблица {table_name} описание структура поля DDL",
+                    k=5,
+                    chroma_path=chroma_path,
+                    collection_name=collection_name,
+                )
+        
+        # Стратегия 2: Поиск по ключевым словам из запроса
+        keywords = []
+        if 'монетизация' in query.lower():
+            keywords.append('монетизация партнеры')
+        if 'партнер' in query.lower():
+            keywords.append('партнеры статус')
+        if 'блокировка' in query.lower():
+            keywords.append('блокировка монетизация')
+        
+        for keyword in keywords:
+            hits += retriever.retrieve(
+                keyword, k=3,
+                chroma_path=chroma_path,
+                collection_name=collection_name,
+            )
+        
+        # Стратегия 3: Общий поиск по запросу
+        hits += retriever.retrieve(
+            query, k=5,
+            chroma_path=chroma_path,
+            collection_name=collection_name,
+        )
+        
+    except Exception as e:
+        st.warning(f"Ошибка при поиске в базе знаний: {e}")
+    
+    # Убираем дубликаты по тексту
+    seen_texts = set()
+    unique_hits = []
+    for hit in hits:
+        text = hit.get("text", "")
+        if text and text not in seen_texts:
+            seen_texts.add(text)
+            unique_hits.append(hit)
+    
+    return unique_hits
+
 def _tables_catalog_from_db(ch_client, database: str = "db1") -> str:
     """
     Возвращает ПОЛНЫЙ каталог таблиц из ClickHouse (system.columns) без сокращений.
@@ -724,8 +814,6 @@ if user_input:
             st.markdown(final_reply)
         st.stop()
 
-
-
     # 2) Выполнение по выбранному режиму
     if mode == "rag":
         # 2a) Просим краткий RAG-запрос (блок ```rag ...```)
@@ -746,10 +834,11 @@ if user_input:
         hits = []
         if rag_query:
             try:
-                hits = retriever.retrieve(
-                    rag_query, k=5,
+                # Используем улучшенный поиск для RAG-режима
+                hits = _enhanced_table_search(
+                    rag_query, 
                     chroma_path=CHROMA_PATH,
-                    collection_name=COLLECTION_NAME,
+                    collection_name=COLLECTION_NAME
                 )
             except Exception as e:
                 st.warning(f"Не удалось получить контекст из базы знаний: {e}")
