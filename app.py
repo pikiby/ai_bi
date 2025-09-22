@@ -612,9 +612,10 @@ def run_sql_with_auto_schema(sql_text: str,
     except Exception as e:
         err = str(e)
         
-        # Проверяем на дублирование db1 и исправляем
-        if "db1.db1." in sql_text:
-            fixed_sql = sql_text.replace("db1.db1.", "db1.")
+        # Проверяем и исправляем возможное дублирование префикса БД
+        dup = f"{DEFAULT_DB}.{DEFAULT_DB}."
+        if dup in sql_text:
+            fixed_sql = sql_text.replace(dup, f"{DEFAULT_DB}.")
             try:
                 df = ch_client.query_run(fixed_sql)
                 return df, fixed_sql
@@ -626,7 +627,7 @@ def run_sql_with_auto_schema(sql_text: str,
             raise
 
     # 3.2. Схема понадобилась — просим у ClickHouse и даём её модели
-    hint = _schema_hint(ch_client, database="db1")
+    hint = _schema_hint(ch_client, database=DEFAULT_DB)
 
     regen_msgs = (
         [{"role": "system", "content": hint},
@@ -644,6 +645,10 @@ def run_sql_with_auto_schema(sql_text: str,
         raise RuntimeError("Не удалось извлечь перегенерированный SQL из ответа модели.")
 
     sql2 = m.group(1).strip()
+    # Защита от дублирования префикса БД после перегенерации SQL
+    dup2 = f"{DEFAULT_DB}.{DEFAULT_DB}."
+    if dup2 in sql2:
+        sql2 = sql2.replace(dup2, f"{DEFAULT_DB}.")
 
     # 3.3. Короткий retry на сетевые/временные сбои при втором запуске
     for _ in range(2):  # одна пауза и вторая попытка
