@@ -354,7 +354,13 @@ def _render_result(item: dict):
     elif kind == "chart":
         fig = item.get("fig")
         if isinstance(fig, go.Figure):
-            st.markdown("**Визуализация**")
+            meta = item.get("meta") or {}
+            title = (meta.get("title") or "").strip()
+            explain = (meta.get("explain") or "").strip()
+            if title:
+                st.markdown(f"### {title}")
+            else:
+                st.markdown("### Результаты запроса")
 
             # Включаем клиентскую кнопку PNG в тулбаре (иконка «камера»).
             # Это работает без нихрена лишнего: Plotly в браузере сам сформирует PNG.
@@ -367,6 +373,25 @@ def _render_result(item: dict):
                     "toImageButtonOptions": {"format": "png", "scale": 2}
                 },
             )
+
+            # Подпись (explain), если есть
+            if explain:
+                st.caption(explain)
+
+            # --- Свернутый блок с SQL (как у таблиц) ---
+            used_sql = (meta.get("sql") or "").strip()
+            orig_sql = (meta.get("sql_original") or "").strip()
+            with st.expander("Показать SQL", expanded=False):
+                if used_sql:
+                    st.markdown("**Использованный SQL**")
+                    st.code(used_sql, language="sql")
+                    if orig_sql and orig_sql != used_sql:
+                        st.markdown("**Исходный SQL от модели**")
+                        st.code(orig_sql, language="sql")
+                elif orig_sql:
+                    st.code(orig_sql, language="sql")
+                else:
+                    st.caption("SQL недоступен для этой визуализации.")
 
             # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
             ts = (item.get("ts") or "chart").replace(":", "-")
@@ -441,18 +466,25 @@ def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     return fig
 
 def _default_plotly_table_code(df: pd.DataFrame) -> str:
-    """Сгенерировать минимальный код Plotly-таблицы для текущего df (редактируемый пользователем)."""
-    cols = [str(c) for c in df.columns]
-    # Значения берём из df по именам колонок
-    code = (
+    """Красивый дефолтный код Plotly-таблицы (тёмная шапка, тёмные строки, светлый текст)."""
+    return (
         "values = [df[c].tolist() for c in df.columns]\n"
         "fig = go.Figure(data=[go.Table(\n"
-        "    header=dict(values=[str(c) for c in df.columns]),\n"
-        "    cells=dict(values=values)\n"
+        "    header=dict(\n"
+        "        values=[str(c) for c in df.columns],\n"
+        "        fill_color=\"#111827\",\n"
+        "        font=dict(color=\"#f9fafb\", size=13),\n"
+        "        align=\"left\"\n"
+        "    ),\n"
+        "    cells=dict(\n"
+        "        values=values,\n"
+        "        fill_color=\"#1f2933\",\n"
+        "        font=dict(color=\"#f9fafb\"),\n"
+        "        align=\"left\"\n"
+        "    )\n"
         ")])\n"
         "fig.update_layout(margin=dict(l=0, r=0, t=12, b=0))\n"
     )
-    return code
 
 def _history_zip_bytes() -> bytes:
     """Собрать ZIP с историей результатов (таблицы: csv+xlsx+sql, графики: html)."""
@@ -1118,7 +1150,9 @@ if user_input:
                             exec(code_tbl_clean, safe_globals2, loc)
                             fig_auto = loc.get("fig")
                             if isinstance(fig_auto, go.Figure):
-                                _push_result("chart", fig=fig_auto, meta={"plotly_code": code_tbl})
+                                meta_chart = dict(meta_extra)
+                                meta_chart["plotly_code"] = code_tbl
+                                _push_result("chart", fig=fig_auto, meta=meta_chart)
                                 _render_result(st.session_state["results"][-1])
                         except Exception:
                             pass
