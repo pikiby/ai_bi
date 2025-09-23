@@ -295,10 +295,17 @@ def _render_result(item: dict):
                 st.caption(f"Источник: {src}. Период: {period}.")
             
             # --- Свернутый блок с SQL запроса (по кнопке) ---
-            sql = (meta.get("sql") or "").strip()
+            used_sql = (meta.get("sql") or "").strip()
+            orig_sql = (meta.get("sql_original") or "").strip()
             with st.expander("Показать SQL", expanded=False):
-                if sql:
-                    st.code(sql, language="sql")
+                if used_sql:
+                    st.markdown("**Использованный SQL**")
+                    st.code(used_sql, language="sql")
+                    if orig_sql and orig_sql != used_sql:
+                        st.markdown("**Исходный SQL от модели**")
+                        st.code(orig_sql, language="sql")
+                elif orig_sql:
+                    st.code(orig_sql, language="sql")
                 else:
                     st.caption("SQL недоступен для этой таблицы.")
 
@@ -977,7 +984,9 @@ if user_input:
             m_title = re.search(r"```title\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
             m_explain = re.search(r"```explain\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
             meta_extra = {
-                "sql": sql,
+                # В meta пойдёт ИСПОЛЬЗОВАННЫЙ SQL; исходный сохраним отдельно
+                "sql": None,
+                "sql_original": sql,
                 "title": (m_title.group(1).strip() if m_title else None),
                 "explain": (m_explain.group(1).strip() if m_explain else None),
             }
@@ -991,6 +1000,10 @@ if user_input:
                     prompts_map=prompts_map,             # ваши системные промпты
                     model_name=OPENAI_MODEL              # имя модели
                 )
+                # Обновим meta: показываем фактически выполненный SQL, сохранив исходный
+                meta_extra["sql"] = used_sql
+                if used_sql.strip() != sql.strip():
+                    st.info("SQL был автоматически скорректирован по схеме (отсутствующие поля/алиасы исправлены).")
                 if isinstance(df_any, pl.DataFrame):
                     df_pl = df_any
                 else:
