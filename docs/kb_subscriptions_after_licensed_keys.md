@@ -62,24 +62,31 @@ ORDER BY (report_date, partner_uuid, city_uuid)
 
 ### Пример запроса (обогащённый, без префикса БД)
 ```sql
-SELECT
-    s.`report_date`                      AS `Дата`,
-    s.`partner_uuid`                     AS `UUID партнёра`,
-    s.`city_uuid`                        AS `UUID города`,
-    e.`city`                             AS `Город`,
-    c.`company_name`                     AS `Компания`,
-    c.`partner_lk`                       AS `ЛК партнёра`,
-    c.`tin`                              AS `ИНН`,
-    s.`count_citid_sub_aft_entr`         AS `Подписок после лицензии`
-FROM `t_subscriptions_after_licensed_keys` AS s
-LEFT JOIN `entries_installation_points_dir_partner_ch` AS e
-    ON e.`partner_uuid` = s.`partner_uuid`
-   AND e.`city_uuid`    = s.`city_uuid`
-LEFT JOIN `companies_dir_partner` AS c
-    ON c.`partner_uuid` = s.`partner_uuid`
-WHERE s.`report_date` = (
-    SELECT max(`report_date`) FROM `t_subscriptions_after_licensed_keys`
+WITH s AS (
+    SELECT
+        `report_date`,
+        `partner_uuid`,
+        `city_uuid`,
+        `count_citid_sub_aft_entr`
+    FROM `t_subscriptions_after_licensed_keys`
+    WHERE `report_date` = (
+        SELECT max(`report_date`) FROM `t_subscriptions_after_licensed_keys`
+    )
 )
+SELECT
+    s.`report_date`              AS `Дата`,
+    s.`partner_uuid`             AS `UUID партнёра`,
+    s.`city_uuid`                AS `UUID города`,
+    e.`city`                     AS `Город`,
+    c.`company_name`             AS `Компания`,
+    c.`partner_lk`               AS `ЛК партнёра`,
+    c.`tin`                      AS `ИНН`,
+    s.`count_citid_sub_aft_entr` AS `Подписок после лицензии`
+FROM s
+LEFT JOIN `entries_installation_points_dir_partner_ch` AS e
+    ON e.`city_uuid` = s.`city_uuid`
+LEFT JOIN `companies_dir_partner_ch` AS c
+    ON c.`partner_uuid` = s.`partner_uuid`
 ORDER BY s.`report_date` DESC
 LIMIT 100
 ```
