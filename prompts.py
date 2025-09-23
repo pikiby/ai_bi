@@ -82,7 +82,7 @@ SELECT ...
 - Если в карточке таблицы (контекст БЗ) явно перечислены «Связи»/«Обогащение», по умолчанию добавляй соответствующие LEFT JOIN и выводи человекочитаемые поля из этих справочников в SELECT.
 - Если для справочника доступны варианты исходной таблицы и проекции в ClickHouse, предпочитай таблицы с суффиксом `_ch`.
 - Обогащение выполняй ПОСЛЕ формирования базового запроса к основной таблице (CTE или подзапрос), затем делай LEFT JOIN к справочникам.
-- Для `entries_installation_points_dir_partner_ch` используй только условие `ON e.`city_uuid` = s.`city_uuid`` (не добавляй другие поля в ON). Для компаний — `ON c.`partner_uuid` = s.`partner_uuid``.
+- Для города используй справочник `t_a_city_uuid` с условием `ON e.`city_uuid` = s.`city_uuid``. Для компаний — `companies_dir_partner_ch` по `ON c.`partner_uuid` = s.`partner_uuid``.
 - Пример (иллюстрация, не включать в ответ): базовый CTE `s AS (<основной SELECT из факта>)`, затем LEFT JOIN `entries_installation_points_dir_partner_ch` по `city_uuid` и LEFT JOIN `companies_dir_partner_ch` по `partner_uuid` для возврата `city` как `Город`, `company_name` как `Компания`, `partner_lk` как `ЛК партнёра`, `tin` как `ИНН`.
 """
 

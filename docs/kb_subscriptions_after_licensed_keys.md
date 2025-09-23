@@ -45,12 +45,12 @@ ORDER BY (report_date, partner_uuid, city_uuid)
 
 ## Примечания
 - В таблицу попадают только те подписки, которые были оформлены в течение 48 часов после приобретения лицензионного ключа.
-- Для расчёта используются таблицы citizens_dir_mobile_ch, subscriptions_st_mobile_ch, licensed_keys_dir_partner_ch, entries_installation_points_dir_partner_ch, t_a_houses_by_partner.
+- Для расчёта используются таблицы citizens_dir_mobile_ch, subscriptions_st_mobile_ch, licensed_keys_dir_partner_ch, t_a_city_uuid, t_a_houses_by_partner.
 - Используется для оценки влияния продаж лицензий на последующее подключение подписок.
 
 ## Связи и обогащение
 
-- Город (человекочитаемо): из `entries_installation_points_dir_partner_ch`
+- Город (человекочитаемо): из `t_a_city_uuid`
   - Ключи связи: `partner_uuid`, `city_uuid`
   - Поле: `city` → алиас `Город`
 - Реквизиты компании: из `companies_dir_partner`
@@ -83,7 +83,7 @@ SELECT
     c.`tin`                      AS `ИНН`,
     s.`count_citid_sub_aft_entr` AS `Подписок после лицензии`
 FROM s
-LEFT JOIN `entries_installation_points_dir_partner_ch` AS e
+LEFT JOIN `t_a_city_uuid` AS e
     ON e.`city_uuid` = s.`city_uuid`
 LEFT JOIN `companies_dir_partner_ch` AS c
     ON c.`partner_uuid` = s.`partner_uuid`
