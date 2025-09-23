@@ -314,13 +314,19 @@ def _render_result(item: dict):
                 else:
                     st.caption("SQL недоступен для этой таблицы.")
 
-            # --- Свернутый блок с кодом преобразования таблицы (если был режим table) ---
-            table_src = (meta.get("table_code") or "").strip()
-            with st.expander("Показать код преобразования таблицы", expanded=False):
-                if table_src:
-                    st.code(table_src, language="python")
+            # --- Свернутый блок с исходным кодом Plotly (по аналогии с графиками) ---
+            # Если кода ещё нет (таблица из SQL) — сгенерируем минимальный go.Table
+            if not (meta.get("plotly_code") or "").strip():
+                try:
+                    meta["plotly_code"] = _default_plotly_table_code(pdf)
+                except Exception:
+                    meta["plotly_code"] = ""
+            plotly_src_tbl = (meta.get("plotly_code") or "").strip()
+            with st.expander("Показать код Plotly", expanded=False):
+                if plotly_src_tbl:
+                    st.code(plotly_src_tbl, language="python")
                 else:
-                    st.caption("Код преобразования недоступен.")
+                    st.caption("Код недоступен для этой таблицы.")
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             ts = (item.get("ts") or "table").replace(":", "-")
@@ -338,45 +344,6 @@ def _render_result(item: dict):
                     key=f"dl_csv_{ts}",
                     use_container_width=True,
                 )
-            
-            # --- Код Plotly-таблицы (генерация и редактирование) ---
-            meta.setdefault("table_plotly_code", _default_plotly_table_code(pdf))
-            with st.expander("Показать/редактировать код Plotly-таблицы", expanded=False):
-                code_key = f"tbl_code_{ts}"
-                run_key = f"tbl_run_{ts}"
-                code_val = st.text_area("Код", value=meta.get("table_plotly_code", ""), height=260, key=code_key)
-                if st.button("Выполнить код", key=run_key, use_container_width=True):
-                    # Безопасное выполнение кода, ожидаем fig (go.Figure)
-                    BANNED_RE = re.compile(
-                        r"(?:\\bimport\\b|\\bopen\\b|\\bexec\\b|\\beval\\b|subprocess|socket|"
-                        r"os\\.[A-Za-z_]+|sys\\.[A-Za-z_]+|Path\\(|write\\(|remove\\(|unlink\\(|requests|httpx)",
-                        re.IGNORECASE,
-                    )
-                    code_retry_clean = re.sub(r"(?m)^\\s*import\\s+pandas\\s+as\\s+pd\\s*$", "", code_val)
-                    code_retry_clean = re.sub(r"(?m)^\\s*import\\s+numpy\\s+as\\s+np\\s*$", "", code_retry_clean)
-                    scan2 = re.sub(r"'''[\\s\\S]*?'''", "", code_retry_clean)
-                    scan2 = re.sub(r'"""[\\s\\S]*?"""', "", scan2)
-                    scan2 = re.sub(r"(?m)#.*$", "", scan2)
-                    if BANNED_RE.search(scan2):
-                        st.error("Код отклонён: запрещённые конструкции.")
-                    else:
-                        try:
-                            safe_globals = {
-                                "__builtins__": {"len": len, "range": range, "min": min, "max": max},
-                                "pd": pd,
-                                "go": go,
-                                "df": pdf,
-                            }
-                            local_vars = {}
-                            exec(code_retry_clean, safe_globals, local_vars)
-                            fig2 = local_vars.get("fig")
-                            if isinstance(fig2, go.Figure):
-                                st.plotly_chart(fig2, theme=None, use_container_width=True, config={"displaylogo": False})
-                                meta["table_plotly_code"] = code_val
-                            else:
-                                st.error("Код должен создавать переменную fig (plotly.graph_objects.Figure).")
-                        except Exception as e:
-                            st.error(f"Ошибка выполнения кода: {e}")
             with col_xlsx:
                 st.download_button(
                     "Скачать XLSX",
