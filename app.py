@@ -110,7 +110,7 @@ def _reload_prompts():
     p_map = {
         "router": _get(
             "ROUTER_PROMPT",
-            "Ты — маршрутизатор. Верни ровно один блок ```mode\nsql\n``` где sql|rag|table|plotly|catalog."
+            "Ты — маршрутизатор. Верни ровно один блок ```mode\nsql\n``` где sql|rag|plotly|catalog."
         ),
         "sql": _get(
             "RULES_SQL",
@@ -123,10 +123,6 @@ def _reload_prompts():
         "plotly": _get(
             "RULES_PLOTLY",
             "Режим PLOTLY. Верни ровно один блок ```plotly``` с кодом, создающим переменную fig."
-        ),
-        "table": _get(
-            "RULES_TABLE",
-            "Режим TABLE. Верни ровно один блок ```table``` с кодом, создающим df2 из df."
         ),
     }
     return p_map, warn
@@ -891,7 +887,7 @@ if user_input:
     m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
     mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
 
-    if mode not in {"sql", "rag", "table", "plotly", "catalog"}:
+    if mode not in {"sql", "rag", "plotly", "catalog"}:
         mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
 
     final_reply = ""
@@ -1000,35 +996,7 @@ if user_input:
             final_reply = "Не удалось получить ответ в режиме SQL."
             st.error(f"Ошибка на шаге ответа (SQL): {e}")
 
-    elif mode == "table":
-         # 333-Новая: передаём модели подсказку со списком доступных колонок и их типами
-        cols_hint_msg = []
-        try:
-            if st.session_state.get("last_df") is not None:
-                _pdf = st.session_state["last_df"].to_pandas()
-                # Соберём компактную справку по колонкам для системы
-                cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
-                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
-                )
-                cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
-        except Exception:
-            # Если по каким-то причинам last_df ещё не готов — просто не добавляем подсказку
-            cols_hint_msg = []
-
-        exec_msgs = (
-            [{"role": "system", "content": prompts_map["table"]}]
-            + cols_hint_msg
-            + st.session_state["messages"]
-        )
-        try:
-            final_reply = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=exec_msgs,
-                temperature=0.2,
-            ).choices[0].message.content
-        except Exception as e:
-            final_reply = "Не удалось получить код преобразования таблицы."
-            st.error(f"Ошибка на шаге ответа (Table): {e}")
+    
 
     elif mode == "plotly":
          # 333-Новая: передаём модели подсказку со списком доступных колонок и их типами
@@ -1108,146 +1076,59 @@ if user_input:
                 if df_pl is not None:
                     _push_result("table", df_pl=df_pl, meta=meta_extra)
                     _render_result(st.session_state["results"][-1])
+                    # Автоматически генерируем код Plotly (go.Table) и сохраняем в meta таблицы
+                    try:
+                        _pdf_cols = list(df_pl.to_pandas().columns)
+                        cols_hint_text = "Доступные столбцы: " + ", ".join(map(str, _pdf_cols))
+                        plotly_table_hint = (
+                            "Сгенерируй код Plotly для отрисовки табличного представления df через go.Table (без импортов)."
+                        )
+                        pl_msgs = (
+                            [{"role": "system", "content": prompts_map["plotly"]},
+                             {"role": "system", "content": cols_hint_text},
+                             {"role": "system", "content": plotly_table_hint}]
+                            + st.session_state["messages"]
+                        )
+                        pl_reply = client.chat.completions.create(
+                            model=OPENAI_MODEL,
+                            messages=pl_msgs,
+                            temperature=0.1,
+                        ).choices[0].message.content
+                        m_plot_tbl = re.search(r"```plotly\s*(.*?)```", pl_reply, re.DOTALL | re.IGNORECASE)
+                        code_tbl = (m_plot_tbl.group(1).strip() if m_plot_tbl else _default_plotly_table_code(df_pl.to_pandas()))
+                    except Exception:
+                        code_tbl = _default_plotly_table_code(df_pl.to_pandas())
+
+                    # Очистка import/from и безопасное исполнение кода, только для валидации
+                    BANNED_RE2 = re.compile(
+                        r"(?:\\bopen\\b|\\bexec\\b|\\beval\\b|subprocess|socket|"
+                        r"os\\.[A-Za-z_]+|sys\\.[A-Za-z_]+|Path\\(|write\\(|remove\\(|unlink\\(|requests|httpx)",
+                        re.IGNORECASE,
+                    )
+                    code_tbl_clean = re.sub(r"(?m)^\\s*(?:from\\s+\\S+\\s+import\\s+.*|import\\s+.*)\\s*$", "", code_tbl)
+                    scan = re.sub(r"'''[\\s\\S]*?'''", "", code_tbl_clean)
+                    scan = re.sub(r'"""[\\s\\S]*?"""', "", scan)
+                    scan = re.sub(r"(?m)#.*$", "", scan)
+                    if not BANNED_RE2.search(scan):
+                        try:
+                            pdf2 = df_pl.to_pandas()
+                            safe_globals2 = {
+                                "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                                "pd": pd, "px": px, "go": go, "df": pdf2,
+                            }
+                            loc = {}
+                            exec(code_tbl_clean, safe_globals2, loc)
+                            if isinstance(loc.get("fig"), go.Figure):
+                                # Сохраним код в meta последней таблицы
+                                st.session_state["results"][-1]["meta"]["plotly_code"] = code_tbl
+                        except Exception:
+                            pass
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
             except Exception as e:
                 st.error(f"Ошибка выполнения SQL: {e}")
 
-        # 5a) Если ассистент вернул Table-код — исполняем его в песочнице и сохраняем новую таблицу
-        m_table = re.search(r"```table\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-        table_code = (m_table.group(1).strip() if m_table else "")
-        if table_code:
-            if st.session_state["last_df"] is None:
-                st.info("Нет данных: сначала выполните SQL, чтобы получить df.")
-            else:
-                # Базовая защита
-                BANNED_RE = re.compile(
-                    r"(?:\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
-                    r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
-                    re.IGNORECASE,
-                )
-                # Удаляем любые import/from и комментарии
-                code_clean = table_code
-                code_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_clean)
-                code_clean = re.sub(r"'''[\s\S]*?'''", "", code_clean)
-                code_clean = re.sub(r'"""[\s\S]*?"""', "", code_clean)
-                code_scan = re.sub(r"(?m)#.*$", "", code_clean)
-
-                m_banned = BANNED_RE.search(code_scan)
-                if m_banned:
-                    st.error(f"Код преобразования отклонён (запрещено: '{m_banned.group(0)}').")
-                else:
-                    try:
-                        pdf = st.session_state["last_df"].to_pandas()
-
-                        def col(*names):
-                            for n in names:
-                                if isinstance(n, str) and n in pdf.columns:
-                                    return n
-                            raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(pdf.columns)}")
-
-                        def has_col(name: str) -> bool:
-                            return isinstance(name, str) and name in pdf.columns
-
-                        COLS = list(pdf.columns)
-
-                        safe_globals = {
-                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
-                            "pd": pd,
-                            "df": pdf,       # данные для преобразования (только чтение оригинала)
-                            "col": col,
-                            "has_col": has_col,
-                            "COLS": COLS,
-                        }
-                        local_vars = {}
-                        exec(code_clean, safe_globals, local_vars)
-
-                        df2 = local_vars.get("df2")
-                        # Допускаем inplace-подход: если df2 не создан, но локальный df изменён — используем его
-                        if not isinstance(df2, pd.DataFrame):
-                            cand = local_vars.get("df")
-                            if isinstance(cand, pd.DataFrame):
-                                df2 = cand
-                        if isinstance(df2, pd.DataFrame):
-                            df_pl2 = pl.from_pandas(df2)
-                            st.session_state["last_df"] = df_pl2
-                            m_title = re.search(r"```title\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-                            m_explain = re.search(r"```explain\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-                            meta = {
-                                "title": (m_title.group(1).strip() if m_title else None),
-                                "explain": (m_explain.group(1).strip() if m_explain else None),
-                                "table_code": table_code,
-                            }
-                            _push_result("table", df_pl=df_pl2, meta=meta)
-                            _render_result(st.session_state["results"][-1])
-                        else:
-                            st.error("Ожидается, что код в ```table``` создаст переменную df2 (pandas.DataFrame).")
-                    except Exception as e:
-                        # Авто-ретрай: напоминаем доступные колонки и просим новый код
-                        err_text = str(e)
-                        needs_retry = isinstance(e, KeyError) or "Нет ни одной из колонок" in err_text
-                        if needs_retry:
-                            try:
-                                _pdf = st.session_state["last_df"].to_pandas()
-                                _cols_list = list(_pdf.columns)
-                                retry_hint = (
-                                    "Ошибка выбора колонок при преобразовании таблицы: "
-                                    + err_text
-                                    + "\nДоступные колонки: "
-                                    + ", ".join(map(str, _cols_list))
-                                    + "\nСгенерируй НОВЫЙ код для переменной df2, используя ТОЛЬКО эти имена через col(...)."
-                                )
-                                retry_msgs = (
-                                    [{"role": "system", "content": prompts_map["table"]},
-                                     {"role": "system", "content": retry_hint}]
-                                    + st.session_state["messages"]
-                                )
-                                retry_reply = client.chat.completions.create(
-                                    model=OPENAI_MODEL,
-                                    messages=retry_msgs,
-                                    temperature=0,
-                                ).choices[0].message.content
-
-                                m_table_retry = re.search(r"```table\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
-                                if m_table_retry:
-                                    code_retry = m_table_retry.group(1).strip()
-                                    # Повтор: удаляем любые import/from и комментарии
-                                    code_retry_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_retry)
-                                    code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry_clean)
-                                    code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
-                                    code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
-                                    m_banned2 = BANNED_RE.search(code_scan2)
-                                    if m_banned2:
-                                        st.error(f"Код преобразования (повтор) отклонён (запрещено: '{m_banned2.group(0)}').")
-                                    else:
-                                        safe_globals_retry = {
-                                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
-                                            "pd": pd,
-                                            "df": pdf,
-                                            "col": col,
-                                            "has_col": has_col,
-                                            "COLS": COLS,
-                                        }
-                                        local_vars = {}
-                                        exec(code_retry_clean, safe_globals_retry, local_vars)
-                                        df2 = local_vars.get("df2")
-                                        if not isinstance(df2, pd.DataFrame):
-                                            cand = local_vars.get("df")
-                                            if isinstance(cand, pd.DataFrame):
-                                                df2 = cand
-                                        if isinstance(df2, pd.DataFrame):
-                                            df_pl2 = pl.from_pandas(df2)
-                                            st.session_state["last_df"] = df_pl2
-                                            _push_result("table", df_pl=df_pl2, meta={"table_code": code_retry})
-                                            _render_result(st.session_state["results"][-1])
-                                        else:
-                                            st.error("Повтор: код не создал переменную df2 (pandas.DataFrame).")
-                                else:
-                                    st.error("Повтор: ассистент не вернул блок ```table```. ")
-                            except Exception as e2:
-                                st.error(f"Повтор также не удался: {e2}")
-                        else:
-                            st.error(f"Ошибка выполнения кода преобразования: {e}")
+        # Убрали обработку блока table — режим упразднён
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
