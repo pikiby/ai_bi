@@ -338,6 +338,45 @@ def _render_result(item: dict):
                     key=f"dl_csv_{ts}",
                     use_container_width=True,
                 )
+            
+            # --- Код Plotly-таблицы (генерация и редактирование) ---
+            meta.setdefault("table_plotly_code", _default_plotly_table_code(pdf))
+            with st.expander("Показать/редактировать код Plotly-таблицы", expanded=False):
+                code_key = f"tbl_code_{ts}"
+                run_key = f"tbl_run_{ts}"
+                code_val = st.text_area("Код", value=meta.get("table_plotly_code", ""), height=260, key=code_key)
+                if st.button("Выполнить код", key=run_key, use_container_width=True):
+                    # Безопасное выполнение кода, ожидаем fig (go.Figure)
+                    BANNED_RE = re.compile(
+                        r"(?:\\bimport\\b|\\bopen\\b|\\bexec\\b|\\beval\\b|subprocess|socket|"
+                        r"os\\.[A-Za-z_]+|sys\\.[A-Za-z_]+|Path\\(|write\\(|remove\\(|unlink\\(|requests|httpx)",
+                        re.IGNORECASE,
+                    )
+                    code_retry_clean = re.sub(r"(?m)^\\s*import\\s+pandas\\s+as\\s+pd\\s*$", "", code_val)
+                    code_retry_clean = re.sub(r"(?m)^\\s*import\\s+numpy\\s+as\\s+np\\s*$", "", code_retry_clean)
+                    scan2 = re.sub(r"'''[\\s\\S]*?'''", "", code_retry_clean)
+                    scan2 = re.sub(r'"""[\\s\\S]*?"""', "", scan2)
+                    scan2 = re.sub(r"(?m)#.*$", "", scan2)
+                    if BANNED_RE.search(scan2):
+                        st.error("Код отклонён: запрещённые конструкции.")
+                    else:
+                        try:
+                            safe_globals = {
+                                "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                                "pd": pd,
+                                "go": go,
+                                "df": pdf,
+                            }
+                            local_vars = {}
+                            exec(code_retry_clean, safe_globals, local_vars)
+                            fig2 = local_vars.get("fig")
+                            if isinstance(fig2, go.Figure):
+                                st.plotly_chart(fig2, theme=None, use_container_width=True, config={"displaylogo": False})
+                                meta["table_plotly_code"] = code_val
+                            else:
+                                st.error("Код должен создавать переменную fig (plotly.graph_objects.Figure).")
+                        except Exception as e:
+                            st.error(f"Ошибка выполнения кода: {e}")
             with col_xlsx:
                 st.download_button(
                     "Скачать XLSX",
@@ -437,6 +476,20 @@ def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(pdf)))
 
     return fig
+
+def _default_plotly_table_code(df: pd.DataFrame) -> str:
+    """Сгенерировать минимальный код Plotly-таблицы для текущего df (редактируемый пользователем)."""
+    cols = [str(c) for c in df.columns]
+    # Значения берём из df по именам колонок
+    code = (
+        "values = [df[c].tolist() for c in df.columns]\n"
+        "fig = go.Figure(data=[go.Table(\n"
+        "    header=dict(values=[str(c) for c in df.columns]),\n"
+        "    cells=dict(values=values)\n"
+        ")])\n"
+        "fig.update_layout(margin=dict(l=0, r=0, t=12, b=0))\n"
+    )
+    return code
 
 def _history_zip_bytes() -> bytes:
     """Собрать ZIP с историей результатов (таблицы: csv+xlsx+sql, графики: html)."""
