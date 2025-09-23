@@ -1122,14 +1122,13 @@ if user_input:
             else:
                 # Базовая защита
                 BANNED_RE = re.compile(
-                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
+                    r"(?:\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
                     r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                     re.IGNORECASE,
                 )
-                # Чистим безопасные импорты (не требуются) и комментарии
+                # Удаляем любые import/from и комментарии
                 code_clean = table_code
-                code_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_clean)
                 code_clean = re.sub(r"'''[\s\S]*?'''", "", code_clean)
                 code_clean = re.sub(r'"""[\s\S]*?"""', "", code_clean)
                 code_scan = re.sub(r"(?m)#.*$", "", code_clean)
@@ -1212,9 +1211,8 @@ if user_input:
                                 m_table_retry = re.search(r"```table\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
                                 if m_table_retry:
                                     code_retry = m_table_retry.group(1).strip()
-                                    # Повтор: чистим безопасные импорты
-                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_retry)
-                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_retry_clean)
+                                    # Повтор: удаляем любые import/from и комментарии
+                                    code_retry_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_retry)
                                     code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry_clean)
                                     code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
@@ -1263,19 +1261,13 @@ if user_input:
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
-                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
+                    r"(?:\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
                     r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                     re.IGNORECASE,
                 )
-                # >>> удалим безопасные импорты px/go/pd/np и комментарии/тройные строки
+                # >>> удалим любые import/from и комментарии/тройные строки
                 code_clean = code
-                code_clean = re.sub(r"(?m)^\s*import\s+plotly\.express\s+as\s+px\s*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*import\s+plotly\.graph_objects\s+as\s+go\s*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*from\s+plotly\s+import\s+graph_objects\s+as\s+go\s*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*from\s+plotly\.graph_objects\s+import\s+.*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*from\s+plotly\.express\s+import\s+.*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_clean)
-                code_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_clean)
                 code_scan = code_clean
                 # многострочные ''' ... ''' и """ ... """
                 code_scan = re.sub(r"'''[\s\S]*?'''", "", code_scan)
@@ -1357,15 +1349,8 @@ if user_input:
                                 if m_plotly_retry:
                                     code_retry = m_plotly_retry.group(1).strip()
 
-                                    # Повторная базовая проверка безопасности + удалим безопасные импорты
-                                    code_retry_clean = code_retry
-                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+plotly\.express\s+as\s+px\s*$", "", code_retry_clean)
-                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+plotly\.graph_objects\s+as\s+go\s*$", "", code_retry_clean)
-                                    code_retry_clean = re.sub(r"(?m)^\s*from\s+plotly\s+import\s+graph_objects\s+as\s+go\s*$", "", code_retry_clean)
-                                    code_retry_clean = re.sub(r"(?m)^\s*from\s+plotly\.graph_objects\s+import\s+.*$", "", code_retry_clean)
-                                    code_retry_clean = re.sub(r"(?m)^\s*from\s+plotly\.express\s+import\s+.*$", "", code_retry_clean)
-                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_retry_clean)
-                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_retry_clean)
+                                    # Повторная базовая проверка безопасности + удалим любые import/from
+                                    code_retry_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_retry)
                                     code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry_clean)
                                     code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
