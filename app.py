@@ -287,13 +287,16 @@ def _render_result(item: dict):
             st.markdown(f"### Таблица {n}: {title}")
 
             # --- Сама таблица ---
-            fig_table = _build_plotly_table(pdf)  # компактная Plotly-таблица вместо st.dataframe
-            st.plotly_chart(
-                fig_table,
-                theme=None,
-                use_container_width=True,
-                config={"editable": True, "displaylogo": False},  # включаем правку ячеек прямо в браузере
-            )
+            if st.session_state.get("table_view_mode", "Plotly") == "Plotly":
+                fig_table = _build_plotly_table(pdf)
+                st.plotly_chart(
+                    fig_table,
+                    theme=None,
+                    use_container_width=True,
+                    config={"editable": True, "displaylogo": False},
+                )
+            else:
+                st.dataframe(pdf, use_container_width=True)
 
             # --- Подпись под таблицей: prefer explain от модели; fallback — выжимка из SQL ---
             if explain:
@@ -791,6 +794,23 @@ with st.sidebar:
                 status.update(label="Ошибка", state="error")
                 st.error(f"Индексирование не удалось: {e}")
 
+    # Режим отображения таблиц: Plotly или нативный Streamlit
+    try:
+        view_mode = st.radio(
+            "Вид таблиц",
+            options=["Plotly", "Streamlit"],
+            index=0 if st.session_state.get("table_view_mode", "Plotly") == "Plotly" else 1,
+            horizontal=True,
+        )
+    except TypeError:
+        # Для старых версий без horizontal
+        view_mode = st.radio(
+            "Вид таблиц",
+            options=["Plotly", "Streamlit"],
+            index=0 if st.session_state.get("table_view_mode", "Plotly") == "Plotly" else 1,
+        )
+    st.session_state["table_view_mode"] = view_mode
+
 # ----------------------- Основной layout -----------------------
 
 # Красивый стартовый блок с кратким описанием и быстрыми действиями.
@@ -1145,6 +1165,11 @@ if user_input:
                         exec(table_code, safe_globals, local_vars)
 
                         df2 = local_vars.get("df2")
+                        # Допускаем inplace-подход: если df2 не создан, но локальный df изменён — используем его
+                        if not isinstance(df2, pd.DataFrame):
+                            cand = local_vars.get("df")
+                            if isinstance(cand, pd.DataFrame):
+                                df2 = cand
                         if isinstance(df2, pd.DataFrame):
                             df_pl2 = pl.from_pandas(df2)
                             st.session_state["last_df"] = df_pl2
@@ -1205,6 +1230,10 @@ if user_input:
                                         local_vars = {}
                                         exec(code_retry, safe_globals_retry, local_vars)
                                         df2 = local_vars.get("df2")
+                                        if not isinstance(df2, pd.DataFrame):
+                                            cand = local_vars.get("df")
+                                            if isinstance(cand, pd.DataFrame):
+                                                df2 = cand
                                         if isinstance(df2, pd.DataFrame):
                                             df_pl2 = pl.from_pandas(df2)
                                             st.session_state["last_df"] = df_pl2
