@@ -1267,8 +1267,16 @@ if user_input:
                     r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                     re.IGNORECASE,
                 )
-                # >>> Перед проверкой уберём комментарии и тройные строки
-                code_scan = code
+                # >>> удалим безопасные импорты px/go/pd/np и комментарии/тройные строки
+                code_clean = code
+                code_clean = re.sub(r"(?m)^\s*import\s+plotly\.express\s+as\s+px\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*import\s+plotly\.graph_objects\s+as\s+go\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*from\s+plotly\s+import\s+graph_objects\s+as\s+go\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*from\s+plotly\.graph_objects\s+import\s+.*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*from\s+plotly\.express\s+import\s+.*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_clean)
+                code_scan = code_clean
                 # многострочные ''' ... ''' и """ ... """
                 code_scan = re.sub(r"'''[\s\S]*?'''", "", code_scan)
                 code_scan = re.sub(r'"""[\s\S]*?"""', "", code_scan)
@@ -1307,7 +1315,7 @@ if user_input:
                             "COLS": COLS,
                         }
                         local_vars = {}
-                        exec(code, safe_globals, local_vars)
+                        exec(code_clean, safe_globals, local_vars)
 
                         fig = local_vars.get("fig")
                         if isinstance(fig, go.Figure):
@@ -1349,8 +1357,16 @@ if user_input:
                                 if m_plotly_retry:
                                     code_retry = m_plotly_retry.group(1).strip()
 
-                                    # Повторная базовая проверка безопасности
-                                    code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
+                                    # Повторная базовая проверка безопасности + удалим безопасные импорты
+                                    code_retry_clean = code_retry
+                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+plotly\.express\s+as\s+px\s*$", "", code_retry_clean)
+                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+plotly\.graph_objects\s+as\s+go\s*$", "", code_retry_clean)
+                                    code_retry_clean = re.sub(r"(?m)^\s*from\s+plotly\s+import\s+graph_objects\s+as\s+go\s*$", "", code_retry_clean)
+                                    code_retry_clean = re.sub(r"(?m)^\s*from\s+plotly\.graph_objects\s+import\s+.*$", "", code_retry_clean)
+                                    code_retry_clean = re.sub(r"(?m)^\s*from\s+plotly\.express\s+import\s+.*$", "", code_retry_clean)
+                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_retry_clean)
+                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_retry_clean)
+                                    code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry_clean)
                                     code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
                                     if BANNED_RE.search(code_scan2):
@@ -1369,7 +1385,7 @@ if user_input:
                                             "COLS": COLS,
                                         }
                                         local_vars = {}
-                                        exec(code_retry, safe_globals_retry, local_vars)
+                                        exec(code_retry_clean, safe_globals_retry, local_vars)
                                         fig = local_vars.get("fig")
 
                                         if isinstance(fig, go.Figure):
