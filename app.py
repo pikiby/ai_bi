@@ -354,7 +354,7 @@ def _render_result(item: dict):
     elif kind == "chart":
         fig = item.get("fig")
         if isinstance(fig, go.Figure):
-            st.markdown("**График**")
+            st.markdown("**Визуализация**")
 
             # Включаем клиентскую кнопку PNG в тулбаре (иконка «камера»).
             # Это работает без нихрена лишнего: Plotly в браузере сам сформирует PNG.
@@ -1074,9 +1074,7 @@ if user_input:
 
                 st.session_state["last_df"] = df_pl
                 if df_pl is not None:
-                    _push_result("table", df_pl=df_pl, meta=meta_extra)
-                    _render_result(st.session_state["results"][-1])
-                    # Автоматически генерируем код Plotly (go.Table) и сохраняем в meta таблицы
+                    # Автоматически генерируем код Plotly для табличного представления и выводим ВМЕСТО table
                     try:
                         _pdf_cols = list(df_pl.to_pandas().columns)
                         cols_hint_text = "Доступные столбцы: " + ", ".join(map(str, _pdf_cols))
@@ -1099,7 +1097,7 @@ if user_input:
                     except Exception:
                         code_tbl = _default_plotly_table_code(df_pl.to_pandas())
 
-                    # Очистка import/from и безопасное исполнение кода, только для валидации
+                    # Очистка import/from и безопасное исполнение кода
                     BANNED_RE2 = re.compile(
                         r"(?:\\bopen\\b|\\bexec\\b|\\beval\\b|subprocess|socket|"
                         r"os\\.[A-Za-z_]+|sys\\.[A-Za-z_]+|Path\\(|write\\(|remove\\(|unlink\\(|requests|httpx)",
@@ -1118,9 +1116,10 @@ if user_input:
                             }
                             loc = {}
                             exec(code_tbl_clean, safe_globals2, loc)
-                            if isinstance(loc.get("fig"), go.Figure):
-                                # Сохраним код в meta последней таблицы
-                                st.session_state["results"][-1]["meta"]["plotly_code"] = code_tbl
+                            fig_auto = loc.get("fig")
+                            if isinstance(fig_auto, go.Figure):
+                                _push_result("chart", fig=fig_auto, meta={"plotly_code": code_tbl})
+                                _render_result(st.session_state["results"][-1])
                         except Exception:
                             pass
                 else:
