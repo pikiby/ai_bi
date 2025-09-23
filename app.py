@@ -286,17 +286,9 @@ def _render_result(item: dict):
 
             st.markdown(f"### Таблица {n}: {title}")
 
-            # --- Сама таблица ---
-            if st.session_state.get("table_view_mode", "Plotly") == "Plotly":
-                fig_table = _build_plotly_table(pdf)
-                st.plotly_chart(
-                    fig_table,
-                    theme=None,
-                    use_container_width=True,
-                    config={"editable": True, "displaylogo": False},
-                )
-            else:
-                st.dataframe(pdf, use_container_width=True)
+            # --- Сама таблица (редактируемая) ---
+            edit_key = f"ed_{item.get('ts','')}"
+            st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
 
             # --- Подпись под таблицей: prefer explain от модели; fallback — выжимка из SQL ---
             if explain:
@@ -794,23 +786,6 @@ with st.sidebar:
                 status.update(label="Ошибка", state="error")
                 st.error(f"Индексирование не удалось: {e}")
 
-    # Режим отображения таблиц: Plotly или нативный Streamlit
-    try:
-        view_mode = st.radio(
-            "Вид таблиц",
-            options=["Plotly", "Streamlit"],
-            index=0 if st.session_state.get("table_view_mode", "Plotly") == "Plotly" else 1,
-            horizontal=True,
-        )
-    except TypeError:
-        # Для старых версий без horizontal
-        view_mode = st.radio(
-            "Вид таблиц",
-            options=["Plotly", "Streamlit"],
-            index=0 if st.session_state.get("table_view_mode", "Plotly") == "Plotly" else 1,
-        )
-    st.session_state["table_view_mode"] = view_mode
-
 # ----------------------- Основной layout -----------------------
 
 # Красивый стартовый блок с кратким описанием и быстрыми действиями.
@@ -1127,17 +1102,21 @@ if user_input:
             else:
                 # Базовая защита
                 BANNED_RE = re.compile(
-                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
+                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
                     r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                     re.IGNORECASE,
                 )
-                code_scan = table_code
-                code_scan = re.sub(r"'''[\s\S]*?'''", "", code_scan)
-                code_scan = re.sub(r'"""[\s\S]*?"""', "", code_scan)
-                code_scan = re.sub(r"(?m)#.*$", "", code_scan)
+                # Чистим безопасные импорты (не требуются) и комментарии
+                code_clean = table_code
+                code_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_clean)
+                code_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_clean)
+                code_clean = re.sub(r"'''[\s\S]*?'''", "", code_clean)
+                code_clean = re.sub(r'"""[\s\S]*?"""', "", code_clean)
+                code_scan = re.sub(r"(?m)#.*$", "", code_clean)
 
-                if BANNED_RE.search(code_scan):
-                    st.error("Код преобразования отклонён (запрещённые конструкции).")
+                m_banned = BANNED_RE.search(code_scan)
+                if m_banned:
+                    st.error(f"Код преобразования отклонён (запрещено: '{m_banned.group(0)}').")
                 else:
                     try:
                         pdf = st.session_state["last_df"].to_pandas()
@@ -1162,7 +1141,7 @@ if user_input:
                             "COLS": COLS,
                         }
                         local_vars = {}
-                        exec(table_code, safe_globals, local_vars)
+                        exec(code_clean, safe_globals, local_vars)
 
                         df2 = local_vars.get("df2")
                         # Допускаем inplace-подход: если df2 не создан, но локальный df изменён — используем его
@@ -1213,11 +1192,15 @@ if user_input:
                                 m_table_retry = re.search(r"```table\s*(.*?)```", retry_reply, re.DOTALL | re.IGNORECASE)
                                 if m_table_retry:
                                     code_retry = m_table_retry.group(1).strip()
-                                    code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry)
+                                    # Повтор: чистим безопасные импорты
+                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+pandas\s+as\s+pd\s*$", "", code_retry)
+                                    code_retry_clean = re.sub(r"(?m)^\s*import\s+numpy\s+as\s+np\s*$", "", code_retry_clean)
+                                    code_scan2 = re.sub(r"'''[\s\S]*?'''", "", code_retry_clean)
                                     code_scan2 = re.sub(r'"""[\s\S]*?"""', "", code_scan2)
                                     code_scan2 = re.sub(r"(?m)#.*$", "", code_scan2)
-                                    if BANNED_RE.search(code_scan2):
-                                        st.error("Код преобразования (повтор) отклонён (запрещённые конструкции).")
+                                    m_banned2 = BANNED_RE.search(code_scan2)
+                                    if m_banned2:
+                                        st.error(f"Код преобразования (повтор) отклонён (запрещено: '{m_banned2.group(0)}').")
                                     else:
                                         safe_globals_retry = {
                                             "__builtins__": {"len": len, "range": range, "min": min, "max": max},
@@ -1228,7 +1211,7 @@ if user_input:
                                             "COLS": COLS,
                                         }
                                         local_vars = {}
-                                        exec(code_retry, safe_globals_retry, local_vars)
+                                        exec(code_retry_clean, safe_globals_retry, local_vars)
                                         df2 = local_vars.get("df2")
                                         if not isinstance(df2, pd.DataFrame):
                                             cand = local_vars.get("df")
@@ -1260,7 +1243,7 @@ if user_input:
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
-                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|__|subprocess|socket|"
+                    r"(?:\bimport\b|\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
                     r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
                     re.IGNORECASE,
                 )
