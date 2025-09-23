@@ -410,8 +410,18 @@ def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     fig = go.Figure(
         data=[
             go.Table(
-                header=dict(values=[str(col) for col in pdf.columns], fill_color="#f0f2f6", align="left"),
-                cells=dict(values=column_values, align="left"),
+                header=dict(
+                    values=[str(col) for col in pdf.columns],
+                    fill_color="#111827",  # тёмный фон шапки
+                    font=dict(color="#f9fafb", size=13),  # светлый текст + небольшое увеличение размера
+                    align="left",
+                ),
+                cells=dict(
+                    values=column_values,
+                    fill_color="#1f2933",  # тёмный фон строк, близкий к шапке
+                    font=dict(color="#f9fafb"),  # светлый текст для контраста
+                    align="left",
+                ),
             )
         ]
     )
