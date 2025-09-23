@@ -283,7 +283,13 @@ def _render_result(item: dict):
             st.markdown(f"### Таблица {n}: {title}")
 
             # --- Сама таблица ---
-            st.dataframe(pdf)
+            fig_table = _build_plotly_table(pdf)  # компактная Plotly-таблица вместо st.dataframe
+            st.plotly_chart(
+                fig_table,
+                theme=None,
+                use_container_width=True,
+                config={"editable": True, "displaylogo": False},  # включаем правку ячеек прямо в браузере
+            )
 
             # --- Подпись под таблицей: prefer explain от модели; fallback — выжимка из SQL ---
             if explain:
@@ -393,6 +399,27 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
         pdf.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
+
+
+def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
+    """Создаём Plotly-таблицу, чтобы можно было править данные прямо в UI."""
+
+    # Plotly ожидает список колонок; сразу приводим к list для совместимости с numpy/pandas типами.
+    column_values = [pdf[col].tolist() for col in pdf.columns] if not pdf.empty else [[] for _ in pdf.columns]
+
+    fig = go.Figure(
+        data=[
+            go.Table(
+                header=dict(values=[str(col) for col in pdf.columns], fill_color="#f0f2f6", align="left"),
+                cells=dict(values=column_values, align="left"),
+            )
+        ]
+    )
+
+    # Небольшие отступы и ограничение по высоте, чтобы таблица выглядела аккуратно.
+    fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(pdf)))
+
+    return fig
 
 def _history_zip_bytes() -> bytes:
     """Собрать ZIP с историей результатов (таблицы: csv+xlsx+sql, графики: html)."""
