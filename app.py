@@ -1069,6 +1069,7 @@ if user_input:
         cleaned = _strip_llm_blocks(final_reply)
         if cleaned:
             st.markdown(cleaned)
+        created_chart = False
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
@@ -1154,6 +1155,7 @@ if user_input:
                                 meta_chart["plotly_code"] = code_tbl
                                 _push_result("chart", fig=fig_auto, meta=meta_chart)
                                 _render_result(st.session_state["results"][-1])
+                                created_chart = True
                         except Exception:
                             pass
                 else:
@@ -1167,7 +1169,7 @@ if user_input:
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
-        if plotly_code:
+        if plotly_code and not created_chart:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
