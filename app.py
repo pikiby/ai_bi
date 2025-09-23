@@ -1111,7 +1111,7 @@ if user_input:
                         try:
                             pdf2 = df_pl.to_pandas()
                             safe_globals2 = {
-                                "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                                "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
                                 "pd": pd, "px": px, "go": go, "df": pdf2,
                             }
                             loc = {}
@@ -1177,7 +1177,7 @@ if user_input:
                         COLS = list(pdf.columns)  # можно подсветить пользователю доступные имена
 
                         safe_globals = {
-                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                            "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
                             "pd": pd,
                             "px": px,
                             "go": go,
@@ -1240,7 +1240,7 @@ if user_input:
                                         # Выполняем повторный код в том же «песочном» окружении
                                         # Собираем такое же безопасное окружение, как в первом запуске
                                         safe_globals_retry = {
-                                            "__builtins__": {"len": len, "range": range, "min": min, "max": max},
+                                            "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
                                             "pd": pd,
                                             "px": px,
                                             "go": go,
