@@ -302,29 +302,9 @@ def _render_result(item: dict):
             # --- Свернутый блок с SQL запроса (по кнопке) ---
             used_sql = (meta.get("sql") or "").strip()
             orig_sql = (meta.get("sql_original") or "").strip()
-            with st.expander("Показать SQL", expanded=False):
-                used_sql = used_sql or st.session_state.get("last_sql_meta", {}).get("sql", "").strip()
-                orig_sql = orig_sql or st.session_state.get("last_sql_meta", {}).get("sql_original", "").strip()
-                if used_sql:
-                    st.code(used_sql, language="sql")
-                elif orig_sql:
-                    st.code(orig_sql, language="sql")
-                else:
-                    st.caption("SQL недоступен для этой таблицы.")
+            # Убрали лишний дублирующийся блок SQL для таблиц
 
-            # --- Свернутый блок с исходным кодом Plotly (по аналогии с графиками) ---
-            # Если кода ещё нет (таблица из SQL) — сгенерируем минимальный go.Table
-            if not (meta.get("plotly_code") or "").strip():
-                try:
-                    meta["plotly_code"] = _default_plotly_table_code(pdf)
-                except Exception:
-                    meta["plotly_code"] = ""
-            plotly_src_tbl = (meta.get("plotly_code") or "").strip()
-            with st.expander("Показать код Plotly", expanded=False):
-                if plotly_src_tbl:
-                    st.code(plotly_src_tbl, language="python")
-                else:
-                    st.caption("Код недоступен для этой таблицы.")
+            # Блок кода Plotly для таблиц убран, чтобы избежать путаницы и дублирования
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             ts = (item.get("ts") or "table").replace(":", "-")
@@ -539,6 +519,17 @@ def _is_schema_error(err_text: str) -> bool:
     return any(s in t for s in SIGNS)
 
 
+# --- 1a) Узнаём: это ошибка регулярного выражения RE2 (ClickHouse)? ---
+def _is_re2_error(err_text: str) -> bool:
+    t = (err_text or "").lower()
+    return (
+        "unterminated subpattern" in t
+        or "missing ), unterminated subpattern" in t
+        or ("re2" in t and "missing" in t)
+        or "invalid escape" in t
+    )
+
+
 # --- 2) Готовим компактный хинт-снимок схемы (через ClickHouse_client.get_schema) ---
 def _schema_hint(ch_client, database: str = "db1", max_tables: int = 12, max_cols: int = 8) -> str:
     """
@@ -745,6 +736,17 @@ def run_sql_with_auto_schema(sql_text: str,
             except Exception:
                 pass  # Если и исправленный не работает, продолжаем обычную обработку
         
+        # Если это ошибка RE2 (регулярки) — попробуем простой автофикс: заменить "match"/"regexp" на LIKE
+        if _is_re2_error(err):
+            try:
+                sql_fixed_regex = re.sub(r"(?i)\bmatch\s*\(([^,]+),\s*'([^']*)'\)", r"\1 LIKE '%\2%'", sql_text)
+                sql_fixed_regex = re.sub(r"(?i)\bmatch\s*\(([^,]+),\s*\"([^\"]*)\"\)", r"\1 LIKE '%\2%'", sql_fixed_regex)
+                sql_fixed_regex = re.sub(r"(?i)\bregexp\s+\'([^']*)\'", r"LIKE '%\1%'", sql_fixed_regex)
+                df = ch_client.query_run(sql_fixed_regex)
+                return df, sql_fixed_regex
+            except Exception:
+                pass
+
         if not _is_schema_error(err):
             # не схема — пробрасываем как есть
             raise
@@ -1126,43 +1128,11 @@ if user_input:
 
                 st.session_state["last_df"] = df_pl
                 if df_pl is not None:
-                    # Автоматически генерируем дефолтный код Plotly-таблицы (светлый стиль)
-                    code_tbl = _default_plotly_table_code(df_pl.to_pandas())
-
-                    # Очистка import/from и безопасное исполнение кода
-                    BANNED_RE2 = re.compile(
-                        r"(?:\\bopen\\b|\\bexec\\b|\\beval\\b|subprocess|socket|"
-                        r"os\\.[A-Za-z_]+|sys\\.[A-Za-z_]+|Path\\(|write\\(|remove\\(|unlink\\(|requests|httpx)",
-                        re.IGNORECASE,
-                    )
-                    code_tbl_clean = re.sub(r"(?m)^\\s*(?:from\\s+\\S+\\s+import\\s+.*|import\\s+.*)\\s*$", "", code_tbl)
-                    scan = re.sub(r"'''[\\s\\S]*?'''", "", code_tbl_clean)
-                    scan = re.sub(r'"""[\\s\\S]*?"""', "", scan)
-                    scan = re.sub(r"(?m)#.*$", "", scan)
-                    if not BANNED_RE2.search(scan):
-                        # Запоминаем метаданные, даже если ниже что-то упадёт — чтобы в UI не терялись заголовок/SQL
-                        st.session_state["last_sql_meta"] = dict(meta_extra)
-                        try:
-                            pdf2 = df_pl.to_pandas()
-                            safe_globals2 = {
-                                "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
-                                "pd": pd, "px": px, "go": go, "df": pdf2,
-                            }
-                            loc = {}
-                            exec(code_tbl_clean, safe_globals2, loc)
-                            fig_auto = loc.get("fig")
-                            if isinstance(fig_auto, go.Figure):
-                                meta_table = dict(meta_extra)
-                                meta_table["plotly_code"] = code_tbl
-                                _push_result("table", df_pl=df_pl, meta=meta_table)
-                                _render_result(st.session_state["results"][-1])
-                                meta_chart = dict(meta_table)
-                                _push_result("chart", fig=fig_auto, meta=meta_chart)
-                                _render_result(st.session_state["results"][-1])
-                                created_table = True
-                                created_chart = True
-                        except Exception:
-                            pass
+                    # Сохраняем таблицу. Не генерируем/не показываем дополнительный Plotly go.Table-график.
+                    meta_table = dict(meta_extra)
+                    _push_result("table", df_pl=df_pl, meta=meta_table)
+                    _render_result(st.session_state["results"][-1])
+                    created_table = True
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
             except Exception as e:
@@ -1193,6 +1163,11 @@ if user_input:
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
+                # Если код строит только go.Table — игнорируем (таблица уже показана стоковым редактором)
+                if re.search(r"go\.Table\(", code):
+                    # тихо пропускаем без ошибок
+                    code = ""
+
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
                     r"(?:\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
@@ -1209,7 +1184,10 @@ if user_input:
                 # однострочные комментарии: # ...
                 code_scan = re.sub(r"(?m)#.*$", "", code_scan)
 
-                if BANNED_RE.search(code_scan):
+                if not code:
+                    # ничего не рисуем и не шумим
+                    pass
+                elif BANNED_RE.search(code_scan):
                     st.error("Код графика отклонён (запрещённые конструкции).")
                 else:
                     try:
