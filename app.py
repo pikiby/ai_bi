@@ -286,9 +286,13 @@ def _render_result(item: dict):
 
             st.markdown(f"### Таблица {n}: {title}")
 
-            # --- Сама таблица (редактируемая) ---
-            edit_key = f"ed_{item.get('ts','')}"
-            st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
+            # --- Таблица: если есть стиль — показываем стилизованную (не редактируемую), иначе редактор ---
+            style_meta = (meta.get("table_style") or {})
+            if style_meta:
+                st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
+            else:
+                edit_key = f"ed_{item.get('ts','')}"
+                st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
 
             # --- Подпись под таблицей: prefer explain от модели; fallback — выжимка из SQL ---
             if explain:
@@ -427,6 +431,24 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
         pdf.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
 
+
+def _build_styled_df(pdf: pd.DataFrame, style_meta: dict) -> pd.io.formats.style.Styler:
+    """Создаёт pandas Styler по простым параметрам стиля."""
+    header_bg = (style_meta or {}).get("header_fill_color") or None
+    cell_bg = (style_meta or {}).get("cells_fill_color") or None
+    text_align = (style_meta or {}).get("align") or "left"
+
+    styles = []
+    if header_bg:
+        styles.append({"selector": "th", "props": [("background-color", header_bg), ("text-align", text_align)]})
+    else:
+        styles.append({"selector": "th", "props": [("text-align", text_align)]})
+    if cell_bg:
+        styles.append({"selector": "td", "props": [("background-color", cell_bg), ("text-align", text_align)]})
+    else:
+        styles.append({"selector": "td", "props": [("text-align", text_align)]})
+
+    return pdf.style.set_table_styles(styles)
 
 def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     """Создаёт Plotly-таблицу с темным стилем (контрастная шапка и строки)."""
@@ -1163,10 +1185,28 @@ if user_input:
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
-                # Если это go.Table без оформления — пропустим; стилизованные таблицы рисуем
+                # Если это go.Table: извлечём цвета и применим как стиль к Streamlit-таблице
                 if re.search(r"go\.Table\(", code):
                     has_style = re.search(r"fill_color|font|line|columnwidth|cells\s*=", code, re.IGNORECASE)
-                    if not has_style:
+                    if has_style:
+                        try:
+                            m_hdr = re.search(r"header\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", code, re.IGNORECASE | re.DOTALL)
+                            m_cells = re.search(r"cells\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", code, re.IGNORECASE | re.DOTALL)
+                            hdr_color = (m_hdr.group(2).strip() if m_hdr else None)
+                            cell_color = (m_cells.group(2).strip() if m_cells else None)
+                            # найдём последнюю таблицу в истории и применим стиль
+                            for it in reversed(st.session_state.get("results", [])):
+                                if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                                    meta_it = it.get("meta") or {}
+                                    meta_it["table_style"] = {"header_fill_color": hdr_color, "cells_fill_color": cell_color, "align": "left"}
+                                    it["meta"] = meta_it
+                                    _render_result(it)
+                                    break
+                        except Exception:
+                            pass
+                        # не выполняем этот код как график
+                        code = ""
+                    else:
                         code = ""
 
                 # Базовая защита: не допускаем опасные конструкции
