@@ -1179,35 +1179,71 @@ if user_input:
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
+
+        # Применение стилей к Streamlit-таблице из go.Table кода — всегда (даже если таблица уже создана)
+        if plotly_code and re.search(r"go\.Table\(", plotly_code):
+            try:
+                m_hdr0 = re.search(r"header\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", plotly_code, re.IGNORECASE | re.DOTALL)
+                m_cells0 = re.search(r"cells\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", plotly_code, re.IGNORECASE | re.DOTALL)
+                hdr_color0 = (m_hdr0.group(2).strip() if m_hdr0 else None)
+                cell_color0 = (m_cells0.group(2).strip() if m_cells0 else None)
+                if hdr_color0 or cell_color0:
+                    for it in reversed(st.session_state.get("results", [])):
+                        if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                            meta_it = it.get("meta") or {}
+                            meta_it["table_style"] = {"header_fill_color": hdr_color0, "cells_fill_color": cell_color0, "align": "left"}
+                            it["meta"] = meta_it
+                            try:
+                                st.rerun()
+                            except Exception:
+                                try:
+                                    st.experimental_rerun()
+                                except Exception:
+                                    pass
+                            break
+            except Exception:
+                pass
+
+        # Новый лёгкий формат для стилизации: блок ```table_style```
+        m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
+        if m_tstyle:
+            try:
+                block = m_tstyle.group(1)
+                hdr_color1 = None
+                cell_color1 = None
+                align1 = None
+                for line in block.splitlines():
+                    if "header_fill_color" in line:
+                        hdr_color1 = line.split(":", 1)[-1].strip().strip('"\'')
+                    elif "cells_fill_color" in line:
+                        cell_color1 = line.split(":", 1)[-1].strip().strip('"\'')
+                    elif re.search(r"\balign\b", line):
+                        align1 = line.split(":", 1)[-1].strip().strip('"\'')
+                for it in reversed(st.session_state.get("results", [])):
+                    if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                        meta_it = it.get("meta") or {}
+                        meta_it["table_style"] = {"header_fill_color": hdr_color1, "cells_fill_color": cell_color1, "align": align1 or "left"}
+                        it["meta"] = meta_it
+                        try:
+                            st.rerun()
+                        except Exception:
+                            try:
+                                st.experimental_rerun()
+                            except Exception:
+                                pass
+                        break
+            except Exception:
+                pass
+
         if plotly_code and not (created_chart or created_table):
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
-                # Если это go.Table: извлечём цвета и применим как стиль к Streamlit-таблице
+                # Если это go.Table — не строим график (таблица уже применена как стиль)
                 if re.search(r"go\.Table\(", code):
-                    has_style = re.search(r"fill_color|font|line|columnwidth|cells\s*=", code, re.IGNORECASE)
-                    if has_style:
-                        try:
-                            m_hdr = re.search(r"header\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", code, re.IGNORECASE | re.DOTALL)
-                            m_cells = re.search(r"cells\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", code, re.IGNORECASE | re.DOTALL)
-                            hdr_color = (m_hdr.group(2).strip() if m_hdr else None)
-                            cell_color = (m_cells.group(2).strip() if m_cells else None)
-                            # найдём последнюю таблицу в истории и применим стиль
-                            for it in reversed(st.session_state.get("results", [])):
-                                if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                    meta_it = it.get("meta") or {}
-                                    meta_it["table_style"] = {"header_fill_color": hdr_color, "cells_fill_color": cell_color, "align": "left"}
-                                    it["meta"] = meta_it
-                                    _render_result(it)
-                                    break
-                        except Exception:
-                            pass
-                        # не выполняем этот код как график
-                        code = ""
-                    else:
-                        code = ""
+                    code = ""
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
