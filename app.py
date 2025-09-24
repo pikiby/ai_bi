@@ -1163,10 +1163,11 @@ if user_input:
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
-                # Если код строит только go.Table — игнорируем (таблица уже показана стоковым редактором)
+                # Если это go.Table без оформления — пропустим; стилизованные таблицы рисуем
                 if re.search(r"go\.Table\(", code):
-                    # тихо пропускаем без ошибок
-                    code = ""
+                    has_style = re.search(r"fill_color|font|line|columnwidth|cells\s*=", code, re.IGNORECASE)
+                    if not has_style:
+                        code = ""
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
