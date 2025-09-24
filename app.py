@@ -432,7 +432,7 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
     return buf.getvalue()
 
 
-def _build_styled_df(pdf: pd.DataFrame, style_meta: dict) -> pd.io.formats.style.Styler:
+def _build_styled_df(pdf: pd.DataFrame, style_meta: dict):
     """Создаёт pandas Styler по простым параметрам стиля."""
     header_bg = (style_meta or {}).get("header_fill_color") or None
     cell_bg = (style_meta or {}).get("cells_fill_color") or None
