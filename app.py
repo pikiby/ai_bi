@@ -1107,28 +1107,8 @@ if user_input:
 
                 st.session_state["last_df"] = df_pl
                 if df_pl is not None:
-                    # Автоматически генерируем код Plotly для табличного представления и выводим ВМЕСТО table
-                    try:
-                        _pdf_cols = list(df_pl.to_pandas().columns)
-                        cols_hint_text = "Доступные столбцы: " + ", ".join(map(str, _pdf_cols))
-                        plotly_table_hint = (
-                            "Сгенерируй код Plotly для отрисовки табличного представления df через go.Table (без импортов)."
-                        )
-                        pl_msgs = (
-                            [{"role": "system", "content": prompts_map["plotly"]},
-                             {"role": "system", "content": cols_hint_text},
-                             {"role": "system", "content": plotly_table_hint}]
-                            + st.session_state["messages"]
-                        )
-                        pl_reply = client.chat.completions.create(
-                            model=OPENAI_MODEL,
-                            messages=pl_msgs,
-                            temperature=0.1,
-                        ).choices[0].message.content
-                        m_plot_tbl = re.search(r"```plotly\s*(.*?)```", pl_reply, re.DOTALL | re.IGNORECASE)
-                        code_tbl = (m_plot_tbl.group(1).strip() if m_plot_tbl else _default_plotly_table_code(df_pl.to_pandas()))
-                    except Exception:
-                        code_tbl = _default_plotly_table_code(df_pl.to_pandas())
+                    # Автоматически генерируем КРАСИВЫЙ дефолтный код Plotly-таблицы, без обращения к модели
+                    code_tbl = _default_plotly_table_code(df_pl.to_pandas())
 
                     # Очистка import/from и безопасное исполнение кода
                     BANNED_RE2 = re.compile(
@@ -1161,7 +1141,20 @@ if user_input:
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
             except Exception as e:
+                # Показать краткую ошибку и обязательно — заголовок/SQL, чтобы пользователь видел, что именно выполнялось
                 st.error(f"Ошибка выполнения SQL: {e}")
+                title = (meta_extra.get("title") or "Результаты запроса").strip()
+                explain = (meta_extra.get("explain") or "").strip()
+                if title:
+                    st.markdown(f"### {title}")
+                if explain:
+                    st.caption(explain)
+                with st.expander("Показать SQL", expanded=False):
+                    orig_sql = (meta_extra.get("sql_original") or "").strip()
+                    if orig_sql:
+                        st.code(orig_sql, language="sql")
+                    else:
+                        st.caption("SQL недоступен для этой операции.")
 
         # Убрали обработку блока table — режим упразднён
 
