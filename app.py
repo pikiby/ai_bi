@@ -1114,9 +1114,9 @@ if user_input:
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_sql:
             sql = m_sql.group(1).strip()
-            sql = sql.strip("`")
-            if sql.startswith("'") and sql.endswith("'") and len(sql) >= 2:
-                sql = sql[1:-1]
+            # Удаляем только симметричные обёртки кавычками/бэктиками, не трогая внутренние `...`
+            if len(sql) >= 2 and sql[0] in {'`', "'", '"'} and sql[-1] == sql[0]:
+                sql = sql[1:-1].strip()
             # Пытаемся вытащить дополнительные блоки:
             m_title = re.search(r"```title\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
             m_explain = re.search(r"```explain\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
