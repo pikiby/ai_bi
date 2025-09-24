@@ -82,6 +82,10 @@ if "results" not in st.session_state:
 if "last_df" not in st.session_state:
     st.session_state["last_df"] = None
 
+# Сохраняем последние метаданные SQL, чтобы всплывающие графики имели заголовок и SQL даже при ошибках
+if "last_sql_meta" not in st.session_state:
+    st.session_state["last_sql_meta"] = {}
+
 # кэш последнего непустого RAG-контекста (используем как фолбэк)
 if "last_rag_ctx" not in st.session_state:
     st.session_state["last_rag_ctx"] = ""
@@ -299,6 +303,8 @@ def _render_result(item: dict):
             used_sql = (meta.get("sql") or "").strip()
             orig_sql = (meta.get("sql_original") or "").strip()
             with st.expander("Показать SQL", expanded=False):
+                used_sql = used_sql or st.session_state.get("last_sql_meta", {}).get("sql", "").strip()
+                orig_sql = orig_sql or st.session_state.get("last_sql_meta", {}).get("sql_original", "").strip()
                 if used_sql:
                     st.markdown("**Использованный SQL**")
                     st.code(used_sql, language="sql")
@@ -355,8 +361,15 @@ def _render_result(item: dict):
         fig = item.get("fig")
         if isinstance(fig, go.Figure):
             meta = item.get("meta") or {}
+
+            # Подтягиваем заголовок и пояснение из меты графика, либо из последнего SQL
             title = (meta.get("title") or "").strip()
             explain = (meta.get("explain") or "").strip()
+            if not title:
+                title = st.session_state.get("last_sql_meta", {}).get("title", "").strip()
+            if not explain:
+                explain = st.session_state.get("last_sql_meta", {}).get("explain", "").strip()
+
             if title:
                 st.markdown(f"### {title}")
             else:
@@ -380,7 +393,11 @@ def _render_result(item: dict):
 
             # --- Свернутый блок с SQL (как у таблиц) ---
             used_sql = (meta.get("sql") or "").strip()
+            if not used_sql:
+                used_sql = st.session_state.get("last_sql_meta", {}).get("sql", "").strip()
             orig_sql = (meta.get("sql_original") or "").strip()
+            if not orig_sql:
+                orig_sql = st.session_state.get("last_sql_meta", {}).get("sql_original", "").strip()
             with st.expander("Показать SQL", expanded=False):
                 if used_sql:
                     st.markdown("**Использованный SQL**")
@@ -436,37 +453,32 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
 
 
 def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
-    """Создаём Plotly-таблицу, чтобы можно было править данные прямо в UI."""
+    """Создаёт Plotly-таблицу с темным стилем (контрастная шапка и строки)."""
 
-    # Plotly ожидает список колонок; сразу приводим к list для совместимости с numpy/pandas типами.
-    column_values = [pdf[col].tolist() for col in pdf.columns] if not pdf.empty else [[] for _ in pdf.columns]
-
+    values = [pdf[c].tolist() for c in pdf.columns] if not pdf.empty else [[] for _ in pdf.columns]
     fig = go.Figure(
         data=[
             go.Table(
                 header=dict(
-                    values=[str(col) for col in pdf.columns],
-                    fill_color="#111827",  # тёмный фон шапки
-                    font=dict(color="#f9fafb", size=13),  # светлый текст + небольшое увеличение размера
+                    values=[str(c) for c in pdf.columns],
+                    fill_color="#111827",
+                    font=dict(color="#f9fafb", size=13),
                     align="left",
                 ),
                 cells=dict(
-                    values=column_values,
-                    fill_color="#1f2933",  # тёмный фон строк, близкий к шапке
-                    font=dict(color="#f9fafb"),  # светлый текст для контраста
+                    values=values,
+                    fill_color="#1f2933",
+                    font=dict(color="#f9fafb"),
                     align="left",
                 ),
             )
         ]
     )
-
-    # Небольшие отступы и ограничение по высоте, чтобы таблица выглядела аккуратно.
     fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(pdf)))
-
     return fig
 
 def _default_plotly_table_code(df: pd.DataFrame) -> str:
-    """Красивый дефолтный код Plotly-таблицы (тёмная шапка, тёмные строки, светлый текст)."""
+    """Дефолтный темный код Plotly-таблицы (совпадает с _build_plotly_table)."""
     return (
         "values = [df[c].tolist() for c in df.columns]\n"
         "fig = go.Figure(data=[go.Table(\n"
@@ -483,7 +495,7 @@ def _default_plotly_table_code(df: pd.DataFrame) -> str:
         "        align=\"left\"\n"
         "    )\n"
         ")])\n"
-        "fig.update_layout(margin=dict(l=0, r=0, t=12, b=0))\n"
+        "fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(df)))\n"
     )
 
 def _history_zip_bytes() -> bytes:
@@ -1070,11 +1082,13 @@ if user_input:
         if cleaned:
             st.markdown(cleaned)
         created_chart = False
+        created_table = False
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_sql:
             sql = m_sql.group(1).strip()
+            sql = sql.strip("`")  # на всякий случай, если модель заключила в лишние бэктики
             # Пытаемся вытащить дополнительные блоки:
             m_title = re.search(r"```title\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
             m_explain = re.search(r"```explain\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
@@ -1095,8 +1109,9 @@ if user_input:
                     prompts_map=prompts_map,             # ваши системные промпты
                     model_name=OPENAI_MODEL              # имя модели
                 )
-                # Обновим meta: показываем фактически выполненный SQL, сохранив исходный
+                # Обновим meta и общий state, чтобы заголовок/SQL подсасывались при отрисовке
                 meta_extra["sql"] = used_sql
+                st.session_state["last_sql_meta"] = dict(meta_extra)
                 if used_sql.strip() != sql.strip():
                     st.info("SQL был автоматически скорректирован по схеме (отсутствующие поля/алиасы исправлены).")
                 if isinstance(df_any, pl.DataFrame):
@@ -1107,7 +1122,7 @@ if user_input:
 
                 st.session_state["last_df"] = df_pl
                 if df_pl is not None:
-                    # Автоматически генерируем КРАСИВЫЙ дефолтный код Plotly-таблицы, без обращения к модели
+                    # Автоматически генерируем дефолтный код Plotly-таблицы (светлый стиль)
                     code_tbl = _default_plotly_table_code(df_pl.to_pandas())
 
                     # Очистка import/from и безопасное исполнение кода
@@ -1121,6 +1136,8 @@ if user_input:
                     scan = re.sub(r'"""[\\s\\S]*?"""', "", scan)
                     scan = re.sub(r"(?m)#.*$", "", scan)
                     if not BANNED_RE2.search(scan):
+                        # Запоминаем метаданные, даже если ниже что-то упадёт — чтобы в UI не терялись заголовок/SQL
+                        st.session_state["last_sql_meta"] = dict(meta_extra)
                         try:
                             pdf2 = df_pl.to_pandas()
                             safe_globals2 = {
@@ -1131,10 +1148,14 @@ if user_input:
                             exec(code_tbl_clean, safe_globals2, loc)
                             fig_auto = loc.get("fig")
                             if isinstance(fig_auto, go.Figure):
-                                meta_chart = dict(meta_extra)
-                                meta_chart["plotly_code"] = code_tbl
+                                meta_table = dict(meta_extra)
+                                meta_table["plotly_code"] = code_tbl
+                                _push_result("table", df_pl=df_pl, meta=meta_table)
+                                _render_result(st.session_state["results"][-1])
+                                meta_chart = dict(meta_table)
                                 _push_result("chart", fig=fig_auto, meta=meta_chart)
                                 _render_result(st.session_state["results"][-1])
+                                created_table = True
                                 created_chart = True
                         except Exception:
                             pass
@@ -1142,6 +1163,7 @@ if user_input:
                     st.error("Драйвер вернул неожиданный формат данных.")
             except Exception as e:
                 # Показать краткую ошибку и обязательно — заголовок/SQL, чтобы пользователь видел, что именно выполнялось
+                st.session_state["last_sql_meta"] = dict(meta_extra)
                 st.error(f"Ошибка выполнения SQL: {e}")
                 title = (meta_extra.get("title") or "Результаты запроса").strip()
                 explain = (meta_extra.get("explain") or "").strip()
@@ -1162,7 +1184,7 @@ if user_input:
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
-        if plotly_code and not created_chart:
+        if plotly_code and not (created_chart or created_table):
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
