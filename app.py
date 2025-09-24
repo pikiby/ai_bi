@@ -306,11 +306,7 @@ def _render_result(item: dict):
                 used_sql = used_sql or st.session_state.get("last_sql_meta", {}).get("sql", "").strip()
                 orig_sql = orig_sql or st.session_state.get("last_sql_meta", {}).get("sql_original", "").strip()
                 if used_sql:
-                    st.markdown("**Использованный SQL**")
                     st.code(used_sql, language="sql")
-                    if orig_sql and orig_sql != used_sql:
-                        st.markdown("**Исходный SQL от модели**")
-                        st.code(orig_sql, language="sql")
                 elif orig_sql:
                     st.code(orig_sql, language="sql")
                 else:
@@ -478,18 +474,23 @@ def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     return fig
 
 def _default_plotly_table_code(df: pd.DataFrame) -> str:
-    """Дефолтный темный код Plotly-таблицы (совпадает с _build_plotly_table)."""
-    return (
-        "values = [df[c].tolist() for c in df.columns]\n"
+    """Генерирует базовый темный Plotly-код с явным перечислением колонок."""
+    columns = [str(c) for c in df.columns]
+    header_vals = ", ".join(repr(col) for col in columns)
+    cell_vals = ",\n        ".join(f"df[{repr(col)}]" for col in columns)
+
+    code = (
         "fig = go.Figure(data=[go.Table(\n"
         "    header=dict(\n"
-        "        values=[str(c) for c in df.columns],\n"
+        f"        values=[{header_vals}],\n"
         "        fill_color=\"#111827\",\n"
         "        font=dict(color=\"#f9fafb\", size=13),\n"
         "        align=\"left\"\n"
         "    ),\n"
         "    cells=dict(\n"
-        "        values=values,\n"
+        "        values=[\n"
+        f"        {cell_vals}\n"
+        "        ],\n"
         "        fill_color=\"#1f2933\",\n"
         "        font=dict(color=\"#f9fafb\"),\n"
         "        align=\"left\"\n"
@@ -497,6 +498,7 @@ def _default_plotly_table_code(df: pd.DataFrame) -> str:
         ")])\n"
         "fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(df)))\n"
     )
+    return code
 
 def _history_zip_bytes() -> bytes:
     """Собрать ZIP с историей результатов (таблицы: csv+xlsx+sql, графики: html)."""
@@ -1088,7 +1090,9 @@ if user_input:
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_sql:
             sql = m_sql.group(1).strip()
-            sql = sql.strip("`")  # на всякий случай, если модель заключила в лишние бэктики
+            sql = sql.strip("`")
+            if sql.startswith("'") and sql.endswith("'") and len(sql) >= 2:
+                sql = sql[1:-1]
             # Пытаемся вытащить дополнительные блоки:
             m_title = re.search(r"```title\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
             m_explain = re.search(r"```explain\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
@@ -1173,10 +1177,9 @@ if user_input:
                     st.caption(explain)
                 with st.expander("Показать SQL", expanded=False):
                     orig_sql = (meta_extra.get("sql_original") or "").strip()
-                    if orig_sql:
+                    if orig_sql and orig_sql != st.session_state.get("last_sql_meta", {}).get("sql", ""):
+                        st.markdown("**Исходный SQL от модели**")
                         st.code(orig_sql, language="sql")
-                    else:
-                        st.caption("SQL недоступен для этой операции.")
 
         # Убрали обработку блока table — режим упразднён
 
