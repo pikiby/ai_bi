@@ -1,6 +1,5 @@
 ---
 id: t_subscriptions_after_licensed_keys
-db: db1
 short_description: "Дневной срез метрик по подпискам и лицензиям: активированные ключи, подписки с ключом (возвраты/новые) и их отмены в разрезе партнёров и городов."
 synonyms:
   - мобильные подписки
@@ -26,7 +25,7 @@ tags:
 
 ## DDL
 ```sql
-CREATE TABLE IF NOT EXISTS db1.t_subscriptions_after_licensed_keys
+CREATE TABLE IF NOT EXISTS t_subscriptions_after_licensed_keys
 (
     `report_date` Date,
     `partner_uuid` String,
@@ -44,8 +43,8 @@ ORDER BY (report_date, partner_uuid, city_uuid)
 ### Материализованное представление
 Обновляется ежедневно и заполняет таблицу результирующими метриками.
 ```sql
-CREATE MATERIALIZED VIEW IF NOT EXISTS db1.t_subscriptions_after_licensed_keys_mv
-REFRESH EVERY 1 DAY OFFSET 5 HOUR 33 MINUTE TO db1.t_subscriptions_after_licensed_keys AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS t_subscriptions_after_licensed_keys_mv
+REFRESH EVERY 1 DAY OFFSET 5 HOUR 33 MINUTE TO t_subscriptions_after_licensed_keys AS
 -- см. реализацию в ноутбуке `t_subscriptions_after_licensed_keys.ipynb`
 -- включает расчёт:
 --  - activated_keys
