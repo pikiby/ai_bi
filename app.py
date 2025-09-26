@@ -752,8 +752,8 @@ def run_sql_with_auto_schema(sql_text: str,
 
     # 3.0. Предварительная защита: агрегаты в WHERE и CTE с агрегатами для дат запрещены
     try:
-        # Проверяем CTE с агрегатами для дат (запрещено)
-        has_agg_cte_for_date = bool(re.search(r"WITH\s+\w+\s+AS\s*\(\s*SELECT\s+max\s*\(\s*\w*date\w*\s*\)", sql_text, flags=re.IGNORECASE))
+        # Проверяем любые CTE с агрегатами (запрещено)
+        has_agg_cte = bool(re.search(r"WITH\s+\w+\s+AS\s*\(\s*SELECT\s+(max|sum|avg|count|min|anyLast|any|argMax|argMin)\s*\(", sql_text, flags=re.IGNORECASE))
         
         m_where = re.search(r"\bWHERE\b([\s\S]*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bSETTINGS\b|\bFORMAT\b|\bUNION\b|$)", sql_text, flags=re.IGNORECASE)
         where_part = (m_where.group(1) if m_where else "")
@@ -763,12 +763,13 @@ def run_sql_with_auto_schema(sql_text: str,
         # Дополнительно проверяем на скалярные подзапросы в WHERE
         has_scalar_subquery = bool(re.search(r"\([^)]*SELECT[^)]*\)", where_part, flags=re.IGNORECASE))
         
-        if has_agg_cte_for_date or (has_agg_in_where and not (has_select_inside_where or has_scalar_subquery)):
+        if has_agg_cte or (has_agg_in_where and not (has_select_inside_where or has_scalar_subquery)):
             guard_hint = (
-                "Запрещены агрегатные функции в CTE для дат и на верхнем уровне в WHERE. "
-                "Для даты конца прошлого месяца используй ТОЛЬКО CROSS JOIN: \n"
-                "CROSS JOIN (SELECT max(report_date) AS last_date FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <метрика> > 0)\n"
-                "... WHERE report_date = last_date. Верни только блок ```sql```.")
+                "Запрещены агрегатные функции в любых CTE и на верхнем уровне в WHERE. "
+                "Используй только явные даты, указанные пользователем: \n"
+                "WHERE report_date = '2025-08-31' или WHERE report_date BETWEEN '2025-08-01' AND '2025-08-31'\n"
+                "Если пользователь НЕ указал дату — используй: WHERE report_date = (SELECT max(report_date) FROM <таблица> WHERE <метрика> > 0). "
+                "НЕ используй WITH для агрегатов. Верни только блок ```sql```.")
 
             regen_msgs_pre = (
                 [

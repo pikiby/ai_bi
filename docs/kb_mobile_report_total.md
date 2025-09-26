@@ -267,29 +267,13 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 Последняя дата — это максимальная `report_date`, для которой выполняется условие:  
 `sum(paying_users) > 0` или `sum(total_active_users) > 0`
 
-### Конец прошлого месяца (правило выборки даты)
-Для запросов вида «на конец прошлого месяца» используй максимальную `report_date`, строго меньшую начала текущего месяца (`toStartOfMonth(today())`). Рекомендуемый шаблон выборки даты:
-```sql
--- РЕКОМЕНДУЕМАЯ ФОРМА: скалярный подзапрос (избегает ILLEGAL_AGGREGATION в ClickHouse)
-SELECT max(report_date)
-FROM mobile_report_total
-WHERE report_date < toStartOfMonth(today())
-  AND total_active_users > 0
-```
+### Работа с датами
+Для запросов с датами используй только явные даты, указанные пользователем:
+- Если пользователь указал конкретную дату — используй её: `WHERE report_date = '2025-08-31'`
+- Если пользователь указал период — используй диапазон: `WHERE report_date BETWEEN '2025-08-01' AND '2025-08-31'`
+- Если пользователь НЕ указал дату — используй последнюю доступную: `WHERE report_date = (SELECT max(report_date) FROM mobile_report_total WHERE total_active_users > 0)`
 
-Антипаттерн (запрещено): агрегат на верхнем уровне в WHERE
-```sql
--- ПЛОХО: агрегат в WHERE
-SELECT max(`report_date`) AS `report_date`
-FROM `mobile_report_total`
-WHERE `report_date` < toStartOfMonth(today())
-```
-Правильно — сначала найти дату, затем использовать её в фильтре:
-```sql
-WITH (SELECT max(report_date) FROM mobile_report_total
-      WHERE report_date < toStartOfMonth(today()) AND total_active_users > 0) AS last_date
-SELECT last_date AS `Дата`
-```
+**Запрещено:** любые CTE с агрегатами (`WITH ... AS (SELECT max(...) ...)`) — они вызывают ILLEGAL_AGGREGATION в ClickHouse.
 
 ### Явно заданная дата или период
 Если пользователь указывает конкретную дату/диапазон, НЕ нужно вычислять `max(report_date)`. Фильтруйте напрямую:
@@ -323,19 +307,30 @@ CROSS JOIN period
 WHERE report_date BETWEEN d1 AND d2;
 ```
 
-Пример A: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату (совместимо с ClickHouse: используем только CROSS JOIN):
+Пример A: «Количество активных пользователей на 2025-08-31» — суммируем по всем партнёрам и городам на конкретную дату:
 ```sql
 SELECT
-  last_date AS `Дата`,
+  '2025-08-31' AS `Дата`,
   sum(total_active_users) AS `Количество активных пользователей`
 FROM mobile_report_total
-CROSS JOIN (
-  SELECT max(report_date) AS last_date
-  FROM mobile_report_total
-  WHERE report_date < toStartOfMonth(today())
-    AND total_active_users > 0
-)
-WHERE report_date = last_date;
+WHERE report_date = '2025-08-31';
+```
+
+Пример A1: «Сумма активных пользователей на 2025-08-31 за вычетом списка ЛК»:
+```sql
+SELECT
+  '2025-08-31' AS `Дата`,
+  sum(total_active_users) AS `Сумма активных пользователей`
+FROM mobile_report_total
+WHERE report_date = '2025-08-31'
+  AND partner_lk NOT IN (
+    '147012','140376','138824','142109','122794','125759','141119','137236','141289','122015',
+    '140869','120668','123789','136917','122224','120185','144666','120225','144050','121988',
+    '121307','123999','132902','120495','120202','146371','121584','148759','133830','120225',
+    '120350','120345','152762','120377','149756','120074','120341','120638','120642','120750',
+    '120842','121504','121557','121671','121993','122220','122924','124860','124890','131321',
+    '132740','133292','142519','147659','157526'
+  );
 ```
 
 
@@ -345,29 +340,8 @@ WHERE report_date = last_date;
 
 ## Примеры запросов (ClickHouse)
 
-1) **Топ-10 партнеров по доходу за последний месяц**
-```sql
-WITH last_month AS (
-  SELECT 
-    toStartOfMonth(max(report_date)) AS start_date,
-    max(report_date) AS end_date
-  FROM mobile_report_total
-  WHERE paying_users > 0
-)
-SELECT
-  partner_uuid,
-  sum(Android_PL + IOS_PL) AS total_revenue,
-  sum(paying_users) AS total_subscriptions,
-  sum(total_active_users) AS total_active_users
-FROM mobile_report_total
-CROSS JOIN last_month
-WHERE report_date >= start_date AND report_date <= end_date
-GROUP BY partner_uuid
-ORDER BY total_revenue DESC
-LIMIT 10;
-```
 
-2) **Динамика подписок по платформам за последние 30 дней**
+1) **Динамика подписок по платформам за последние 30 дней**
 ```sql
 SELECT
   report_date,
@@ -382,7 +356,7 @@ GROUP BY report_date
 ORDER BY report_date;
 ```
 
-3) **Анализ возвратов по тарифам за месяц**
+1) **Анализ возвратов по тарифам за месяц**
 ```sql
 WITH current_month AS (
   SELECT toStartOfMonth(today()) AS start_date
