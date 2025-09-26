@@ -57,6 +57,7 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
         t_dec.report_date AS report_date,
         t_dec.partner_uuid AS partner_uuid,
         t_dec.city AS city,
+        cdp.partner_lk AS partner_lk,
         -- Метрики подписок, платежей, пользователей и единиц
         -- (полный список полей см. в разделе "Поля и алиасы")
     FROM t_dec
@@ -64,6 +65,9 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
         ON uosprmt.report_date = t_dec.report_date 
         AND uosprmt.city = t_dec.city
         AND uosprmt.partner_uuid = t_dec.partner_uuid
+    -- Справочник партнёров (личный кабинет)
+    LEFT JOIN db1.companies_dir_partner_ch AS cdp
+        ON cdp.partner_uuid = t_dec.partner_uuid
     -- Другие JOIN'ы с источниками данных
     ORDER BY report_date DESC;
 ```
@@ -76,6 +80,7 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 | `report_date`                 | Date    | Дата отчета                               |
 | `partner_uuid`                | String  | UUID партнера                             |
 | `city`                        | String  | Город                                     |
+| `partner_lk`                  | String  | Личный кабинет партнёра                   |
 
 ### Метрики подписок
 | Поле                          | Тип     | Алиас (человекочитаемое)                  |
@@ -242,6 +247,7 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 - `total_activated_account_rep_mobile_full` — активированные аккаунты
 - `new_users_pd_rep_mobile_total` — новые пользователи
 - `maf_rep_mobile_total` — метрики MAF
+- `companies_dir_partner_ch` — реквизиты партнёров (в том числе `partner_lk`)
 
 ### Ключевые особенности
 - **Обновление:** ежедневно в 06:05 через материализованное представление
