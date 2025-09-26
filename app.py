@@ -561,6 +561,16 @@ def _is_re2_error(err_text: str) -> bool:
     )
 
 
+# --- 1b) Узнаём: это ошибка агрегации ClickHouse? (184/215)
+def _is_aggregation_error(err_text: str) -> bool:
+    t = (err_text or "").upper()
+    return (
+        "ILLEGAL_AGGREGATION" in t
+        or "NOT_AN_AGGREGATE" in t
+        or "CODE: 184" in t
+        or "CODE: 215" in t
+    )
+
 # --- 2) Готовим компактный хинт-снимок схемы (через ClickHouse_client.get_schema) ---
 def _schema_hint(ch_client, database: str = "db1", max_tables: int = 12, max_cols: int = 8) -> str:
     """
@@ -820,6 +830,38 @@ def run_sql_with_auto_schema(sql_text: str,
                 sql_fixed_regex = re.sub(r"(?i)\bregexp\s+\'([^']*)\'", r"LIKE '%\1%'", sql_fixed_regex)
                 df = ch_client.query_run(sql_fixed_regex)
                 return df, sql_fixed_regex
+            except Exception:
+                pass
+
+        # Попытка авто-чинить ошибки агрегаций ClickHouse
+        if _is_aggregation_error(err):
+            try:
+                agg_fix_hint = (
+                    "Обнаружена ошибка агрегации ClickHouse (ILLEGAL_AGGREGATION/NOT_AN_AGGREGATE). "
+                    "Перепиши SQL с учётом правил: "
+                    "1) Не используй агрегаты в WHERE верхнего уровня. "
+                    "2) Для 'конца прошлого месяца' используй скалярный подзапрос в WHERE: "
+                    "WHERE `report_date` = (SELECT max(`report_date`) FROM <таблица> WHERE `report_date` < toStartOfMonth(today()) AND <метрика> > 0). "
+                    "3) Если дату нужно вывести в SELECT — используй ТОТ ЖЕ скалярный подзапрос как значение, НЕ колонку `report_date`. "
+                    "4) Не присваивай агрегату алиас с именем столбца таблицы (нельзя AS `report_date`). Используй нейтральный алиас. "
+                    "5) Для исключения списков используй NOT IN ('..','..'), без arrayJoin в WHERE. Верни только блок ```sql```."
+                )
+
+                regen_msgs = (
+                    [
+                        {"role": "system", "content": prompts_map["sql"]},
+                        {"role": "system", "content": agg_fix_hint},
+                    ]
+                    + base_messages
+                )
+                regen = llm_client.chat.completions.create(
+                    model=model_name, messages=regen_msgs, temperature=0
+                ).choices[0].message.content
+                m = re.search(r"```sql\s*(.*?)```", regen, flags=re.DOTALL | re.IGNORECASE)
+                if m:
+                    sql_fixed = m.group(1).strip()
+                    df = ch_client.query_run(sql_fixed)
+                    return df, sql_fixed
             except Exception:
                 pass
 
