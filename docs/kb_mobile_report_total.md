@@ -264,27 +264,25 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 ### Конец прошлого месяца (правило выборки даты)
 Для запросов вида «на конец прошлого месяца» используй максимальную `report_date`, строго меньшую начала текущего месяца (`toStartOfMonth(today())`). Рекомендуемый шаблон выборки даты:
 ```sql
-WITH last_date AS (
-  SELECT max(report_date) AS report_date
-  FROM mobile_report_total
-  WHERE report_date < toStartOfMonth(today())
-    AND total_active_users > 0
-)
+-- РЕКОМЕНДУЕМАЯ ФОРМА: скалярный подзапрос (избегает ILLEGAL_AGGREGATION в ClickHouse)
+SELECT max(report_date)
+FROM mobile_report_total
+WHERE report_date < toStartOfMonth(today())
+  AND total_active_users > 0
 ```
 
 Пример: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату:
 ```sql
-WITH last_date AS (
-  SELECT max(report_date) AS report_date
-  FROM mobile_report_total
-  WHERE report_date < toStartOfMonth(today())
-    AND total_active_users > 0
-)
 SELECT
   report_date AS `Дата`,
   sum(total_active_users) AS `Количество активных пользователей`
 FROM mobile_report_total
-INNER JOIN last_date USING (report_date);
+WHERE report_date = (
+  SELECT max(report_date)
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+);
 ```
 
 ## Примеры запросов (ClickHouse)
