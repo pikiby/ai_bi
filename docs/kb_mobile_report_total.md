@@ -273,17 +273,20 @@ WHERE report_date < toStartOfMonth(today())
 
 Пример: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату:
 ```sql
-SELECT
-  report_date AS `Дата`,
-  sum(total_active_users) AS `Количество активных пользователей`
-FROM mobile_report_total
-WHERE report_date = (
-  SELECT max(report_date)
+WITH last_date AS (
+  SELECT max(report_date) AS d
   FROM mobile_report_total
   WHERE report_date < toStartOfMonth(today())
     AND total_active_users > 0
-);
+)
+SELECT
+  (SELECT d FROM last_date) AS `Дата`,
+  sum(total_active_users) AS `Количество активных пользователей`
+FROM mobile_report_total
+WHERE report_date = (SELECT d FROM last_date);
 ```
+
+Примечание (ClickHouse): при наличии агрегатов в SELECT и одновременном выводе даты используйте `WITH ... AS last_date` (как выше) или оборачивайте дату в агрегат (`max(report_date)`), иначе получите `NOT_AN_AGGREGATE`.
 
 ## Примеры запросов (ClickHouse)
 
