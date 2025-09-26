@@ -291,33 +291,16 @@ WITH (SELECT max(report_date) FROM mobile_report_total
 SELECT last_date AS `Дата`
 ```
 
-Пример A: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату:
-```sql
-WITH last_date AS (
-  SELECT max(report_date) AS d
-  FROM mobile_report_total
-  WHERE report_date < toStartOfMonth(today())
-    AND total_active_users > 0
-)
-SELECT
-  (SELECT d FROM last_date) AS `Дата`,
-  sum(total_active_users) AS `Количество активных пользователей`
-FROM mobile_report_total
-WHERE report_date = (SELECT d FROM last_date);
-```
+### Явно заданная дата или период
+Если пользователь указывает конкретную дату/диапазон, НЕ нужно вычислять `max(report_date)`. Фильтруйте напрямую:
 
-Пример B: то же самое, но за вычетом заданного списка `partner_lk` (ClickHouse‑корректная форма без агрегатов в WHERE и без подзапросов с arrayJoin в фильтре):
+Пример C: «Сумма активных пользователей на 2025‑08‑31 (за вычетом списка ЛК)»
 ```sql
-WITH
-  (SELECT max(report_date)
-   FROM mobile_report_total
-   WHERE report_date < toStartOfMonth(today())
-     AND total_active_users > 0) AS last_date
 SELECT
-  last_date AS `Дата`,
+  toDate('2025-08-31') AS `Дата`,
   sum(total_active_users) AS `Количество активных пользователей`
 FROM mobile_report_total
-WHERE report_date = last_date
+WHERE report_date = toDate('2025-08-31')
   AND partner_lk NOT IN (
     '147012','140376','138824','142109','122794','125759','141119','137236','141289','122015',
     '140869','120668','123789','136917','122224','120185','144666','120225','144050','121988',
@@ -327,6 +310,34 @@ WHERE report_date = last_date
     '132740','133292','142519','147659','157526'
   );
 ```
+
+Пример D: «Сумма активных пользователей за август 2025»
+```sql
+WITH period AS (
+  SELECT toDate('2025-08-31') AS d2
+)
+SELECT
+  sum(total_active_users) AS `Количество активных пользователей за период`
+FROM mobile_report_total
+CROSS JOIN period
+WHERE report_date BETWEEN d1 AND d2;
+```
+
+Пример A: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату (совместимо с ClickHouse: агрегат вынесен в скаляр):
+```sql
+WITH (
+  SELECT max(report_date)
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+) AS last_date
+SELECT
+  last_date AS `Дата`,
+  sum(total_active_users) AS `Количество активных пользователей`
+FROM mobile_report_total
+WHERE report_date = last_date;
+```
+
 
 Альтернатива: использовать массив и `NOT has([...], partner_lk)`, если список формируется программно.
 
