@@ -323,18 +323,33 @@ CROSS JOIN period
 WHERE report_date BETWEEN d1 AND d2;
 ```
 
-Пример A: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату (совместимо с ClickHouse: агрегат вынесен в скаляр):
+Пример A: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату (совместимо с ClickHouse: используем JOIN):
 ```sql
-WITH (
-  SELECT max(report_date)
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
   FROM mobile_report_total
   WHERE report_date < toStartOfMonth(today())
     AND total_active_users > 0
-) AS last_date
+)
+SELECT
+  last_date.report_date AS `Дата`,
+  sum(total_active_users) AS `Количество активных пользователей`
+FROM mobile_report_total
+INNER JOIN last_date USING (report_date);
+```
+
+Альтернатива с CROSS JOIN:
+```sql
 SELECT
   last_date AS `Дата`,
   sum(total_active_users) AS `Количество активных пользователей`
 FROM mobile_report_total
+CROSS JOIN (
+  SELECT max(report_date) AS last_date
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+)
 WHERE report_date = last_date;
 ```
 

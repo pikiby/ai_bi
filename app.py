@@ -757,7 +757,9 @@ def run_sql_with_auto_schema(sql_text: str,
         has_agg_in_where = bool(re.search(r"\b(max|sum|avg|count|min|anyLast|any|argMax|argMin)\s*\(", where_part, flags=re.IGNORECASE))
         # Разрешаем агрегаты в WHERE только если это внутри подзапроса SELECT (скаляр)
         has_select_inside_where = ("select" in where_part.lower())
-        if has_agg_in_where and not has_select_inside_where:
+        # Дополнительно проверяем на скалярные подзапросы в WHERE
+        has_scalar_subquery = bool(re.search(r"\([^)]*SELECT[^)]*\)", where_part, flags=re.IGNORECASE))
+        if has_agg_in_where and not (has_select_inside_where or has_scalar_subquery):
             guard_hint = (
                 "Запрещены агрегатные функции на верхнем уровне в WHERE. "
                 "Перепиши запрос, вынеся агрегаты в CTE/скалярный подзапрос через WITH, "

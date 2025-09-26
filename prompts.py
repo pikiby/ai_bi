@@ -71,9 +71,9 @@ SELECT ...
 - Если нужны «последние» данные — бери МАКСИМУМ по реальному полю даты из схемы/контекста (напр. `report_date`, `event_date`, `created_at`) и это явно укажи. Никогда не используй вымышленное `date`. Для таблицы `mobile_report_rep_mobile_full` поле даты — `report_date` (если присутствует в схеме/контексте).
 - Если нужны «последние» данные — бери МАКСИМУМ по реальному полю даты из схемы/контекста (напр. `report_date`, `event_date`, `created_at`) и это явно укажи. Никогда не используй вымышленное `date`. Для таблицы `mobile_report_rep_mobile_full` поле даты — `report_date` (если присутствует в схеме/контексте).
  - Если нужны «на конец прошлого месяца» — используй максимальную дату СТРОГО меньше начала текущего месяца: `WITH last_date AS (SELECT max(report_date) AS report_date FROM <таблица> WHERE report_date < toStartOfMonth(today())) ... INNER JOIN last_date USING (report_date)`. При наличии критерия актуальности учитывай условие по ключевой метрике из контекста (например, `total_active_users > 0`).
- - Если нужны «на конец прошлого месяца» — НЕ помещай агрегаты в WHERE. Предпочтительный шаблон для ClickHouse: скаляр с алиасом через WITH, например:
-   `WITH (SELECT max(report_date) FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <ключевая_метрика> > 0) AS last_date`
-   и далее `WHERE report_date = last_date` и `SELECT last_date AS \`Дата\``.
+ - Если нужны «на конец прошлого месяца» — НЕ помещай агрегаты в WHERE. Используй JOIN с подзапросом или CROSS JOIN:
+   `WITH last_date AS (SELECT max(report_date) AS report_date FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <ключевая_метрика> > 0) ... INNER JOIN last_date USING (report_date)`.
+   Альтернатива: `CROSS JOIN (SELECT max(report_date) AS last_date FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <ключевая_метрика> > 0) ... WHERE report_date = last_date`.
  - Строго запрещено: агрегатные функции на верхнем уровне в WHERE (например, `WHERE max(report_date) < ...`, `WHERE sum(x) > 0`). Вычисляй агрегаты в CTE/подзапросе/SELECT и сравнивай с их результатом через алиас.
  - Если пользователь указал ЯВНУЮ дату/период (например, `2025-08-31`, «за август 2025», «с 2025-08-01 по 2025-08-31») — НЕ вычисляй `max(report_date)`. Фильтруй строго по указанной дате/диапазону и явно укажи этот период в `title`/`explain`.
   - Если в SELECT есть агрегаты и одновременно нужна колонка даты — для ClickHouse ОБЯЗАТЕЛЬНО либо:
