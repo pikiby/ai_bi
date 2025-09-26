@@ -261,6 +261,32 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 Последняя дата — это максимальная `report_date`, для которой выполняется условие:  
 `sum(paying_users) > 0` или `sum(total_active_users) > 0`
 
+### Конец прошлого месяца (правило выборки даты)
+Для запросов вида «на конец прошлого месяца» используй максимальную `report_date`, строго меньшую начала текущего месяца (`toStartOfMonth(today())`). Рекомендуемый шаблон выборки даты:
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+)
+```
+
+Пример: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату:
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+)
+SELECT
+  report_date AS `Дата`,
+  sum(total_active_users) AS `Количество активных пользователей`
+FROM mobile_report_total
+INNER JOIN last_date USING (report_date);
+```
+
 ## Примеры запросов (ClickHouse)
 
 1) **Топ-10 партнеров по доходу за последний месяц**

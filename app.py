@@ -304,11 +304,20 @@ def _render_result(item: dict):
                 st.caption(f"Источник: {src}. Период: {period}.")
             
             # --- Свернутый блок с SQL запроса (по кнопке) ---
+            # Показываем ИСПОЛЬЗОВАННЫЙ SQL (после автоисправлений) и, при отличиях, исходный SQL от модели
             used_sql = (meta.get("sql") or "").strip()
             orig_sql = (meta.get("sql_original") or "").strip()
-            # Убрали лишний дублирующийся блок SQL для таблиц
+            with st.expander("Показать SQL", expanded=False):
+                if used_sql:
+                    st.markdown("**Использованный SQL**")
+                    st.code(used_sql, language="sql")
+                    if orig_sql and orig_sql != used_sql:
+                        st.markdown("**Исходный SQL от модели**")
+                        st.code(orig_sql, language="sql")
+                elif orig_sql:
+                    st.code(orig_sql, language="sql")
 
-            # Блок кода Plotly для таблиц убран, чтобы избежать путаницы и дублирования
+            # Блок кода Plotly для таблиц по-прежнему не исполняем (стили применяются отдельно при необходимости)
 
             # --- Кнопки скачивания ИМЕННО этой таблицы ---
             ts = (item.get("ts") or "table").replace(":", "-")
