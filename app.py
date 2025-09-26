@@ -750,8 +750,11 @@ def run_sql_with_auto_schema(sql_text: str,
     """
     import re, time
 
-    # 3.0. Предварительная защита: агрегаты на верхнем уровне в WHERE запрещены
+    # 3.0. Предварительная защита: агрегаты в WHERE и CTE с агрегатами для дат запрещены
     try:
+        # Проверяем CTE с агрегатами для дат (запрещено)
+        has_agg_cte_for_date = bool(re.search(r"WITH\s+\w+\s+AS\s*\(\s*SELECT\s+max\s*\(\s*\w*date\w*\s*\)", sql_text, flags=re.IGNORECASE))
+        
         m_where = re.search(r"\bWHERE\b([\s\S]*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bSETTINGS\b|\bFORMAT\b|\bUNION\b|$)", sql_text, flags=re.IGNORECASE)
         where_part = (m_where.group(1) if m_where else "")
         has_agg_in_where = bool(re.search(r"\b(max|sum|avg|count|min|anyLast|any|argMax|argMin)\s*\(", where_part, flags=re.IGNORECASE))
@@ -759,12 +762,12 @@ def run_sql_with_auto_schema(sql_text: str,
         has_select_inside_where = ("select" in where_part.lower())
         # Дополнительно проверяем на скалярные подзапросы в WHERE
         has_scalar_subquery = bool(re.search(r"\([^)]*SELECT[^)]*\)", where_part, flags=re.IGNORECASE))
-        if has_agg_in_where and not (has_select_inside_where or has_scalar_subquery):
+        
+        if has_agg_cte_for_date or (has_agg_in_where and not (has_select_inside_where or has_scalar_subquery)):
             guard_hint = (
-                "Запрещены агрегатные функции на верхнем уровне в WHERE. "
-                "Перепиши запрос, вынеся агрегаты в CTE/скалярный подзапрос через WITH, "
-                "и используй сравнение с их алиасом. Для даты конца прошлого месяца: \n"
-                "WITH (SELECT max(report_date) FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <метрика> > 0) AS last_date\n"
+                "Запрещены агрегатные функции в CTE для дат и на верхнем уровне в WHERE. "
+                "Для даты конца прошлого месяца используй ТОЛЬКО CROSS JOIN: \n"
+                "CROSS JOIN (SELECT max(report_date) AS last_date FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <метрика> > 0)\n"
                 "... WHERE report_date = last_date. Верни только блок ```sql```.")
 
             regen_msgs_pre = (
