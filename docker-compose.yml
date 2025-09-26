@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  ai-bi:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Монтируем папку с данными для сохранения состояния
+      - ./data:/app/data
+      - ./docs:/app/docs
+    environment:
+      # Переменные окружения для ClickHouse (замените на ваши)
+      - ClickHouse_host=localhost
+      - ClickHouse_port=8123
+      - ClickHouse_username=default
+      - ClickHouse_password=
+      - CLICKHOUSE_DB=db1
+      # OpenAI API ключ (обязательно!)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Настройки базы знаний
+      - KB_CHROMA_PATH=data/chroma
+      - KB_COLLECTION_NAME=kb_docs
+      - KB_DOCS_DIR=docs
+      # Автоиндексация при старте (опционально)
+      - KB_AUTO_INGEST_ON_START=1
+    restart: unless-stopped
+
