@@ -333,6 +333,52 @@ WHERE report_date = '2025-08-31'
   );
 ```
 
+Пример E: «Сумма активных пользователей на конец прошлого месяца» — корректно вычисляет последнюю доступную дату ПЕРЕД началом текущего месяца и использует её и в WHERE, и в SELECT (ClickHouse-дружественно):
+```sql
+SELECT
+  (
+    SELECT max(report_date)
+    FROM mobile_report_total
+    WHERE report_date < toStartOfMonth(today())
+      AND total_active_users > 0
+  ) AS `Дата`,
+  sum(total_active_users) AS `Сумма активных пользователей`
+FROM mobile_report_total
+WHERE report_date = (
+  SELECT max(report_date)
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+);
+```
+
+Пример E1: то же, но за вычетом списка `partner_lk`:
+```sql
+SELECT
+  (
+    SELECT max(report_date)
+    FROM mobile_report_total
+    WHERE report_date < toStartOfMonth(today())
+      AND total_active_users > 0
+  ) AS `Дата`,
+  sum(total_active_users) AS `Сумма активных пользователей`
+FROM mobile_report_total
+WHERE report_date = (
+  SELECT max(report_date)
+  FROM mobile_report_total
+  WHERE report_date < toStartOfMonth(today())
+    AND total_active_users > 0
+)
+  AND partner_lk NOT IN (
+    '147012','140376','138824','142109','122794','125759','141119','137236','141289','122015',
+    '140869','120668','123789','136917','122224','120185','144666','120225','144050','121988',
+    '121307','123999','132902','120495','120202','146371','121584','148759','133830','120225',
+    '120350','120345','152762','120377','149756','120074','120341','120638','120642','120750',
+    '120842','121504','121557','121671','121993','122220','122924','124860','124890','131321',
+    '132740','133292','142519','147659','157526'
+  );
+```
+
 
 Альтернатива: использовать массив и `NOT has([...], partner_lk)`, если список формируется программно.
 
