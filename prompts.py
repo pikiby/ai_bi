@@ -74,6 +74,7 @@ SELECT ...
  - Если нужны «на конец прошлого месяца» — НЕ помещай агрегаты в WHERE. Предпочтительный шаблон для ClickHouse: скаляр с алиасом через WITH, например:
    `WITH (SELECT max(report_date) FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <ключевая_метрика> > 0) AS last_date`
    и далее `WHERE report_date = last_date` и `SELECT last_date AS \`Дата\``.
+ - Строго запрещено: агрегатные функции на верхнем уровне в WHERE (например, `WHERE max(report_date) < ...`, `WHERE sum(x) > 0`). Вычисляй агрегаты в CTE/подзапросе/SELECT и сравнивай с их результатом через алиас.
   - Если в SELECT есть агрегаты и одновременно нужна колонка даты — для ClickHouse ОБЯЗАТЕЛЬНО либо:
     1) добавь `GROUP BY` по этой дате; либо
     2) заверни дату в агрегат (`anyLast(report_date)`/`max(report_date)`); либо

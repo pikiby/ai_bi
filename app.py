@@ -750,6 +750,45 @@ def run_sql_with_auto_schema(sql_text: str,
     """
     import re, time
 
+    # 3.0. Предварительная защита: агрегаты на верхнем уровне в WHERE запрещены
+    try:
+        m_where = re.search(r"\bWHERE\b([\s\S]*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bSETTINGS\b|\bFORMAT\b|\bUNION\b|$)", sql_text, flags=re.IGNORECASE)
+        where_part = (m_where.group(1) if m_where else "")
+        has_agg_in_where = bool(re.search(r"\b(max|sum|avg|count|min|anyLast|any|argMax|argMin)\s*\(", where_part, flags=re.IGNORECASE))
+        # Разрешаем агрегаты в WHERE только если это внутри подзапроса SELECT (скаляр)
+        has_select_inside_where = ("select" in where_part.lower())
+        if has_agg_in_where and not has_select_inside_where:
+            guard_hint = (
+                "Запрещены агрегатные функции на верхнем уровне в WHERE. "
+                "Перепиши запрос, вынеся агрегаты в CTE/скалярный подзапрос через WITH, "
+                "и используй сравнение с их алиасом. Для даты конца прошлого месяца: \n"
+                "WITH (SELECT max(report_date) FROM <таблица> WHERE report_date < toStartOfMonth(today()) AND <метрика> > 0) AS last_date\n"
+                "... WHERE report_date = last_date. Верни только блок ```sql```.")
+
+            regen_msgs_pre = (
+                [
+                    {"role": "system", "content": prompts_map["sql"]},
+                    {"role": "system", "content": guard_hint},
+                ]
+                + base_messages
+                + [
+                    {"role": "user", "content": f"Исходный SQL (исправь согласно правилам):\n```sql\n{sql_text}\n```"}
+                ]
+            )
+
+            try:
+                regen_pre = llm_client.chat.completions.create(
+                    model=model_name, messages=regen_msgs_pre, temperature=0
+                ).choices[0].message.content
+                m_pre = re.search(r"```sql\s*(.*?)```", regen_pre, flags=re.DOTALL | re.IGNORECASE)
+                if m_pre:
+                    sql_text = m_pre.group(1).strip()
+            except Exception:
+                # тихо продолжаем с исходным SQL, если не удалось перегенерировать
+                pass
+    except Exception:
+        pass
+
     # 3.1. Первая попытка — просто выполнить
     try:
         df = ch_client.query_run(sql_text)

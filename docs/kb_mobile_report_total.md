@@ -277,6 +277,20 @@ WHERE report_date < toStartOfMonth(today())
   AND total_active_users > 0
 ```
 
+Антипаттерн (запрещено): агрегат на верхнем уровне в WHERE
+```sql
+-- ПЛОХО: агрегат в WHERE
+SELECT max(`report_date`) AS `report_date`
+FROM `mobile_report_total`
+WHERE `report_date` < toStartOfMonth(today())
+```
+Правильно — сначала найти дату, затем использовать её в фильтре:
+```sql
+WITH (SELECT max(report_date) FROM mobile_report_total
+      WHERE report_date < toStartOfMonth(today()) AND total_active_users > 0) AS last_date
+SELECT last_date AS `Дата`
+```
+
 Пример A: «Количество активных пользователей на конец прошлого месяца» — суммируем по всем партнёрам и городам на выбранную дату:
 ```sql
 WITH last_date AS (
