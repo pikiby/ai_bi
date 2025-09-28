@@ -100,6 +100,10 @@ if "last_rag_ctx" not in st.session_state:
 if "db_schema_cache" not in st.session_state:
     st.session_state["db_schema_cache"] = {}
 
+# глобальные стили для новых таблиц
+if "next_table_style" not in st.session_state:
+    st.session_state["next_table_style"] = None
+
 # ----------------------- Вспомогательные функции -----------------------
 
 # КРИТИЧЕСКИ ВАЖНАЯ ФУНКЦИЯ: Горячая перезагрузка системных промптов
@@ -296,186 +300,14 @@ def _render_result(item: dict):
         st.warning(f"Неизвестный тип результата: {kind}")
 
 
-# ======================== СТАРАЯ ВЕРСИЯ (ЗАМЕНЕНА НА РЕФАКТОРИНГ) ========================
-def _render_result_old(item: dict):
-    """
-    Отрисовка одного элемента истории результатов.
-    """
-    kind = item.get("kind")
-    # Блок для отрисовывания таблиц
-    if kind == "table":
-        df_pl = item.get("df_pl")
-        if isinstance(df_pl, pl.DataFrame):
-            pdf = df_pl.to_pandas()
 
-            # --- Заголовок из meta.title, fallback: старая эвристика ---
-            n = _table_number_for(item)
-            meta = item.get("meta") or {}
-            title = (meta.get("title") or "").strip()
-            explain = (meta.get("explain") or "").strip()
-            sql = (meta.get("sql") or "").strip()
+# ======================== Вспомогательные функции для _render_result ========================
 
-            if not title:
-                # Fallback: если модель не дала title — формируем «разумный» заголовок из LIMIT и колонок
-                info = _extract_sql_info(sql, pdf)
-                if info.get("limit"):
-                    lead = None
-                    for c in info["columns"]:
-                        if re.search(r"(city|город|category|катег|product|товар|region|регион|name|назв)", c, flags=re.IGNORECASE):
-                            lead = c; break
-                    title = f'Топ {info["limit"]}' + (f" по «{lead}»" if lead else "")
-                else:
-                    title = "Результаты запроса"
-
-            st.markdown(f"### Таблица {n}: {title}")
-
-            # --- Таблица: если есть стиль — показываем стилизованную (не редактируемую), иначе редактор ---
-            style_meta = (meta.get("table_style") or {})
-            if style_meta:
-                st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
-            else:
-                edit_key = f"ed_{item.get('ts','')}"
-                st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
-
-            # --- Подпись под таблицей: prefer explain от модели; fallback — выжимка из SQL ---
-            if explain:
-                st.caption(explain)
-            else:
-                info = _extract_sql_info(sql, pdf)
-                src = ", ".join(info.get("tables") or []) or "источник не указан"
-                period = info.get("period") or "период не указан"
-                st.caption(f"Источник: {src}. Период: {period}.")
-            
-            # --- Свернутый блок с SQL запроса (по кнопке) ---
-            # Показываем ИСПОЛЬЗОВАННЫЙ SQL (после автоисправлений) и, при отличиях, исходный SQL от модели
-            used_sql = (meta.get("sql") or "").strip()
-            orig_sql = (meta.get("sql_original") or "").strip()
-            with st.expander("Показать SQL", expanded=False):
-                if used_sql:
-                    st.markdown("**Использованный SQL**")
-                    st.code(used_sql, language="sql")
-                    if orig_sql and orig_sql != used_sql:
-                        st.markdown("**Исходный SQL от модели**")
-                        st.code(orig_sql, language="sql")
-                elif orig_sql:
-                    st.code(orig_sql, language="sql")
-
-            # Блок кода Plotly для таблиц по-прежнему не исполняем (стили применяются отдельно при необходимости)
-
-            # --- Кнопки скачивания ИМЕННО этой таблицы ---
-            ts = (item.get("ts") or "table").replace(":", "-")
-            try:
-                col_csv, col_xlsx, _ = st.columns([4, 4, 2], gap="small")
-            except TypeError:
-                col_csv, col_xlsx, _ = st.columns([4, 4, 2])
-
-            with col_csv:
-                st.download_button(
-                    "Скачать CSV",
-                    data=_df_to_csv_bytes(pdf),
-                    file_name=f"table_{ts}.csv",
-                    mime="text/csv",
-                    key=f"dl_csv_{ts}",
-                    use_container_width=True,
-                )
-            with col_xlsx:
-                st.download_button(
-                    "Скачать XLSX",
-                    data=_df_to_xlsx_bytes(pdf, "Result"),
-                    file_name=f"table_{ts}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_xlsx_{ts}",
-                    use_container_width=True,
-                )
-    
-    # Блок для отрисовывания чартов
-    elif kind == "chart":
-        fig = item.get("fig")
-        if isinstance(fig, go.Figure):
-            meta = item.get("meta") or {}
-
-            # Подтягиваем заголовок и пояснение из меты графика, либо из последнего SQL
-            title = (meta.get("title") or "").strip()
-            explain = (meta.get("explain") or "").strip()
-            if not title:
-                title = st.session_state.get("last_sql_meta", {}).get("title", "").strip()
-            if not explain:
-                explain = st.session_state.get("last_sql_meta", {}).get("explain", "").strip()
-
-            if title:
-                st.markdown(f"### {title}")
-            else:
-                st.markdown("### Результаты запроса")
-
-            # Включаем клиентскую кнопку PNG в тулбаре (иконка «камера»).
-            # Это работает без нихрена лишнего: Plotly в браузере сам сформирует PNG.
-            st.plotly_chart(
-                fig,
-                theme=None,  # важно: не мешаем Streamlit-тему, чтобы цвета совпадали с экспортом
-                use_container_width=True,
-                config={
-                    "displaylogo": False,
-                    "toImageButtonOptions": {"format": "png", "scale": 2}
-                },
-            )
-
-            # Подпись (explain), если есть
-            if explain:
-                st.caption(explain)
-
-            # --- Свернутый блок с SQL (как у таблиц) ---
-            used_sql = (meta.get("sql") or "").strip()
-            if not used_sql:
-                used_sql = st.session_state.get("last_sql_meta", {}).get("sql", "").strip()
-            orig_sql = (meta.get("sql_original") or "").strip()
-            if not orig_sql:
-                orig_sql = st.session_state.get("last_sql_meta", {}).get("sql_original", "").strip()
-            with st.expander("Показать SQL", expanded=False):
-                if used_sql:
-                    st.markdown("**Использованный SQL**")
-                    st.code(used_sql, language="sql")
-                    if orig_sql and orig_sql != used_sql:
-                        st.markdown("**Исходный SQL от модели**")
-                        st.code(orig_sql, language="sql")
-                elif orig_sql:
-                    st.code(orig_sql, language="sql")
-                else:
-                    st.caption("SQL недоступен для этой визуализации.")
-
-            # --- Кнопка скачивания ИМЕННО этого графика (HTML), стиль как у таблиц ---
-            ts = (item.get("ts") or "chart").replace(":", "-")
-            html_bytes = fig.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
-
-            try:
-                col_html, _ = st.columns([4, 8], gap="small")  # левая широкая кнопка + спейсер
-            except TypeError:
-                col_html, _ = st.columns([4, 8])
-
-            # --- Свернутый блок с исходным кодом Plotly (по кнопке) ---
-            meta = item.get("meta") or {}
-            plotly_src = (meta.get("plotly_code") or "").strip()
-            with st.expander("Показать код Plotly", expanded=False):
-                if plotly_src:
-                    st.code(plotly_src, language="python")
-                else:
-                    st.caption("Код недоступен для этого графика.")
-
-            with col_html:
-                st.download_button(
-                    "Скачать график",
-                    data=html_bytes,
-                    file_name=f"chart_{ts}.html",
-                    mime="text/html",
-                    key=f"dl_html_{ts}",
-                    use_container_width=True,
-                )
-
-
-# ======================== РЕФАКТОРИНГ: Вспомогательные функции для _render_result ========================
-
-# Отрисовка таблиц: заголовки, стили, подписи, SQL, кнопки скачивания
+# Отрисовка таблиц: координирует полную отрисовку таблиц от заголовка до кнопок скачивания
+# АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → Содержимое → Подпись → SQL → Скачивание
+# ИСПОЛЬЗУЕТ: _get_title(), _render_table_content(), _render_table_caption(), _render_sql_block(), _render_download_buttons()
+# ОБРАБОТКА ОШИБОК: Graceful degradation при некорректных данных, безопасная обработка отсутствующих метаданных
 def _render_table(item: dict):
-    """Отрисовка таблицы с полным функционалом"""
     df_pl = item.get("df_pl")
     if not isinstance(df_pl, pl.DataFrame):
         return
@@ -484,37 +316,29 @@ def _render_table(item: dict):
     n = _table_number_for(item)
     meta = item.get("meta") or {}
     
-    # Заголовок
-    title = _get_table_title(meta, pdf)
+    title = _get_title(meta, pdf, "sql")
     st.markdown(f"### Таблица {n}: {title}")
     
-    # Содержимое таблицы
     _render_table_content(pdf, meta)
-    
-    # Подпись
     _render_table_caption(meta, pdf)
-    
-    # SQL блок
     _render_sql_block(meta)
-    
-    # Кнопки скачивания
     _render_download_buttons(pdf, item, "table")
 
 
-# Отрисовка графиков: заголовки, подписи, SQL, код Plotly, кнопки скачивания
+# Отрисовка графиков: координирует полную отрисовку Plotly-графиков с интерактивностью и экспортом
+# АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → График → Подпись → SQL → Код Plotly → Скачивание
+# ИСПОЛЬЗУЕТ: _get_title(), _render_chart_caption(), _render_sql_block(), _render_plotly_code(), _render_download_buttons()
+# ОСОБЕННОСТИ: Интерактивные графики с PNG-экспортом, fallback на контекст SQL, двойная документация (SQL + Plotly)
 def _render_chart(item: dict):
-    """Отрисовка графика с полным функционалом"""
     fig = item.get("fig")
     if not isinstance(fig, go.Figure):
         return
     
     meta = item.get("meta") or {}
     
-    # Заголовок
-    title = _get_chart_title(meta)
+    title = _get_title(meta, fallback_source="context")
     st.markdown(f"### {title}")
     
-    # График
     st.plotly_chart(
         fig,
         theme=None,
@@ -525,57 +349,58 @@ def _render_chart(item: dict):
         },
     )
     
-    # Подпись
     _render_chart_caption(meta)
-    
-    # SQL блок
     _render_sql_block(meta)
-    
-    # Код Plotly
     _render_plotly_code(meta)
-    
-    # Кнопки скачивания
     _render_download_buttons(fig, item, "chart")
 
 
-# Получение заголовка таблицы с fallback на умный заголовок
-def _get_table_title(meta: dict, pdf: pd.DataFrame) -> str:
-    """Получение заголовка таблицы с fallback на анализ SQL"""
+# УНИФИЦИРОВАННАЯ ФУНКЦИЯ: Получение заголовков для таблиц и графиков с умным fallback
+# ЦЕЛЬ: Унификация логики заголовков, устранение дублирования кода, упрощение поддержки
+# АЛГОРИТМ: Явный заголовок → Умный анализ SQL → Fallback на контекст → Дефолт
+# ИСПОЛЬЗУЕТ: _extract_sql_info() для анализа SQL, st.session_state для контекста
+# ОСОБЕННОСТИ: Поддерживает таблицы (с анализом данных) и графики (с контекстным fallback)
+def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql") -> str:
+    # Проверяем явный заголовок
     title = (meta.get("title") or "").strip()
     if title:
         return title
     
-    # Fallback: умный заголовок из SQL
-    sql = (meta.get("sql") or "").strip()
-    info = _extract_sql_info(sql, pdf)
+    # Fallback 1: Умный анализ SQL (для таблиц)
+    if fallback_source == "sql" and pdf is not None:
+        sql = (meta.get("sql") or "").strip()
+        if sql:
+            info = _extract_sql_info(sql, pdf)
+            
+            if info.get("limit"):
+                lead = None
+                for c in info["columns"]:
+                    if re.search(r"(city|город|category|катег|product|товар|region|регион|name|назв)", c, flags=re.IGNORECASE):
+                        lead = c
+                        break
+                return f'Топ {info["limit"]}' + (f" по «{lead}»" if lead else "")
     
-    if info.get("limit"):
-        lead = None
-        for c in info["columns"]:
-            if re.search(r"(city|город|category|катег|product|товар|region|регион|name|назв)", c, flags=re.IGNORECASE):
-                lead = c
-                break
-        return f'Топ {info["limit"]}' + (f" по «{lead}»" if lead else "")
+    # Fallback 2: Контекстный fallback (для графиков)
+    if fallback_source == "context":
+        title = st.session_state.get("last_sql_meta", {}).get("title", "").strip()
+        if title:
+            return title
     
+    # Дефолтный заголовок
     return "Результаты запроса"
-
-
-# Получение заголовка графика с fallback
-def _get_chart_title(meta: dict) -> str:
-    """Получение заголовка графика с fallback на последний SQL"""
-    title = (meta.get("title") or "").strip()
-    if title:
-        return title
-    
-    # Fallback на последний SQL
-    title = st.session_state.get("last_sql_meta", {}).get("title", "").strip()
-    return title if title else "Результаты запроса"
 
 
 # Отрисовка содержимого таблицы с учетом стилей
 def _render_table_content(pdf: pd.DataFrame, meta: dict):
     """Отрисовка содержимого таблицы (стилизованной или редактируемой)"""
+    # ИСПРАВЛЕНИЕ: Проверяем стили из метаданных И из глобального состояния
     style_meta = (meta.get("table_style") or {})
+    if not style_meta and "next_table_style" in st.session_state:
+        style_meta = st.session_state["next_table_style"]
+        # Применяем стили к текущей таблице
+        meta["table_style"] = style_meta
+        # Очищаем глобальные стили после применения
+        del st.session_state["next_table_style"]
     
     if style_meta:
         st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
@@ -1581,6 +1406,16 @@ if user_input:
                         cell_color1 = line.split(":", 1)[-1].strip().strip('"\'')
                     elif re.search(r"\balign\b", line):
                         align1 = line.split(":", 1)[-1].strip().strip('"\'')
+                
+                # ИСПРАВЛЕНИЕ: Сохраняем стили для новых таблиц
+                if hdr_color1 or cell_color1 or align1:
+                    st.session_state["next_table_style"] = {
+                        "header_fill_color": hdr_color1, 
+                        "cells_fill_color": cell_color1, 
+                        "align": align1 or "left"
+                    }
+                    
+                # Также применяем к последней таблице (если есть)
                 for it in reversed(st.session_state.get("results", [])):
                     if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
                         meta_it = it.get("meta") or {}
