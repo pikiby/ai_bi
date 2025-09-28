@@ -1309,16 +1309,23 @@ if user_input:
                 elif re.search(r"\balign\b", line):
                     align1 = line.split(":", 1)[-1].strip().strip('"\'')
             
-            # ИСПРАВЛЕНИЕ: Сохраняем стили для новых таблиц
+            # ИСПРАВЛЕНИЕ: Применяем стили к последней таблице и перерисовываем её
             if hdr_color1 or cell_color1 or align1:
                 style_data = {
                     "header_fill_color": hdr_color1, 
                     "cells_fill_color": cell_color1, 
                     "align": align1 or "left"
                 }
-                st.session_state["next_table_style"] = style_data
-                st.success(f"🎨 Стили сохранены для следующей таблицы: {style_data}")
-                # НЕ применяем к существующим таблицам - только сохраняем для новых
+                
+                # Применяем стили к последней таблице
+                for item in reversed(st.session_state.get("results", [])):
+                    if item.get("kind") == "table" and isinstance(item.get("df_pl"), pl.DataFrame):
+                        meta = item.get("meta") or {}
+                        meta["table_style"] = style_data
+                        item["meta"] = meta
+                        # Перерисовываем страницу с новыми стилями
+                        st.rerun()
+                        break
         except Exception:
             pass
     
