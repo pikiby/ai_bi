@@ -270,7 +270,7 @@ def _tables_index_hint() -> str:
 def _strip_llm_blocks(text: str) -> str:
     if not text:
         return text
-    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table"):
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table", "table_style"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
@@ -402,7 +402,9 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
         # Очищаем глобальные стили после применения
         del st.session_state["next_table_style"]
     
+    # ОТЛАДКА: Показываем информацию о стилях
     if style_meta:
+        st.info(f"🎨 Применяем стили: {style_meta}")
         st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
     else:
         edit_key = f"ed_{meta.get('ts','')}"
@@ -1409,26 +1411,14 @@ if user_input:
                 
                 # ИСПРАВЛЕНИЕ: Сохраняем стили для новых таблиц
                 if hdr_color1 or cell_color1 or align1:
-                    st.session_state["next_table_style"] = {
+                    style_data = {
                         "header_fill_color": hdr_color1, 
                         "cells_fill_color": cell_color1, 
                         "align": align1 or "left"
                     }
-                    
-                # Также применяем к последней таблице (если есть)
-                for it in reversed(st.session_state.get("results", [])):
-                    if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                        meta_it = it.get("meta") or {}
-                        meta_it["table_style"] = {"header_fill_color": hdr_color1, "cells_fill_color": cell_color1, "align": align1 or "left"}
-                        it["meta"] = meta_it
-                        try:
-                            st.rerun()
-                        except Exception:
-                            try:
-                                st.experimental_rerun()
-                            except Exception:
-                                pass
-                        break
+                    st.session_state["next_table_style"] = style_data
+                    st.success(f"🎨 Стили сохранены для следующей таблицы: {style_data}")
+                    # НЕ применяем к существующим таблицам - только сохраняем для новых
             except Exception:
                 pass
 
