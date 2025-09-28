@@ -402,9 +402,8 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
         # Очищаем глобальные стили после применения
         del st.session_state["next_table_style"]
     
-    # ОТЛАДКА: Показываем информацию о стилях
+    # Применяем стили без отладочных сообщений
     if style_meta:
-        st.info(f"🎨 Применяем стили: {style_meta}")
         st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
     else:
         edit_key = f"ed_{meta.get('ts','')}"
@@ -1292,7 +1291,7 @@ if user_input:
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     
-    # ИСПРАВЛЕНИЕ: Парсим стили ПЕРЕД очисткой, чтобы они не отображались в чате
+    # ИСПРАВЛЕНИЕ: Парсим стили и применяем к последней таблице БЕЗ st.rerun()
     # Новый лёгкий формат для стилизации: блок ```table_style```
     m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
     if m_tstyle:
@@ -1309,7 +1308,7 @@ if user_input:
                 elif re.search(r"\balign\b", line):
                     align1 = line.split(":", 1)[-1].strip().strip('"\'')
             
-            # ИСПРАВЛЕНИЕ: Применяем стили к последней таблице и перерисовываем её
+            # Применяем стили к последней таблице
             if hdr_color1 or cell_color1 or align1:
                 style_data = {
                     "header_fill_color": hdr_color1, 
@@ -1323,8 +1322,6 @@ if user_input:
                         meta = item.get("meta") or {}
                         meta["table_style"] = style_data
                         item["meta"] = meta
-                        # Перерисовываем страницу с новыми стилями
-                        st.rerun()
                         break
         except Exception:
             pass
