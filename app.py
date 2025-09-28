@@ -1291,6 +1291,37 @@ if user_input:
     st.session_state["messages"].append({"role": "assistant", "content": final_reply})
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
+    
+    # ИСПРАВЛЕНИЕ: Парсим стили ПЕРЕД очисткой, чтобы они не отображались в чате
+    # Новый лёгкий формат для стилизации: блок ```table_style```
+    m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
+    if m_tstyle:
+        try:
+            block = m_tstyle.group(1)
+            hdr_color1 = None
+            cell_color1 = None
+            align1 = None
+            for line in block.splitlines():
+                if "header_fill_color" in line:
+                    hdr_color1 = line.split(":", 1)[-1].strip().strip('"\'')
+                elif "cells_fill_color" in line:
+                    cell_color1 = line.split(":", 1)[-1].strip().strip('"\'')
+                elif re.search(r"\balign\b", line):
+                    align1 = line.split(":", 1)[-1].strip().strip('"\'')
+            
+            # ИСПРАВЛЕНИЕ: Сохраняем стили для новых таблиц
+            if hdr_color1 or cell_color1 or align1:
+                style_data = {
+                    "header_fill_color": hdr_color1, 
+                    "cells_fill_color": cell_color1, 
+                    "align": align1 or "left"
+                }
+                st.session_state["next_table_style"] = style_data
+                st.success(f"🎨 Стили сохранены для следующей таблицы: {style_data}")
+                # НЕ применяем к существующим таблицам - только сохраняем для новых
+        except Exception:
+            pass
+    
     with st.chat_message("assistant"):
         # Не показываем служебные блоки title/explain/sql — они теперь рендерятся у таблицы
         cleaned = _strip_llm_blocks(final_reply)
@@ -1393,34 +1424,6 @@ if user_input:
             except Exception:
                 pass
 
-        # Новый лёгкий формат для стилизации: блок ```table_style```
-        m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
-        if m_tstyle:
-            try:
-                block = m_tstyle.group(1)
-                hdr_color1 = None
-                cell_color1 = None
-                align1 = None
-                for line in block.splitlines():
-                    if "header_fill_color" in line:
-                        hdr_color1 = line.split(":", 1)[-1].strip().strip('"\'')
-                    elif "cells_fill_color" in line:
-                        cell_color1 = line.split(":", 1)[-1].strip().strip('"\'')
-                    elif re.search(r"\balign\b", line):
-                        align1 = line.split(":", 1)[-1].strip().strip('"\'')
-                
-                # ИСПРАВЛЕНИЕ: Сохраняем стили для новых таблиц
-                if hdr_color1 or cell_color1 or align1:
-                    style_data = {
-                        "header_fill_color": hdr_color1, 
-                        "cells_fill_color": cell_color1, 
-                        "align": align1 or "left"
-                    }
-                    st.session_state["next_table_style"] = style_data
-                    st.success(f"🎨 Стили сохранены для следующей таблицы: {style_data}")
-                    # НЕ применяем к существующим таблицам - только сохраняем для новых
-            except Exception:
-                pass
 
         if plotly_code and not (created_chart or created_table):
             if st.session_state["last_df"] is None:
