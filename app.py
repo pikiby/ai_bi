@@ -277,7 +277,27 @@ def _strip_llm_blocks(text: str) -> str:
     return text
 
 
+# КРИТИЧЕСКИ ВАЖНАЯ ФУНКЦИЯ: Главная функция отрисовки результатов (рефакторинг)
+# ПРИЧИНА РЕФАКТОРИНГА: Оригинальная функция была слишком большой (200+ строк) и нарушала принцип единственной ответственности
+# ЦЕЛЬ: Роутинг отрисовки результатов к специализированным функциям с сохранением интерфейса
+# ЗАДАЧИ: Улучшение читаемости, упрощение тестирования, переиспользование кода, упрощение поддержки
+# ГДЕ ИСПОЛЬЗУЕТСЯ: Отображение новых результатов (сразу после создания), отображение истории (при загрузке страницы)
+# ВАЖНОСТЬ: Фундаментальная для отображения результатов в интерфейсе, обеспечения персистентности данных
+# БЕЗ НЕЁ: Результаты не отображались бы в интерфейсе пользователя
 def _render_result(item: dict):
+    """Главная функция отрисовки результатов - роутер к специализированным функциям"""
+    kind = item.get("kind")
+    
+    if kind == "table":
+        _render_table(item)
+    elif kind == "chart":
+        _render_chart(item)
+    else:
+        st.warning(f"Неизвестный тип результата: {kind}")
+
+
+# ======================== СТАРАЯ ВЕРСИЯ (ЗАМЕНЕНА НА РЕФАКТОРИНГ) ========================
+def _render_result_old(item: dict):
     """
     Отрисовка одного элемента истории результатов.
     """
@@ -450,6 +470,229 @@ def _render_result(item: dict):
                     use_container_width=True,
                 )
 
+
+# ======================== РЕФАКТОРИНГ: Вспомогательные функции для _render_result ========================
+
+# Отрисовка таблиц: заголовки, стили, подписи, SQL, кнопки скачивания
+def _render_table(item: dict):
+    """Отрисовка таблицы с полным функционалом"""
+    df_pl = item.get("df_pl")
+    if not isinstance(df_pl, pl.DataFrame):
+        return
+    
+    pdf = df_pl.to_pandas()
+    n = _table_number_for(item)
+    meta = item.get("meta") or {}
+    
+    # Заголовок
+    title = _get_table_title(meta, pdf)
+    st.markdown(f"### Таблица {n}: {title}")
+    
+    # Содержимое таблицы
+    _render_table_content(pdf, meta)
+    
+    # Подпись
+    _render_table_caption(meta, pdf)
+    
+    # SQL блок
+    _render_sql_block(meta)
+    
+    # Кнопки скачивания
+    _render_download_buttons(pdf, item, "table")
+
+
+# Отрисовка графиков: заголовки, подписи, SQL, код Plotly, кнопки скачивания
+def _render_chart(item: dict):
+    """Отрисовка графика с полным функционалом"""
+    fig = item.get("fig")
+    if not isinstance(fig, go.Figure):
+        return
+    
+    meta = item.get("meta") or {}
+    
+    # Заголовок
+    title = _get_chart_title(meta)
+    st.markdown(f"### {title}")
+    
+    # График
+    st.plotly_chart(
+        fig,
+        theme=None,
+        use_container_width=True,
+        config={
+            "displaylogo": False,
+            "toImageButtonOptions": {"format": "png", "scale": 2}
+        },
+    )
+    
+    # Подпись
+    _render_chart_caption(meta)
+    
+    # SQL блок
+    _render_sql_block(meta)
+    
+    # Код Plotly
+    _render_plotly_code(meta)
+    
+    # Кнопки скачивания
+    _render_download_buttons(fig, item, "chart")
+
+
+# Получение заголовка таблицы с fallback на умный заголовок
+def _get_table_title(meta: dict, pdf: pd.DataFrame) -> str:
+    """Получение заголовка таблицы с fallback на анализ SQL"""
+    title = (meta.get("title") or "").strip()
+    if title:
+        return title
+    
+    # Fallback: умный заголовок из SQL
+    sql = (meta.get("sql") or "").strip()
+    info = _extract_sql_info(sql, pdf)
+    
+    if info.get("limit"):
+        lead = None
+        for c in info["columns"]:
+            if re.search(r"(city|город|category|катег|product|товар|region|регион|name|назв)", c, flags=re.IGNORECASE):
+                lead = c
+                break
+        return f'Топ {info["limit"]}' + (f" по «{lead}»" if lead else "")
+    
+    return "Результаты запроса"
+
+
+# Получение заголовка графика с fallback
+def _get_chart_title(meta: dict) -> str:
+    """Получение заголовка графика с fallback на последний SQL"""
+    title = (meta.get("title") or "").strip()
+    if title:
+        return title
+    
+    # Fallback на последний SQL
+    title = st.session_state.get("last_sql_meta", {}).get("title", "").strip()
+    return title if title else "Результаты запроса"
+
+
+# Отрисовка содержимого таблицы с учетом стилей
+def _render_table_content(pdf: pd.DataFrame, meta: dict):
+    """Отрисовка содержимого таблицы (стилизованной или редактируемой)"""
+    style_meta = (meta.get("table_style") or {})
+    
+    if style_meta:
+        st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
+    else:
+        edit_key = f"ed_{meta.get('ts','')}"
+        st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
+
+
+# Отрисовка подписи таблицы
+def _render_table_caption(meta: dict, pdf: pd.DataFrame):
+    """Отрисовка подписи под таблицей с fallback на анализ SQL"""
+    explain = (meta.get("explain") or "").strip()
+    if explain:
+        st.caption(explain)
+    else:
+        sql = (meta.get("sql") or "").strip()
+        info = _extract_sql_info(sql, pdf)
+        src = ", ".join(info.get("tables") or []) or "источник не указан"
+        period = info.get("period") or "период не указан"
+        st.caption(f"Источник: {src}. Период: {period}.")
+
+
+# Отрисовка подписи графика
+def _render_chart_caption(meta: dict):
+    """Отрисовка подписи под графиком с fallback на последний SQL"""
+    explain = (meta.get("explain") or "").strip()
+    if explain:
+        st.caption(explain)
+    else:
+        explain = st.session_state.get("last_sql_meta", {}).get("explain", "").strip()
+        if explain:
+            st.caption(explain)
+
+
+# Отрисовка SQL блока
+def _render_sql_block(meta: dict):
+    """Отрисовка свернутого блока с SQL-кодом"""
+    used_sql = (meta.get("sql") or "").strip()
+    orig_sql = (meta.get("sql_original") or "").strip()
+    
+    if not used_sql and not orig_sql:
+        return
+    
+    with st.expander("Показать SQL", expanded=False):
+        if used_sql:
+            st.markdown("**Использованный SQL**")
+            st.code(used_sql, language="sql")
+            if orig_sql and orig_sql != used_sql:
+                st.markdown("**Исходный SQL от модели**")
+                st.code(orig_sql, language="sql")
+        elif orig_sql:
+            st.code(orig_sql, language="sql")
+
+
+# Отрисовка кода Plotly
+def _render_plotly_code(meta: dict):
+    """Отрисовка свернутого блока с кодом Plotly"""
+    plotly_src = (meta.get("plotly_code") or "").strip()
+    if not plotly_src:
+        return
+    
+    with st.expander("Показать код Plotly", expanded=False):
+        st.code(plotly_src, language="python")
+
+
+# Отрисовка кнопок скачивания
+def _render_download_buttons(data, item: dict, data_type: str):
+    """Отрисовка кнопок скачивания для таблиц и графиков"""
+    ts = (item.get("ts") or data_type).replace(":", "-")
+    
+    if data_type == "table":
+        # CSV и XLSX кнопки для таблиц
+        try:
+            col_csv, col_xlsx, _ = st.columns([4, 4, 2], gap="small")
+        except TypeError:
+            col_csv, col_xlsx, _ = st.columns([4, 4, 2])
+        
+        with col_csv:
+            st.download_button(
+                "Скачать CSV",
+                data=_df_to_csv_bytes(data),
+                file_name=f"table_{ts}.csv",
+                mime="text/csv",
+                key=f"dl_csv_{ts}",
+                use_container_width=True,
+            )
+        with col_xlsx:
+            st.download_button(
+                "Скачать XLSX",
+                data=_df_to_xlsx_bytes(data, "Result"),
+                file_name=f"table_{ts}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_xlsx_{ts}",
+                use_container_width=True,
+            )
+    
+    elif data_type == "chart":
+        # HTML кнопка для графиков
+        html_bytes = data.to_html(include_plotlyjs="cdn", full_html=True).encode("utf-8")
+        
+        try:
+            col_html, _ = st.columns([4, 8], gap="small")
+        except TypeError:
+            col_html, _ = st.columns([4, 8])
+        
+        with col_html:
+            st.download_button(
+                "Скачать график",
+                data=html_bytes,
+                file_name=f"chart_{ts}.html",
+                mime="text/html",
+                key=f"dl_html_{ts}",
+                use_container_width=True,
+            )
+
+
+# ======================== КОНЕЦ РЕФАКТОРИНГА ========================
 
 def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
