@@ -1326,6 +1326,8 @@ if user_input:
                         meta = item.get("meta") or {}
                         meta["table_style"] = style_data
                         item["meta"] = meta
+                        # Перерисовываем страницу с новыми стилями
+                        st.rerun()
                         break
         except Exception:
             pass
