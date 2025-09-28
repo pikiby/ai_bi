@@ -404,7 +404,8 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
     
     # Применяем стили без отладочных сообщений
     if style_meta:
-        st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
+        html_table = _build_styled_df(pdf, style_meta)
+        st.markdown(html_table, unsafe_allow_html=True)
     else:
         edit_key = f"ed_{meta.get('ts','')}"
         st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
@@ -534,22 +535,30 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
 
 
 def _build_styled_df(pdf: pd.DataFrame, style_meta: dict):
-    """Создаёт pandas Styler по простым параметрам стиля."""
-    header_bg = (style_meta or {}).get("header_fill_color") or None
-    cell_bg = (style_meta or {}).get("cells_fill_color") or None
+    """Создаёт HTML-таблицу со стилями для Streamlit."""
+    header_bg = (style_meta or {}).get("header_fill_color") or "#262730"
+    cell_bg = (style_meta or {}).get("cells_fill_color") or "#262730"
     text_align = (style_meta or {}).get("align") or "left"
 
-    styles = []
-    if header_bg:
-        styles.append({"selector": "th", "props": [("background-color", header_bg), ("text-align", text_align)]})
-    else:
-        styles.append({"selector": "th", "props": [("text-align", text_align)]})
-    if cell_bg:
-        styles.append({"selector": "td", "props": [("background-color", cell_bg), ("text-align", text_align)]})
-    else:
-        styles.append({"selector": "td", "props": [("text-align", text_align)]})
-
-    return pdf.style.set_table_styles(styles)
+    # Создаем HTML-таблицу
+    html = "<table style='width: 100%; border-collapse: collapse;'>"
+    
+    # Заголовки
+    html += "<thead><tr>"
+    for col in pdf.columns:
+        html += f"<th style='background-color: {header_bg}; color: white; padding: 8px; text-align: {text_align}; border: 1px solid #444;'>{col}</th>"
+    html += "</tr></thead>"
+    
+    # Данные
+    html += "<tbody>"
+    for _, row in pdf.iterrows():
+        html += "<tr>"
+        for val in row:
+            html += f"<td style='background-color: {cell_bg}; color: white; padding: 8px; text-align: {text_align}; border: 1px solid #444;'>{val}</td>"
+        html += "</tr>"
+    html += "</tbody></table>"
+    
+    return html
 
 def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     """Создаёт Plotly-таблицу с темным стилем (контрастная шапка и строки)."""
@@ -1286,12 +1295,7 @@ if user_input:
             final_reply = "Не удалось получить код графика."
             st.error(f"Ошибка на шаге ответа (Plotly): {e}")
 
-    # 3) Публикуем ответ ассистента в чат и сохраняем в историю
-    st.session_state["messages"].append({"role": "assistant", "content": final_reply})
-    # индекс этого сообщения ассистента (нужен для привязки результатов)
-    st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
-    
-    # ИСПРАВЛЕНИЕ: Парсим стили и применяем к последней таблице БЕЗ st.rerun()
+    # ИСПРАВЛЕНИЕ: Парсим стили и применяем к последней таблице ПЕРЕД сохранением в историю
     # Новый лёгкий формат для стилизации: блок ```table_style```
     m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
     if m_tstyle:
@@ -1325,6 +1329,11 @@ if user_input:
                         break
         except Exception:
             pass
+    
+    # 3) Публикуем ответ ассистента в чат и сохраняем в историю
+    st.session_state["messages"].append({"role": "assistant", "content": final_reply})
+    # индекс этого сообщения ассистента (нужен для привязки результатов)
+    st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     
     with st.chat_message("assistant"):
         # Не показываем служебные блоки title/explain/sql — они теперь рендерятся у таблицы
