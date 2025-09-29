@@ -327,7 +327,7 @@ def _render_table(item: dict):
     meta = item.get("meta") or {}
     
     title = _get_title(meta, pdf, "sql")
-    st.markdown(f"### Таблица {n}: {title}")
+    st.markdown(f"**Таблица {n}:** {title}")
     
     _render_table_content(pdf, meta)
     _render_table_caption(meta, pdf)
@@ -2323,7 +2323,7 @@ if user_input:
                 title = (meta_extra.get("title") or "Результаты запроса").strip()
                 explain = (meta_extra.get("explain") or "").strip()
                 if title:
-                    st.markdown(f"### {title}")
+                    st.markdown(f"**{title}**")
                 if explain:
                     st.caption(explain)
                 with st.expander("Показать SQL", expanded=False):
