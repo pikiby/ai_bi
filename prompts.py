@@ -231,6 +231,11 @@ RULES_TABLE = r"""
          - Синие ячейки: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "rgba(173, 216, 230, 0.6)", "align": "center"}
          - Цветной текст: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "align": "left", "font_color": "rgba(0, 0, 255, 0.8)", "header_font_color": "rgba(0, 0, 139, 0.9)"}
          - Зеленые выделения: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "rgba(144, 238, 144, 0.5)", "align": "left"}
+         - Чередующиеся синие строки: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "striped": True}
+         - Подсветка максимумов: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "highlight_max": True}
+         - Подсветка минимумов: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "highlight_min": True}
+         - Выделение конкретных значений: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "blue"}, {"value": "Москва", "color": "red"}]}
+         - Выделение в конкретной колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "100", "color": "green", "column": "amount"}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -238,4 +243,11 @@ RULES_TABLE = r"""
          - Если нужен конкретный цвет текста, используй rgba() с прозрачностью
          - ВЫРАВНИВАНИЕ: первый столбец всегда по левому краю, остальные по правому
          - Параметр "align" влияет только на общее выравнивание, но CSS переопределяет его
+         - ЧЕРЕДУЮЩИЕСЯ СТРОКИ: используй "striped": True для полосатых таблиц
+         - ПОДСВЕТКА ЗНАЧЕНИЙ: "highlight_max": True для максимумов, "highlight_min": True для минимумов
+         - УСЛОВНОЕ ФОРМАТИРОВАНИЕ: "cell_rules": [{"value": "значение", "color": "blue/red/green/yellow/orange/purple"}]
+         - ВЫДЕЛЕНИЕ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки"}
+         - ДОСТУПНЫЕ ФУНКЦИИ: len, range, min, max, dict, list, str, int, float, bool, col, has_col
+         - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
+         - ДОСТУПНЫЕ ЦВЕТА: blue, red, green, yellow, orange, purple
 """

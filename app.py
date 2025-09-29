@@ -421,7 +421,17 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
     # Сливаем со стандартными стилями (стиль пользователя перекрывает дефолт)
     merged = {**STANDARD_TABLE_STYLES, **style_meta}
     css = _build_css_styles(merged)
-    table_html = pdf.to_html(index=False, classes="adaptive-table", escape=False)
+    
+    # Определяем классы для таблицы
+    table_classes = "adaptive-table"
+    if style_meta.get("striped", False):
+        table_classes += " striped"
+    
+    table_html = pdf.to_html(index=False, classes=table_classes, escape=False)
+    
+    # Применяем условное форматирование ячеек
+    table_html = _apply_cell_formatting(table_html, pdf, style_meta)
+    
     st.markdown(f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>", unsafe_allow_html=True)
 
 
@@ -711,6 +721,65 @@ def _build_css_styles(style_meta: dict) -> str:
             background-color: transparent;
         }}
         
+        /* Чередующиеся строки для темной темы */
+        .adaptive-table.striped tr:nth-child(even) {{
+            background-color: rgba(173, 216, 230, 0.2);
+        }}
+        
+        .adaptive-table.striped tr:nth-child(odd) {{
+            background-color: transparent;
+        }}
+        
+        /* Подсветка для темной темы */
+        .adaptive-table .highlight-max {{
+            background-color: rgba(255, 0, 0, 0.4) !important;
+            color: #ffffff !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table .highlight-min {{
+            background-color: rgba(0, 255, 0, 0.4) !important;
+            color: #000000 !important;
+            font-weight: bold;
+        }}
+        
+        /* Условное форматирование для темной темы */
+        .adaptive-table .cell-blue {{
+            background-color: rgba(0, 0, 255, 0.4) !important;
+            color: #ffffff !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table .cell-red {{
+            background-color: rgba(255, 0, 0, 0.4) !important;
+            color: #ffffff !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table .cell-green {{
+            background-color: rgba(0, 255, 0, 0.4) !important;
+            color: #000000 !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table .cell-yellow {{
+            background-color: rgba(255, 255, 0, 0.4) !important;
+            color: #000000 !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table .cell-orange {{
+            background-color: rgba(255, 165, 0, 0.4) !important;
+            color: #000000 !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table .cell-purple {{
+            background-color: rgba(128, 0, 128, 0.4) !important;
+            color: #ffffff !important;
+            font-weight: bold;
+        }}
+        
         .adaptive-table tr:hover {{
             background-color: rgba(58, 58, 58, 0.7);
         }}
@@ -774,6 +843,65 @@ def _build_css_styles(style_meta: dict) -> str:
         background-color: transparent;
     }}
     
+    /* Поддержка чередующихся строк */
+    .adaptive-table.striped tr:nth-child(even) {{
+        background-color: rgba(173, 216, 230, 0.3);
+    }}
+    
+    .adaptive-table.striped tr:nth-child(odd) {{
+        background-color: transparent;
+    }}
+    
+    /* Подсветка максимальных значений */
+    .adaptive-table .highlight-max {{
+        background-color: rgba(255, 0, 0, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table .highlight-min {{
+        background-color: rgba(0, 255, 0, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    /* Условное форматирование ячеек */
+    .adaptive-table .cell-blue {{
+        background-color: rgba(0, 0, 255, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table .cell-red {{
+        background-color: rgba(255, 0, 0, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table .cell-green {{
+        background-color: rgba(0, 255, 0, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table .cell-yellow {{
+        background-color: rgba(255, 255, 0, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table .cell-orange {{
+        background-color: rgba(255, 165, 0, 0.3) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table .cell-purple {{
+        background-color: rgba(128, 0, 128, 0.3) !important;
+        color: #ffffff !important;
+        font-weight: bold;
+    }}
+    
     .adaptive-table tr:hover {{
         background-color: rgba(240, 248, 255, 0.7);
     }}
@@ -814,6 +942,57 @@ def _build_css_styles(style_meta: dict) -> str:
     """
     
     return css
+
+
+def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict) -> str:
+    """
+    Применяет условное форматирование к HTML таблице.
+    Поддерживает выделение конкретных значений по содержимому.
+    """
+    import re
+    
+    # Получаем правила форматирования из метаданных
+    cell_rules = style_meta.get("cell_rules", [])
+    if not cell_rules:
+        return table_html
+    
+    # Применяем каждое правило
+    for rule in cell_rules:
+        if not isinstance(rule, dict):
+            continue
+            
+        value = rule.get("value")
+        color = rule.get("color")
+        column = rule.get("column")
+        
+        if not value or not color:
+            continue
+            
+        # Определяем CSS класс для цвета
+        color_class = f"cell-{color.lower()}"
+        
+        # Ищем ячейки с нужным значением
+        if column and column in pdf.columns:
+            # Форматируем конкретную колонку
+            col_index = list(pdf.columns).index(column)
+            pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
+            def replace_cell(match):
+                cell_content = match.group(1)
+                if str(value) in cell_content:
+                    return f'<td class="{color_class}">{cell_content}</td>'
+                return match.group(0)
+            table_html = re.sub(pattern, replace_cell, table_html)
+        else:
+            # Форматируем все ячейки с этим значением
+            pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
+            def replace_cell(match):
+                cell_content = match.group(1)
+                if str(value) in cell_content:
+                    return f'<td class="{color_class}">{cell_content}</td>'
+                return match.group(0)
+            table_html = re.sub(pattern, replace_cell, table_html)
+    
+    return table_html
 
 
 # СТАРАЯ ФУНКЦИЯ (НЕ РАБОТАЕТ В STREAMLIT) - ЗАМЕНЕНА НА HTML ПОДХОД
@@ -1908,11 +2087,36 @@ if user_input:
             if table_code and st.session_state.get("last_df") is not None:
                 try:
                     # Песочница для выполнения table_code
+                    df = st.session_state["last_df"]
+                    
+                    def col(*names):
+                        """Вернёт первое подходящее имя колонки из перечисленных."""
+                        for n in names:
+                            if isinstance(n, str) and n in df.columns:
+                                return n
+                        raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(df.columns)}")
+                    
+                    def has_col(name: str) -> bool:
+                        return isinstance(name, str) and name in df.columns
+                    
                     safe_builtins = {
-                        "__builtins__": {},
+                        "__builtins__": {
+                            "len": len, 
+                            "range": range, 
+                            "min": min, 
+                            "max": max, 
+                            "dict": dict, 
+                            "list": list,
+                            "str": str,
+                            "int": int,
+                            "float": float,
+                            "bool": bool
+                        },
                         "df": st.session_state["last_df"],
                         "st": st,
                         "pd": pd,
+                        "col": col,
+                        "has_col": has_col,
                     }
                     local_vars = {}
                     exec(table_code, safe_builtins, local_vars)
