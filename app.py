@@ -664,7 +664,7 @@ def _build_css_styles(style_meta: dict) -> str:
         margin: 10px 0;
         overflow: auto;
         max-height: 500px;
-        border: 1px solid #ddd;
+        border: 1px solid rgba(221, 221, 221, 0.6);
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         background-color: var(--background-color, #ffffff);
@@ -682,13 +682,13 @@ def _build_css_styles(style_meta: dict) -> str:
         .adaptive-table th {{
             background-color: {header_bg};
             color: {final_header_font_color};
-            border-color: #444;
+            border-color: rgba(221, 221, 221, 0.6);
         }}
         
         .adaptive-table td {{
             background-color: {cell_bg};
             color: {final_font_color};
-            border-color: #444;
+            border-color: rgba(221, 221, 221, 0.6);
         }}
         
         .adaptive-table tr:nth-child(even) {{
@@ -696,7 +696,15 @@ def _build_css_styles(style_meta: dict) -> str:
         }}
         
         .adaptive-table tr:hover {{
-            background-color: #3a3a3a;
+            background-color: rgba(58, 58, 58, 0.7);
+        }}
+        
+        .adaptive-table tr:hover td {{
+            color: #000000 !important;
+        }}
+        
+        .adaptive-table tr:hover th {{
+            color: #000000 !important;
         }}
     }}
     
