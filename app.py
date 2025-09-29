@@ -676,7 +676,7 @@ def _build_css_styles(style_meta: dict) -> str:
         .adaptive-table-container {{
             background-color: #1e1e1e;
             color: #ffffff;
-            border-color: #444;
+            border-color: rgba(221, 221, 221, 0.6);
         }}
         
         .adaptive-table th {{
