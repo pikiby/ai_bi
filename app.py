@@ -399,17 +399,30 @@ def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql
 # Отрисовка содержимого таблицы с учетом стилей
 def _render_table_content(pdf: pd.DataFrame, meta: dict):
     """
-    КОМПАКТНАЯ СИСТЕМА: Стандартная таблица + AI автоматически обрабатывает запросы.
+    КОМПАКТНАЯ СИСТЕМА: применяем стили, если они есть; иначе — стандартный вывод.
     """
-    # Сохраняем DataFrame для AI-генерации
-    table_key = _save_table_dataframe(pdf, meta)
-    
-    # СТАНДАРТНАЯ ТАБЛИЦА (без стилей)
-    edit_key = f"ed_{meta.get('ts','')}"
-    st.dataframe(pdf, use_container_width=True, key=edit_key)
-    
-    # AI автоматически анализирует запросы пользователя и генерирует код
-    # (Логика будет в основной части приложения, где обрабатываются запросы пользователя)
+    # Сохраняем DataFrame для AI-генерации (ключ может понадобиться в других местах)
+    _save_table_dataframe(pdf, meta)
+
+    # 1) Берём стили из meta или из отложенного состояния (one-shot)
+    style_meta = (meta.get("table_style") or {})
+    if not style_meta and st.session_state.get("next_table_style"):
+        style_meta = st.session_state["next_table_style"]
+        meta["table_style"] = style_meta
+        try:
+            del st.session_state["next_table_style"]
+        except Exception:
+            pass
+
+    # 2) Если стили есть — рисуем HTML-таблицу с CSS; иначе — стандартный dataframe
+    if style_meta:
+        # Сливаем со стандартными стилями (стиль пользователя перекрывает дефолт)
+        merged = {**STANDARD_TABLE_STYLES, **style_meta}
+        css = _build_css_styles(merged)
+        table_html = pdf.to_html(index=False, classes="adaptive-table", escape=False)
+        st.markdown(f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>", unsafe_allow_html=True)
+    else:
+        st.dataframe(pdf, use_container_width=True)
 
 
 # Отрисовка подписи таблицы
@@ -1727,7 +1740,7 @@ if user_input:
         m_table = re.search(r"```table_code\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         if m_table:
             table_code = m_table.group(1).strip()
-            if table_code and st.session_state["last_df"] is not None:
+            if table_code and st.session_state.get("last_df") is not None:
                 try:
                     # Песочница для выполнения table_code
                     safe_builtins = {
@@ -1742,12 +1755,14 @@ if user_input:
                     # Получаем table_style из выполненного кода
                     table_style = local_vars.get("table_style")
                     if isinstance(table_style, dict):
-                        # Применяем стили к последней таблице
+                        # Применяем стили к последней таблице, если она есть; иначе откладываем
+                        applied = False
                         for it in reversed(st.session_state.get("results", [])):
                             if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
                                 meta_it = it.get("meta") or {}
                                 meta_it["table_style"] = table_style
                                 it["meta"] = meta_it
+                                applied = True
                                 try:
                                     st.rerun()
                                 except Exception:
@@ -1756,6 +1771,8 @@ if user_input:
                                     except Exception:
                                         pass
                                 break
+                        if not applied:
+                            st.session_state["next_table_style"] = table_style
                 except Exception as e:
                     st.error(f"Ошибка выполнения table_code: {e}")
 
