@@ -1067,7 +1067,7 @@ def _build_css_styles(style_meta: dict) -> str:
 def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict) -> str:
     """
     Применяет условное форматирование к HTML таблице.
-    Поддерживает выделение конкретных значений по содержимому.
+    Поддерживает выделение конкретных значений по содержимому и целых строк.
     """
     import re
     import pandas as pd
@@ -1086,6 +1086,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         color = rule.get("color")
         text_color = rule.get("text_color")
         column = rule.get("column")
+        is_row_rule = rule.get("row", False)  # Новый параметр для выделения строк
         
         if not value or not color:
             continue
@@ -1137,25 +1138,67 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
             except Exception:
                 pass
         
-        # Обычная обработка для конкретных значений
-        if column and column in pdf.columns:
-            # Форматируем конкретную колонку
-            pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
-            def replace_cell(match):
-                cell_content = match.group(1)
-                if str(value) in cell_content:
-                    return f'<td class="{all_classes}">{cell_content}</td>'
-                return match.group(0)
-            table_html = re.sub(pattern, replace_cell, table_html)
+        # Обработка правил для целых строк
+        if is_row_rule:
+            # Находим индексы строк, где найдено значение
+            matching_rows = []
+            if column and column in pdf.columns:
+                # Ищем в конкретной колонке
+                for idx, val in enumerate(pdf[column]):
+                    if str(value).lower() in str(val).lower():
+                        matching_rows.append(idx)
+            else:
+                # Ищем во всех колонках
+                for idx, row in pdf.iterrows():
+                    if any(str(value).lower() in str(cell).lower() for cell in row):
+                        matching_rows.append(idx)
+            
+            # Применяем классы ко всем ячейкам в найденных строках
+            if matching_rows:
+                # Разбиваем HTML на строки таблицы
+                rows_pattern = r'(<tr[^>]*>)(.*?)(</tr>)'
+                rows = list(re.finditer(rows_pattern, table_html, re.DOTALL))
+                
+                # Пропускаем заголовок (первую строку)
+                for row_idx in matching_rows:
+                    # +1 потому что первая строка — заголовок
+                    if row_idx + 1 < len(rows):
+                        row_match = rows[row_idx + 1]
+                        row_open = row_match.group(1)
+                        row_content = row_match.group(2)
+                        row_close = row_match.group(3)
+                        
+                        # Применяем классы ко всем <td> в строке
+                        row_content_new = re.sub(
+                            r'<td([^>]*)>',
+                            rf'<td\1 class="{all_classes}">',
+                            row_content
+                        )
+                        
+                        # Заменяем строку
+                        old_row = row_match.group(0)
+                        new_row = row_open + row_content_new + row_close
+                        table_html = table_html.replace(old_row, new_row, 1)
         else:
-            # Форматируем все ячейки с этим значением
-            pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
-            def replace_cell(match):
-                cell_content = match.group(1)
-                if str(value) in cell_content:
-                    return f'<td class="{all_classes}">{cell_content}</td>'
-                return match.group(0)
-            table_html = re.sub(pattern, replace_cell, table_html)
+            # Обычная обработка для конкретных ячеек
+            if column and column in pdf.columns:
+                # Форматируем конкретную колонку
+                pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
+                def replace_cell(match):
+                    cell_content = match.group(1)
+                    if str(value) in cell_content:
+                        return f'<td class="{all_classes}">{cell_content}</td>'
+                    return match.group(0)
+                table_html = re.sub(pattern, replace_cell, table_html)
+            else:
+                # Форматируем все ячейки с этим значением
+                pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
+                def replace_cell(match):
+                    cell_content = match.group(1)
+                    if str(value) in cell_content:
+                        return f'<td class="{all_classes}">{cell_content}</td>'
+                    return match.group(0)
+                table_html = re.sub(pattern, replace_cell, table_html)
     
     return table_html
 
@@ -2166,8 +2209,10 @@ if user_input:
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     with st.chat_message("assistant"):
-        # Не показываем служебные блоки title/explain/sql — они теперь рендерятся у таблицы
+        # Не показываем служебные блоки title/explain/sql/table_style — они рендерятся отдельно
         cleaned = _strip_llm_blocks(final_reply)
+        # Убираем блок table_style из вывода в чат
+        cleaned = re.sub(r"```table_style[\s\S]*?```", "", cleaned, flags=re.IGNORECASE).strip()
         if cleaned:
             st.markdown(cleaned)
         created_chart = False
@@ -2314,116 +2359,42 @@ if user_input:
         m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
         if m_tstyle:
             try:
-                block = m_tstyle.group(1)
-                hdr_color1 = None
-                cell_color1 = None
-                align1 = None
-                striped1 = None
-                highlight_max1 = None
-                highlight_min1 = None
-                cell_rules1 = []
-                
-                for line in block.splitlines():
-                    line = line.strip()
-                    if "header_fill_color" in line:
-                        hdr_color1 = line.split(":", 1)[-1].strip().strip('"\'')
-                    elif "cells_fill_color" in line:
-                        cell_color1 = line.split(":", 1)[-1].strip().strip('"\'')
-                    elif re.search(r"\balign\b", line):
-                        align1 = line.split(":", 1)[-1].strip().strip('"\'')
-                    elif "striped" in line and "True" in line:
-                        striped1 = True
-                    elif "highlight_max" in line and "True" in line:
-                        highlight_max1 = True
-                    elif "highlight_min" in line and "True" in line:
-                        highlight_min1 = True
-                    elif "cell_rules" in line:
-                        # Улучшенный парсинг cell_rules
-                        if "[" in line and "]" in line:
-                            # Извлекаем содержимое между []
-                            start = line.find("[")
-                            end = line.rfind("]")
-                            if start != -1 and end != -1:
-                                rules_text = line[start+1:end]
-                                # Парсим правила с помощью регулярных выражений
-                                import re
-                                # Ищем паттерны типа {"value": "что-то", "color": "цвет", "column": "колонка", "text_color": "цвет_текста"}
-                                rule_pattern = r'\{[^}]*"value"[^}]*\}'
-                                rules = re.findall(rule_pattern, rules_text)
-                                for rule_str in rules:
+                import ast
+                block = m_tstyle.group(1).strip()
+                # Извлекаем словарь из блока (формат: table_style = {...})
+                dict_match = re.search(r"\{[\s\S]*\}", block)
+                if dict_match:
+                    # Безопасный парсинг Python-литерала
+                    table_style = ast.literal_eval(dict_match.group(0))
+                    
+                    if isinstance(table_style, dict):
+                        # Применяем стили к последней таблице
+                        applied = False
+                        for it in reversed(st.session_state.get("results", [])):
+                            if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                                meta_it = it.get("meta") or {}
+                                existing_style = meta_it.get("table_style", {})
+                                # Обновляем существующие стили (merge)
+                                existing_style.update(table_style)
+                                meta_it["table_style"] = existing_style
+                                it["meta"] = meta_it
+                                applied = True
+                                # Тихое применение без вывода в чат
+                                try:
+                                    st.rerun()
+                                except Exception:
                                     try:
-                                        # Простой парсинг атрибутов
-                                        value_match = re.search(r'"value"\s*:\s*"([^"]*)"', rule_str)
-                                        color_match = re.search(r'"color"\s*:\s*"([^"]*)"', rule_str)
-                                        column_match = re.search(r'"column"\s*:\s*"([^"]*)"', rule_str)
-                                        text_color_match = re.search(r'"text_color"\s*:\s*"([^"]*)"', rule_str)
-                                        
-                                        if value_match and color_match:
-                                            rule_dict = {
-                                                "value": value_match.group(1),
-                                                "color": color_match.group(1)
-                                            }
-                                            if column_match:
-                                                rule_dict["column"] = column_match.group(1)
-                                            if text_color_match:
-                                                rule_dict["text_color"] = text_color_match.group(1)
-                                            cell_rules1.append(rule_dict)
+                                        st.experimental_rerun()
                                     except Exception:
                                         pass
-                
-                # Применяем стили к последней таблице
-                applied = False
-                for it in reversed(st.session_state.get("results", [])):
-                    if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                        meta_it = it.get("meta") or {}
-                        table_style = meta_it.get("table_style", {})
+                                break
                         
-                        # Обновляем стили
-                        if hdr_color1:
-                            table_style["header_fill_color"] = hdr_color1
-                        if cell_color1:
-                            table_style["cells_fill_color"] = cell_color1
-                        if align1:
-                            table_style["align"] = align1
-                        if striped1:
-                            table_style["striped"] = striped1
-                        if highlight_max1:
-                            table_style["highlight_max"] = highlight_max1
-                        if highlight_min1:
-                            table_style["highlight_min"] = highlight_min1
-                        if cell_rules1:
-                            table_style["cell_rules"] = cell_rules1
-                        
-                        meta_it["table_style"] = table_style
-                        it["meta"] = meta_it
-                        applied = True
-                        st.success(f"🎨 Стили обновлены: {table_style}")
-                        try:
-                            st.rerun()
-                        except Exception:
-                            try:
-                                st.experimental_rerun()
-                            except Exception:
-                                pass
-                        break
-                
-                if not applied:
-                    # Сохраняем для новых таблиц
-                    style_data = {
-                        "header_fill_color": hdr_color1, 
-                        "cells_fill_color": cell_color1, 
-                        "align": align1 or "left",
-                        "striped": striped1,
-                        "highlight_max": highlight_max1,
-                        "highlight_min": highlight_min1,
-                        "cell_rules": cell_rules1
-                    }
-                    # Убираем None значения
-                    style_data = {k: v for k, v in style_data.items() if v is not None}
-                    st.session_state["next_table_style"] = style_data
-                    st.success(f"🎨 Стили сохранены для следующей таблицы: {style_data}")
+                        if not applied:
+                            # Сохраняем для новых таблиц
+                            st.session_state["next_table_style"] = table_style
             except Exception as e:
-                st.error(f"Ошибка обработки стилей: {e}")
+                # Тихая обработка ошибок парсинга
+                pass
 
         if plotly_code and not (created_chart or created_table):
             if st.session_state["last_df"] is None:
