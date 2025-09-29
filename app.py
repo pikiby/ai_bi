@@ -2457,6 +2457,7 @@ if user_input:
                         if isinstance(fig, go.Figure):
                             _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
                             _render_result(st.session_state["results"][-1])
+                            created_chart = True
                         else:
                             st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
                     except Exception as e:
@@ -2520,6 +2521,7 @@ if user_input:
                                         if isinstance(fig, go.Figure):
                                             _push_result("chart", fig=fig, meta={"plotly_code": code_retry})
                                             _render_result(st.session_state["results"][-1])
+                                            created_chart = True
                                         else:
                                             st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
                                 else:
@@ -2528,6 +2530,74 @@ if user_input:
                                 st.error(f"Повтор также не удался: {e2}")
                         else:
                             st.error(f"Ошибка выполнения кода графика: {e}")
+
+        # --- Фолбэк: пользователь просит график, df уже есть, но модель не вернула plotly-код ---
+        # Сценарий: «сделай график» после получения таблицы. Если кода нет — попросим у модели
+        # с чёткой инструкцией и перечнем колонок. Выполняем один раз, тихо.
+        if (
+            not created_chart
+            and not created_table
+            and st.session_state.get("last_df") is not None
+            and not (m_table or m_tstyle)
+        ):
+            # Найдём последнее пользовательское сообщение
+            last_user_text = ""
+            for _m in reversed(st.session_state.get("messages", [])):
+                if _m.get("role") == "user":
+                    last_user_text = _m.get("content", "")
+                    break
+            if re.search(r"\b(график|диаграмм|диаграмма|chart|plot)\b", last_user_text, flags=re.IGNORECASE):
+                try:
+                    _pdf_fb = st.session_state["last_df"].to_pandas()
+                    _cols_fb = ", ".join(map(str, list(_pdf_fb.columns)))
+                    _retry_hint = (
+                        "Построй НОВЫЙ график по уже существующим данным df. "
+                        "Доступные колонки: " + _cols_fb + ". "
+                        "Верни ровно один блок ```plotly``` с переменной fig."
+                    )
+                    _retry_msgs = (
+                        [{"role": "system", "content": prompts_map["plotly"]},
+                         {"role": "system", "content": _retry_hint}]
+                        + st.session_state["messages"]
+                    )
+                    _retry_reply = client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        messages=_retry_msgs,
+                        temperature=0,
+                    ).choices[0].message.content
+
+                    _m_plotly_fb = re.search(r"```plotly\s*(.*?)```", _retry_reply, re.DOTALL | re.IGNORECASE)
+                    if _m_plotly_fb:
+                        _code_retry = _m_plotly_fb.group(1).strip()
+                        _code_retry_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", _code_retry)
+                        _scan2 = re.sub(r"'''[\s\S]*?'''", "", _code_retry_clean)
+                        _scan2 = re.sub(r'"""[\s\S]*?"""', "", _scan2)
+                        _scan2 = re.sub(r"(?m)#.*$", "", _scan2)
+                        _BANNED2 = re.compile(
+                            r"(?:\bopen\b|\bexec\b|\beval\b|subprocess|socket|"
+                            r"os\.[A-Za-z_]+|sys\.[A-Za-z_]+|Path\(|write\(|remove\(|unlink\(|requests|httpx)",
+                            re.IGNORECASE,
+                        )
+                        if not _BANNED2.search(_scan2):
+                            # Поддержим col(...) и базовое окружение
+                            def _col(*names):
+                                for n in names:
+                                    if isinstance(n, str) and n in _pdf_fb.columns:
+                                        return n
+                                raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(_pdf_fb.columns)}")
+                            _safe_globals = {
+                                "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+                                "pd": pd, "px": px, "go": go, "df": _pdf_fb, "col": _col, "COLS": list(_pdf_fb.columns)
+                            }
+                            _locals = {}
+                            exec(_code_retry_clean, _safe_globals, _locals)
+                            _fig = _locals.get("fig")
+                            if isinstance(_fig, go.Figure):
+                                _push_result("chart", fig=_fig, meta={"plotly_code": _code_retry})
+                                _render_result(st.session_state["results"][-1])
+                                created_chart = True
+                except Exception:
+                    pass
 
 # --- Кнопка скачивания архива В САМОМ НИЗУ ---
 # ВАЖНО: размещена после обработки user_input, SQL/Plotly и _push_result(...),
@@ -2541,4 +2611,3 @@ st.download_button(
     mime="application/zip",
     disabled=(len(st.session_state["results"]) == 0),
 )
-
