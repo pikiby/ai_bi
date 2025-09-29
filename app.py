@@ -8,6 +8,9 @@ import json
 import io
 import zipfile
 from datetime import datetime
+from textwrap import dedent
+
+import numpy as np
 
 import streamlit as st
 import pandas as pd
@@ -392,25 +395,275 @@ def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql
     return "Результаты запроса"
 
 
+# ======================== ТАБЛИЧНЫЙ РЕНДЕР ========================
+
+_TABLE_BASE_CSS = dedent(
+    """
+    <style>
+        .ai-table-card {
+            max-width: 1200px;
+            margin: 0 auto 32px auto;
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+        }
+
+        .ai-table-card .ai-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .ai-table-card .ai-table th {
+            background-color: #f0f0f0;
+            color: #333333;
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #d1d5db;
+            font-weight: 600;
+        }
+
+        .ai-table-card .ai-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            border-right: 1px solid #f3f4f6;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .ai-table-card .ai-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .ai-table-card .ai-table tr:hover {
+            background-color: #f0f8ff;
+        }
+
+        .ai-table-card .ai-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .ai-table-card .ai-table td:last-child,
+        .ai-table-card .ai-table th:last-child {
+            border-right: none;
+        }
+    </style>
+    """
+).strip()
+
+
+def _compose_table_css(style_meta: dict | None) -> str:
+    """Формирует CSS-блок с учётом пользовательских настроек."""
+
+    css_parts = [_TABLE_BASE_CSS]
+    style_meta = style_meta or {}
+
+    header_bg = style_meta.get("header_fill_color")
+    cells_bg = style_meta.get("cells_fill_color")
+    align = (style_meta.get("align") or "left").lower()
+    custom_css = style_meta.get("custom_css")
+
+    if header_bg:
+        css_parts.append(
+            f"<style>.ai-table-card .ai-table th {{ background-color: {header_bg} !important; }}</style>"
+        )
+    if cells_bg:
+        css_parts.append(
+            f"<style>.ai-table-card .ai-table td {{ background-color: {cells_bg} !important; }}</style>"
+        )
+    if align in {"left", "center", "right"}:
+        css_parts.append(
+            f"<style>.ai-table-card .ai-table th, .ai-table-card .ai-table td {{ text-align: {align}; }}</style>"
+        )
+    if custom_css:
+        css_parts.append(f"<style>{custom_css}</style>")
+
+    return "\n".join(css_parts)
+
+
+def _detect_percent_column(column_name: str) -> bool:
+    name = str(column_name).lower()
+    return any(token in name for token in ("%", "percent", "pct", "процент", "конвер"))
+
+
+def _make_number_formatter(series: pd.Series) -> callable:
+    """Хелпер для форматирования числовых колонок (тысячные разделители)."""
+
+    non_na = series.dropna()
+    if non_na.empty or pd.api.types.is_integer_dtype(series):
+        decimals = 0
+    else:
+        if np.all(np.isclose(non_na % 1, 0)):
+            decimals = 0
+        else:
+            max_abs = float(non_na.abs().max()) if not non_na.empty else 0.0
+            decimals = 3 if max_abs < 1 else 2
+
+    def format_number(val: float) -> str:
+        if pd.isna(val):
+            return "—"
+        try:
+            formatted = f"{float(val):,.{decimals}f}"
+            if decimals:
+                formatted = formatted.rstrip("0").rstrip(".")
+            return formatted
+        except Exception:
+            return str(val)
+
+    return format_number
+
+
+def _make_percent_formatter(series: pd.Series) -> callable:
+    """Форматирование процентов (0-1 интерпретируем как доли)."""
+
+    non_na = series.dropna()
+    treat_as_ratio = False
+    if not non_na.empty:
+        max_abs = float(non_na.abs().max())
+        treat_as_ratio = 0 < max_abs <= 1.0
+
+    def format_percent(val: float) -> str:
+        if pd.isna(val):
+            return "—"
+        try:
+            value = float(val)
+            if treat_as_ratio:
+                value *= 100
+            formatted = f"{value:.1f}".rstrip("0").rstrip(".")
+            return f"{formatted}%"
+        except Exception:
+            return str(val)
+
+    return format_percent
+
+
+def _build_table_formatters(pdf: pd.DataFrame, style_meta: dict | None) -> dict:
+    """Комбинирует форматеры по умолчанию и пользовательские (если переданы)."""
+
+    formatters: dict[str, callable] = {}
+    custom = {}
+    if style_meta and isinstance(style_meta.get("formatters"), dict):
+        custom = style_meta.get("formatters") or {}
+
+    for col in pdf.columns:
+        if col in custom:
+            fmt = custom[col]
+            if callable(fmt):
+                formatters[col] = fmt
+            elif isinstance(fmt, str):
+                def _wrap(template: str):
+                    def _formatter(val):
+                        if pd.isna(val):
+                            return "—"
+                        try:
+                            return template.format(val)
+                        except Exception:
+                            return str(val)
+                    return _formatter
+                formatters[col] = _wrap(fmt)
+            continue
+
+        series = pdf[col]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            def _format_dt(val):
+                if pd.isna(val):
+                    return "—"
+                try:
+                    return pd.to_datetime(val).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    return str(val)
+            formatters[col] = _format_dt
+        elif pd.api.types.is_numeric_dtype(series):
+            if _detect_percent_column(col):
+                formatters[col] = _make_percent_formatter(series)
+            else:
+                formatters[col] = _make_number_formatter(series)
+
+    return formatters
+
+
+def _safe_apply_styler_code(styler: pd.io.formats.style.Styler, code: str | None) -> tuple[pd.io.formats.style.Styler, list[str]]:
+    """Выполняет пользовательский styler_code в легкой песочнице."""
+
+    warnings: list[str] = []
+    if not code:
+        return styler, warnings
+
+    banned = re.compile(r"\b(import|open|exec|eval|subprocess|os\.|sys\.|pathlib|__|socket)\b", re.IGNORECASE)
+    if banned.search(code):
+        warnings.append("Styler-код отклонён: обнаружены небезопасные конструкции.")
+        return styler, warnings
+
+    local_env = {"styler": styler, "pd": pd, "np": np}
+    safe_builtins = {"min": min, "max": max, "sum": sum, "len": len, "abs": abs, "round": round}
+
+    try:
+        exec(code, {"__builtins__": safe_builtins}, local_env)
+        updated = local_env.get("styler", styler)
+        if isinstance(updated, pd.io.formats.style.Styler):
+            styler = updated
+    except Exception as exc:
+        warnings.append(f"Styler-код вызвал ошибку: {exc}")
+
+    return styler, warnings
+
+
+def _render_table_html(pdf: pd.DataFrame, style_meta: dict | None) -> tuple[str, list[str]]:
+    """Готовит HTML-тело таблицы вместе с базовым оформлением."""
+
+    pdf_copy = pdf.copy()
+    for col in pdf_copy.select_dtypes(include=["object", "string"]).columns:
+        pdf_copy[col] = pdf_copy[col].fillna("—")
+
+    formatters = _build_table_formatters(pdf_copy, style_meta)
+
+    styler = pdf_copy.style
+    if hasattr(styler, "hide"):
+        styler = styler.hide(axis="index")
+    else:
+        styler = styler.hide_index()
+
+    styler = styler.set_table_attributes('class="ai-table" data-role="ai-table"')
+    styler = styler.format(formatters, na_rep="—")
+
+    align = (style_meta or {}).get("align") or "left"
+    styler = styler.set_table_styles([
+        {"selector": "th", "props": [("text-align", align)]},
+        {"selector": "td", "props": [("text-align", align)]},
+    ], overwrite=False)
+
+    styler, warnings = _safe_apply_styler_code(styler, (style_meta or {}).get("styler_code"))
+
+    table_html = styler.to_html()
+    css_block = _compose_table_css(style_meta)
+
+    return f"{css_block}\n<div class=\"ai-table-card\">{table_html}</div>", warnings
+
+
 # Отрисовка содержимого таблицы с учетом стилей
 def _render_table_content(pdf: pd.DataFrame, meta: dict):
-    """Отрисовка содержимого таблицы (стилизованной или редактируемой)"""
-    # ИСПРАВЛЕНИЕ: Проверяем стили из метаданных И из глобального состояния
+    """Отрисовывает таблицу с базовым HTML и пользовательно-ориентированными хуками."""
+
     style_meta = (meta.get("table_style") or {})
     if not style_meta and "next_table_style" in st.session_state:
         style_meta = st.session_state["next_table_style"]
-        # Применяем стили к текущей таблице
         meta["table_style"] = style_meta
-        # Очищаем глобальные стили после применения
         del st.session_state["next_table_style"]
-    
-    # ОТЛАДКА: Показываем информацию о стилях
+
+    table_html, warnings = _render_table_html(pdf, style_meta)
+
     if style_meta:
-        st.info(f"🎨 Применяем стили: {style_meta}")
-        st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
-    else:
-        edit_key = f"ed_{meta.get('ts','')}"
-        st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
+        st.info(f"🎨 Применяем стиль: {style_meta}")
+    for warning_msg in warnings:
+        st.warning(warning_msg)
+
+    # Высоту подбираем эвристикой: 40px на заголовок + строки таблицы
+    estimated_height = min(720, 120 + 28 * (len(pdf) + 1))
+    st.components.v1.html(table_html, height=estimated_height, scrolling=True)
 
 
 # Отрисовка подписи таблицы
@@ -535,24 +788,6 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
         pdf.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
 
-
-def _build_styled_df(pdf: pd.DataFrame, style_meta: dict):
-    """Создаёт pandas Styler по простым параметрам стиля."""
-    header_bg = (style_meta or {}).get("header_fill_color") or None
-    cell_bg = (style_meta or {}).get("cells_fill_color") or None
-    text_align = (style_meta or {}).get("align") or "left"
-
-    styles = []
-    if header_bg:
-        styles.append({"selector": "th", "props": [("background-color", header_bg), ("text-align", text_align)]})
-    else:
-        styles.append({"selector": "th", "props": [("text-align", text_align)]})
-    if cell_bg:
-        styles.append({"selector": "td", "props": [("background-color", cell_bg), ("text-align", text_align)]})
-    else:
-        styles.append({"selector": "td", "props": [("text-align", text_align)]})
-
-    return pdf.style.set_table_styles(styles)
 
 def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     """Создаёт Plotly-таблицу с темным стилем (контрастная шапка и строки)."""
@@ -1804,4 +2039,3 @@ st.download_button(
     mime="application/zip",
     disabled=(len(st.session_state["results"]) == 0),
 )
-
