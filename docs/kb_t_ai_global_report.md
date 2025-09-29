@@ -1,73 +1,70 @@
 ---
-id: t_mobile_report_total
-title: Мобильный отчет по подпискам и платежам
-db: db1
-short_description: "Ежедневный отчет по мобильным подпискам, платежам, активным пользователям и единицам на платформе с разбивкой по партнерам и городам."
-synonyms:
-  - мобильный отчет
-  - отчет по подпискам
-  - отчет по платежам
-  - мобильная аналитика
-  - подписки и платежи
+id: t_ai_global_report
+title: Глобальный AI отчет по мобильным подпискам и платежам
+short_description: "Ежедневный глобальный отчет, объединяющий все метрики мобильного бизнеса: подписки, платежи, активные пользователи, единицы на платформе, активированные аккаунты, новые пользователи и MAF с разбивкой по партнерам и городам."
 type: table
 tags:
   - "#KnowledgeBase"
-  - "#Mobile_Report"
+  - "#AI_Report"
 ---
 
-# «Мобильный отчет по подпискам и платежам» — mobile_report_total
+# «Глобальный AI отчет по мобильным подпискам и платежам» — t_ai_global_report
 
 ## Названия таблицы
-**Короткое имя (человекочитаемое):** Мобильный отчет по подпискам и платежам  
-**Тех. имя:** `mobile_report_total`
+**Короткое имя (человекочитаемое):** Глобальный AI отчет по мобильным подпискам и платежам  
+**Тех. имя:** `t_ai_global_report`
 
 ## Назначение
-Таблица предоставляет ежедневный срез по мобильным подпискам, платежам, активным пользователям и единицам на платформе с разбивкой по партнерам и городам. Используется для аналитики мобильного бизнеса, мониторинга доходов, анализа пользовательской активности и контроля качества данных.
+Таблица предоставляет ежедневный глобальный срез всех ключевых метрик мобильного бизнеса, объединяя данные из всех специализированных отчетов. Используется для комплексной аналитики, AI-анализа, мониторинга бизнес-показателей и принятия стратегических решений.
 
 **Основные метрики:**
 - Подписки (Android/iOS, новые/продленные, через App Store/карты)
 - Платежи (доходы, покупки, возвраты по платформам и тарифам)
 - Активные пользователи (общие, с монетизацией, с BLE)
 - Единицы на платформе (свободная/ограниченная монетизация)
+- Активированные аккаунты (общие, с монетизацией, с BLE)
+- Новые пользователи (созданные/активированные)
+- MAF (Monthly Active Flats)
+- Лицензионные ключи (активированные, подписчики с ключами)
+- Установочные точки (количество точек, домофонов, онлайн статус)
+- Реквизиты партнеров (ИНН)
 
 ## Хранилище и движок
 - БД: `db1`  
-- Таблица: `mobile_report_total`  
+- Таблица: `t_ai_global_report`  
 - Движок: `MergeTree`  
 - Сортировка: `ORDER BY report_date`
-- Материализованное представление: `mobile_report_total_mv` (обновляется ежедневно в 06:05)
+- Материализованное представление: `t_ai_global_report_mv` (обновляется ежедневно в 06:05)
 
 ## DDL
 ```sql
-CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
-    REFRESH EVERY 1 DAY OFFSET 6 HOUR 5 MINUTE TO db1.mobile_report_total AS
+CREATE MATERIALIZED VIEW db1.t_ai_global_report_mv
+    REFRESH EVERY 1 DAY OFFSET 6 HOUR 5 MINUTE TO db1.t_ai_global_report AS
     WITH t_dec AS(
         SELECT
             t1.report_date  AS report_date,
-            t2.city  AS city,
+            t2.city_uuid  AS city_uuid,
             t2.partner_uuid  AS partner_uuid
         FROM
             (SELECT DISTINCT report_date FROM db1.installation_point_st_partner_ch) AS t1
         CROSS JOIN
-            (SELECT DISTINCT city,inst.partner_uuid AS partner_uuid
+            (SELECT DISTINCT city_uuid, inst.partner_uuid AS partner_uuid
             FROM db1.installation_point_st_partner_ch AS inst
-            LEFT JOIN db1.entries_installation_points_dir_partner AS eipdp ON inst.installation_point_id  = eipdp.installation_point_id ) AS t2
+            LEFT JOIN db1.entries_installation_points_dir_partner_ch AS eipdp 
+                ON inst.installation_point_id = eipdp.installation_point_id) AS t2
         )
     SELECT
         t_dec.report_date AS report_date,
         t_dec.partner_uuid AS partner_uuid,
-        t_dec.city AS city,
+        t_dec.city_uuid AS city_uuid,
+        eipdp.city AS city,
         cdp.partner_lk AS partner_lk,
-        -- Метрики подписок, платежей, пользователей и единиц
-        -- (полный список полей см. в разделе "Поля и алиасы")
+        -- Все метрики из объединяемых таблиц
     FROM t_dec
     LEFT JOIN db1.units_on_sk_platform_rep_mobile_total AS uosprmt 
         ON uosprmt.report_date = t_dec.report_date 
-        AND uosprmt.city = t_dec.city
+        AND uosprmt.city_uuid = t_dec.city_uuid
         AND uosprmt.partner_uuid = t_dec.partner_uuid
-    -- Справочник партнёров (личный кабинет)
-    LEFT JOIN db1.companies_dir_partner_ch AS cdp
-        ON cdp.partner_uuid = t_dec.partner_uuid
     -- Другие JOIN'ы с источниками данных
     ORDER BY report_date DESC;
 ```
@@ -79,6 +76,7 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 | ----------------------------- | ------- | ----------------------------------------- |
 | `report_date`                 | Date    | Дата отчета                               |
 | `partner_uuid`                | String  | UUID партнера                             |
+| `city_uuid`                   | String  | UUID города                               |
 | `city`                        | String  | Город                                     |
 | `partner_lk`                  | String  | Личный кабинет партнёра                   |
 
@@ -122,6 +120,8 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 | `renew_stopped_at_android_cart` | UInt64 | Отмененные подписки Android с карты       |
 | `renew_stopped_at_ios`      | UInt64  | Отмененные подписки iOS через App Store   |
 | `renew_stopped_at_ios_cart` | UInt64  | Отмененные подписки iOS с карты           |
+| `renewed_subscriptions_last_28_days` | UInt64 | Продленные подписки за последние 28 дней |
+| `stoped_subscript_last_28_days` | UInt64 | Отмены подписок за последние 28 дней      |
 
 ### Метрики единиц на платформе
 | Поле                          | Тип     | Алиас (человекочитаемое)                  |
@@ -172,7 +172,7 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 | `yookassa_count_499`         | UInt64  | Покупки за 499₽ через YooKassa за день    |
 | `yookassa_count_499_refunded` | UInt64 | Возвраты за 499₽ через YooKassa за день  |
 | `yookassa_count_69`          | UInt64  | Покупки за 69₽ через YooKassa за день    |
-| `yookassa_count_69_refunded` | UInt64  | Возвраты за 69₽ через YooKassa за день   |
+| `yookassa_count_69_refunded` | UInt64 | Возвраты за 69₽ через YooKassa за день   |
 | `yookassa_count_85`          | UInt64  | Покупки за 85₽ через YooKassa за день    |
 | `yookassa_count_85_refunded` | UInt64  | Возвраты за 85₽ через YooKassa за день   |
 | `refunded_amount_appstore`   | Float64 | Сумма возвратов в App Store за день       |
@@ -217,8 +217,8 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 | `total_activated_account_monetization` | UInt64 | Активированные аккаунты с монетизацией |
 | `total_activated_account_ble_available_monetization` | UInt64 | Активированные аккаунты с BLE и монетизацией |
 | `total_activated_account_ble_available` | UInt64 | Активированные аккаунты с доступным BLE |
-| `new_created_account`         | UInt64  | Кумулятивное количество новых созданных аккаунтов за месяц |
-| `new_activated_account`       | UInt64  | Кумулятивное количество новых активированных аккаунтов за месяц |
+| `new_created_account`         | UInt64  | КУМУЛЯТИВНОЕ количество новых созданных аккаунтов за месяц |
+| `new_activated_account`       | UInt64  | КУМУЛЯТИВНОЕ количество новых активированных аккаунтов за месяц |
 | `new_created_account_day`     | UInt64  | Новые созданные аккаунты за день          |
 | `new_activated_account_day`   | UInt64  | Новые активированные аккаунты за день     |
 
@@ -228,6 +228,28 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 | `MAF`                         | UInt64  | Уникальные квартиры с активными пользователями за день |
 | `stricted_MAF`               | UInt64  | Квартиры с ограниченной монетизацией      |
 | `freemonetization_MAF`       | UInt64  | Квартиры со свободной монетизацией        |
+
+### Метрики лицензионных ключей
+| Поле                          | Тип     | Алиас (человекочитаемое)                  |
+| ----------------------------- | ------- | ----------------------------------------- |
+| `activated_keys`              | UInt32  | Активированные ключи                      |
+| `activated_sub_w_key`         | UInt32  | Вернувшиеся подписчики с ключом           |
+| `created_first_sub_w_key`     | UInt32  | Новые подписчики с ключом                 |
+| `d_activated_sub_w_key`       | UInt32  | Отменившие подписку (вернувшиеся)         |
+| `d_created_first_sub_w_key`  | UInt32  | Отменившие подписку (новые)               |
+
+### Метрики установочных точек
+| Поле                          | Тип     | Алиас (человекочитаемое)                  |
+| ----------------------------- | ------- | ----------------------------------------- |
+| `countd_inst_by_c_and_p`     | UInt64  | Количество точек установки                |
+| `countd_inter_par_by_c_and_p` | UInt64  | Количество точек установки с домофоном онлайн |
+| `countd_inst_par_onl_by_c_and_p` | UInt64 | Количество домофонов                      |
+| `countd_inter_par_onl_by_c_and_p` | UInt64 | Количество домофонов онлайн               |
+
+### Реквизиты партнеров
+| Поле                          | Тип     | Алиас (человекочитаемое)                  |
+| ----------------------------- | ------- | ----------------------------------------- |
+| `tin`                         | String  | ИНН                                       |
 
 ## Примечания к полям
 
@@ -247,13 +269,17 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 - `total_activated_account_rep_mobile_full` — активированные аккаунты
 - `new_users_pd_rep_mobile_total` — новые пользователи
 - `maf_rep_mobile_total` — метрики MAF
-- `companies_dir_partner_ch` — реквизиты партнёров (в том числе `partner_lk`)
+- `t_subscriptions_after_licensed_keys` — метрики лицензионных ключей
+- `t_int_p_and_inst_by_cit_and_par` — метрики установочных точек
+- `companies_dir_partner_ch` — реквизиты партнёров (в том числе `partner_lk`, `tin`)
+- `entries_installation_points_dir_partner_ch` — справочник городов
 
 ### Ключевые особенности
 - **Обновление:** ежедневно в 06:05 через материализованное представление
 - **Размерность:** партнер × город × дата
 - **Сортировка:** по дате отчета (DESC)
 - **Связи:** с таблицами партнеров и установочных точек
+- **AI-оптимизация:** структура оптимизирована для AI-анализа и машинного обучения
 
 ## Частые срезы/фильтры
 - По дате (`report_date`) — чаще всего **последняя доступная дата**
@@ -271,236 +297,122 @@ CREATE MATERIALIZED VIEW db1.mobile_report_total_mv
 Для запросов с датами используй только явные даты, указанные пользователем:
 - Если пользователь указал конкретную дату — используй её: `WHERE report_date = '2025-08-31'`
 - Если пользователь указал период — используй диапазон: `WHERE report_date BETWEEN '2025-08-01' AND '2025-08-31'`
-- Если пользователь НЕ указал дату — используй последнюю доступную: `WHERE report_date = (SELECT max(report_date) FROM mobile_report_total WHERE total_active_users > 0)`
+- Если пользователь НЕ указал дату — используй последнюю доступную: `WHERE report_date = (SELECT max(report_date) FROM t_ai_global_report WHERE total_active_users > 0)`
 
 **Запрещено:** любые CTE с агрегатами (`WITH ... AS (SELECT max(...) ...)`) — они вызывают ILLEGAL_AGGREGATION в ClickHouse.
 
-### Явно заданная дата или период
-Если пользователь указывает конкретную дату/диапазон, НЕ нужно вычислять `max(report_date)`. Фильтруйте напрямую:
-
-Пример C: «Сумма активных пользователей на 2025‑08‑31 (за вычетом списка ЛК)»
-```sql
-SELECT
-  toDate('2025-08-31') AS `Дата`,
-  sum(total_active_users) AS `Количество активных пользователей`
-FROM mobile_report_total
-WHERE report_date = toDate('2025-08-31')
-  AND partner_lk NOT IN (
-    '147012','140376','138824','142109','122794','125759','141119','137236','141289','122015',
-    '140869','120668','123789','136917','122224','120185','144666','120225','144050','121988',
-    '121307','123999','132902','120495','120202','146371','121584','148759','133830','120225',
-    '120350','120345','152762','120377','149756','120074','120341','120638','120642','120750',
-    '120842','121504','121557','121671','121993','122220','122924','124860','124890','131321',
-    '132740','133292','142519','147659','157526'
-  );
-```
-
-Пример D: «Сумма активных пользователей за август 2025»
-```sql
-WITH period AS (
-  SELECT toDate('2025-08-31') AS d2
-)
-SELECT
-  sum(total_active_users) AS `Количество активных пользователей за период`
-FROM mobile_report_total
-CROSS JOIN period
-WHERE report_date BETWEEN d1 AND d2;
-```
-
-Пример A: «Количество активных пользователей на 2025-08-31» — суммируем по всем партнёрам и городам на конкретную дату:
-```sql
-SELECT
-  '2025-08-31' AS `Дата`,
-  sum(total_active_users) AS `Количество активных пользователей`
-FROM mobile_report_total
-WHERE report_date = '2025-08-31';
-```
-
-Пример A1: «Сумма активных пользователей на 2025-08-31 за вычетом списка ЛК»:
-```sql
-SELECT
-  '2025-08-31' AS `Дата`,
-  sum(total_active_users) AS `Сумма активных пользователей`
-FROM mobile_report_total
-WHERE report_date = '2025-08-31'
-  AND partner_lk NOT IN (
-    '147012','140376','138824','142109','122794','125759','141119','137236','141289','122015',
-    '140869','120668','123789','136917','122224','120185','144666','120225','144050','121988',
-    '121307','123999','132902','120495','120202','146371','121584','148759','133830','120225',
-    '120350','120345','152762','120377','149756','120074','120341','120638','120642','120750',
-    '120842','121504','121557','121671','121993','122220','122924','124860','124890','131321',
-    '132740','133292','142519','147659','157526'
-  );
-```
-
-Пример E: «Сумма активных пользователей на конец прошлого месяца» — корректно вычисляет последнюю доступную дату ПЕРЕД началом текущего месяца и использует её и в WHERE, и в SELECT (ClickHouse-дружественно):
-```sql
-SELECT
-  (
-    SELECT max(report_date)
-    FROM mobile_report_total
-    WHERE report_date < toStartOfMonth(today())
-      AND total_active_users > 0
-  ) AS `Дата`,
-  sum(total_active_users) AS `Сумма активных пользователей`
-FROM mobile_report_total
-WHERE report_date = (
-  SELECT max(report_date)
-  FROM mobile_report_total
-  WHERE report_date < toStartOfMonth(today())
-    AND total_active_users > 0
-);
-```
-
-Пример E1: то же, но за вычетом списка `partner_lk`:
-```sql
-SELECT
-  (
-    SELECT max(report_date)
-    FROM mobile_report_total
-    WHERE report_date < toStartOfMonth(today())
-      AND total_active_users > 0
-  ) AS `Дата`,
-  sum(total_active_users) AS `Сумма активных пользователей`
-FROM mobile_report_total
-WHERE report_date = (
-  SELECT max(report_date)
-  FROM mobile_report_total
-  WHERE report_date < toStartOfMonth(today())
-    AND total_active_users > 0
-)
-  AND partner_lk NOT IN (
-    '147012','140376','138824','142109','122794','125759','141119','137236','141289','122015',
-    '140869','120668','123789','136917','122224','120185','144666','120225','144050','121988',
-    '121307','123999','132902','120495','120202','146371','121584','148759','133830','120225',
-    '120350','120345','152762','120377','149756','120074','120341','120638','120642','120750',
-    '120842','121504','121557','121671','121993','122220','122924','124860','124890','131321',
-    '132740','133292','142519','147659','157526'
-  );
-```
-
-
-Альтернатива: использовать массив и `NOT has([...], partner_lk)`, если список формируется программно.
-
-Примечание (ClickHouse): при наличии агрегатов в SELECT и одновременном выводе даты используйте `WITH ... AS last_date` (как выше) или оборачивайте дату в агрегат (`max(report_date)`), иначе получите `NOT_AN_AGGREGATE`.
-
 ## Примеры запросов (ClickHouse)
 
-
-1) **Динамика подписок по платформам за последние 30 дней**
+1) **Комплексный анализ бизнес-метрик за последние 30 дней**
 ```sql
 SELECT
   report_date,
-  sum(android_sub + android_sub_from_cart) AS android_subscriptions,
-  sum(ios_sub + ios_sub_from_cart) AS ios_subscriptions,
-  sum(Android_PL) AS android_revenue,
-  sum(IOS_PL) AS ios_revenue
-FROM mobile_report_total
+  sum(total_active_users) AS active_users,
+  sum(paying_users) AS paying_users,
+  sum(Android_PL + IOS_PL) AS total_revenue,
+  sum(units_on_platform) AS total_units,
+  sum(MAF) AS total_maf
+FROM t_ai_global_report
 WHERE report_date >= today() - 30
-  AND paying_users > 0
+  AND total_active_users > 0
 GROUP BY report_date
 ORDER BY report_date;
 ```
 
-1) **Анализ возвратов по тарифам за месяц**
-```sql
-WITH current_month AS (
-  SELECT toStartOfMonth(today()) AS start_date
-)
-SELECT
-  'App Store' AS platform,
-  sum(appstore_count_1_refunded) AS refunds_1_rub,
-  sum(appstore_count_69_refunded) AS refunds_69_rub,
-  sum(appstore_count_499_refunded) AS refunds_499_rub,
-  sum(appstore_count_2390_refunded) AS refunds_2390_rub,
-  sum(refunded_amount_appstore) AS total_refunded_amount
-FROM mobile_report_total
-CROSS JOIN current_month
-WHERE report_date >= start_date
-GROUP BY platform
-
-UNION ALL
-
-SELECT
-  'YooKassa' AS platform,
-  sum(yookassa_count_1_refunded) AS refunds_1_rub,
-  sum(yookassa_count_69_refunded) AS refunds_69_rub,
-  sum(yookassa_count_499_refunded) AS refunds_499_rub,
-  sum(yookassa_count_2390_refunded) AS refunds_2390_rub,
-  sum(refunded_amount_yookassa) AS total_refunded_amount
-FROM mobile_report_total
-CROSS JOIN current_month
-WHERE report_date >= start_date
-GROUP BY platform;
-```
-
-4) **Топ-10 городов по активным пользователям**
+2) **AI-анализ конверсии по партнерам**
 ```sql
 WITH last_date AS (
   SELECT max(report_date) AS report_date
-  FROM mobile_report_total
-  WHERE total_active_users > 0
-)
-SELECT
-  city,
-  sum(total_active_users) AS active_users,
-  sum(total_active_users_monetization) AS monetized_users,
-  sum(paying_users) AS paying_users,
-  sum(units_on_platform) AS total_units
-FROM mobile_report_total
-INNER JOIN last_date USING (report_date)
-GROUP BY city
-ORDER BY active_users DESC
-LIMIT 10;
-```
-
-5) **Конверсия в подписки по партнерам**
-```sql
-WITH last_date AS (
-  SELECT max(report_date) AS report_date
-  FROM mobile_report_total
+  FROM t_ai_global_report
   WHERE total_active_users > 0
 )
 SELECT
   partner_uuid,
+  partner_lk,
   sum(total_active_users) AS total_users,
   sum(paying_users) AS paying_users,
   sum(paying_users) / nullIf(sum(total_active_users), 0) AS conversion_rate,
-  sum(Android_PL + IOS_PL) AS revenue
-FROM mobile_report_total
+  sum(Android_PL + IOS_PL) AS revenue,
+  sum(units_on_platform) AS units,
+  sum(MAF) AS maf
+FROM t_ai_global_report
 INNER JOIN last_date USING (report_date)
-GROUP BY partner_uuid
+GROUP BY partner_uuid, partner_lk
 HAVING total_users > 0
 ORDER BY conversion_rate DESC
 LIMIT 20;
 ```
 
-6) **Анализ MAF (Monthly Active Flats) по городам**
+3) **Региональный анализ с AI-метриками**
 ```sql
 WITH last_date AS (
   SELECT max(report_date) AS report_date
-  FROM mobile_report_total
-  WHERE MAF > 0
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
 )
 SELECT
   city,
-  sum(MAF) AS total_maf,
-  sum(stricted_MAF) AS stricted_maf,
-  sum(freemonetization_MAF) AS free_maf,
-  sum(freemonetization_MAF) / nullIf(sum(MAF), 0) AS free_maf_ratio
-FROM mobile_report_total
+  sum(total_active_users) AS active_users,
+  sum(paying_users) AS paying_users,
+  sum(Android_PL + IOS_PL) AS revenue,
+  sum(units_on_platform) AS units,
+  sum(MAF) AS maf,
+  sum(new_created_account_day) AS new_accounts,
+  sum(new_activated_account_day) AS new_activated
+FROM t_ai_global_report
 INNER JOIN last_date USING (report_date)
 GROUP BY city
-ORDER BY total_maf DESC
+ORDER BY active_users DESC
 LIMIT 15;
 ```
 
+4) **AI-анализ платформенных предпочтений**
+```sql
+SELECT
+  'Android' AS platform,
+  sum(android_sub + android_sub_from_cart) AS subscriptions,
+  sum(Android_PL) AS revenue,
+  sum(yookassa_count_1 + yookassa_count_35 + yookassa_count_69 + yookassa_count_85 + yookassa_count_249 + yookassa_count_499 + yookassa_count_2390) AS purchases
+FROM t_ai_global_report
+WHERE report_date >= toStartOfMonth(today())
+  AND paying_users > 0
+
+UNION ALL
+
+SELECT
+  'iOS' AS platform,
+  sum(ios_sub + ios_sub_from_cart) AS subscriptions,
+  sum(IOS_PL) AS revenue,
+  sum(appstore_count_1 + appstore_count_69 + appstore_count_85 + appstore_count_499 + appstore_count_2390) AS purchases
+FROM t_ai_global_report
+WHERE report_date >= toStartOfMonth(today())
+  AND paying_users > 0;
+```
+
+5) **AI-анализ роста пользователей**
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
+)
+SELECT
+  sum(total_active_users) AS current_active_users,
+  sum(new_active_users) AS new_users_this_month,
+  sum(new_created_account_day) AS new_accounts_today,
+  sum(new_activated_account_day) AS new_activated_today,
+  sum(total_activated_account) AS total_activated_accounts,
+  sum(total_activated_account_monetization) AS monetized_accounts
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date);
+```
+
 ## Ключи и соединения
-- **Основные ключи:** `partner_uuid`, `city`, `report_date`
+- **Основные ключи:** `partner_uuid`, `city_uuid`, `report_date`
 - **Возможные связи:** 
   - К справочнику партнеров — по `partner_uuid`
   - К установочным точкам — через `installation_point_st_partner_ch`
-  - К адресным данным — через `entries_installation_points_dir_partner`
+  - К адресным данным — через `entries_installation_points_dir_partner_ch`
 
 ## Ограничения и примечания
 - **Обновление данных:** ежедневно в 06:05, возможны задержки до 1-2 часов
@@ -510,6 +422,7 @@ LIMIT 15;
 - **Тарифы:** цены указаны в рублях, учитывайте инфляцию при долгосрочном анализе
 - **BLE метрики:** связаны с Bluetooth Low Energy функциональностью
 - **MAF метрики:** показывают активность на уровне квартир, а не пользователей
+- **AI-оптимизация:** таблица специально структурирована для AI-анализа и машинного обучения
 
 ### Запрещено (ClickHouse-совместимость)
 - Писать агрегаты в WHERE верхнего запроса. Получите ILLEGAL_AGGREGATION.
