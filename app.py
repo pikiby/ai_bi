@@ -402,7 +402,7 @@ def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql
 # Отрисовка содержимого таблицы с учетом стилей
 def _render_table_content(pdf: pd.DataFrame, meta: dict):
     """
-    КОМПАКТНАЯ СИСТЕМА: применяем стили, если они есть; иначе — стандартный вывод.
+    КОМПАКТНАЯ СИСТЕМА: всегда используем HTML-таблицу с прокруткой.
     """
     # Сохраняем DataFrame для AI-генерации (ключ может понадобиться в других местах)
     _save_table_dataframe(pdf, meta)
@@ -417,15 +417,12 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
         except Exception:
             pass
 
-    # 2) Если стили есть — рисуем HTML-таблицу с CSS; иначе — стандартный dataframe
-    if style_meta:
-        # Сливаем со стандартными стилями (стиль пользователя перекрывает дефолт)
-        merged = {**STANDARD_TABLE_STYLES, **style_meta}
-        css = _build_css_styles(merged)
-        table_html = pdf.to_html(index=False, classes="adaptive-table", escape=False)
-        st.markdown(f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>", unsafe_allow_html=True)
-    else:
-        st.dataframe(pdf, use_container_width=True)
+    # 2) Всегда рисуем HTML-таблицу с CSS (включая прокрутку)
+    # Сливаем со стандартными стилями (стиль пользователя перекрывает дефолт)
+    merged = {**STANDARD_TABLE_STYLES, **style_meta}
+    css = _build_css_styles(merged)
+    table_html = pdf.to_html(index=False, classes="adaptive-table", escape=False)
+    st.markdown(f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
@@ -617,16 +614,22 @@ def _build_css_styles(style_meta: dict) -> str:
     """
     Создает CSS стили на основе метаданных стиля.
     Использует только поддерживаемые Streamlit CSS свойства.
+    Включает стилизованную прокрутку для таблиц.
     """
     header_bg = style_meta.get("header_fill_color", "#f0f0f0")
     cell_bg = style_meta.get("cells_fill_color", "transparent")
     text_align = style_meta.get("align", "left")
     
-    # Базовые стили таблицы (адаптированы из test/test_table_styling.html)
+    # Базовые стили таблицы с прокруткой
     css = f"""
     .adaptive-table-container {{
         width: 100%;
         margin: 10px 0;
+        overflow: auto;
+        max-height: 500px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }}
     
     .adaptive-table {{
@@ -634,6 +637,7 @@ def _build_css_styles(style_meta: dict) -> str:
         border-collapse: collapse;
         margin: 0;
         font-family: Arial, sans-serif;
+        min-width: 100%;
     }}
     
     .adaptive-table th {{
@@ -643,6 +647,9 @@ def _build_css_styles(style_meta: dict) -> str:
         text-align: {text_align};
         border: 1px solid #ddd;
         font-weight: bold;
+        position: sticky;
+        top: 0;
+        z-index: 10;
     }}
     
     .adaptive-table td {{
@@ -658,6 +665,32 @@ def _build_css_styles(style_meta: dict) -> str:
     
     .adaptive-table tr:hover {{
         background-color: #f0f8ff;
+    }}
+    
+    /* Стилизованная прокрутка */
+    .adaptive-table-container::-webkit-scrollbar {{
+        width: 8px;
+        height: 8px;
+    }}
+    
+    .adaptive-table-container::-webkit-scrollbar-track {{
+        background: #f1f1f1;
+        border-radius: 4px;
+    }}
+    
+    .adaptive-table-container::-webkit-scrollbar-thumb {{
+        background: #888;
+        border-radius: 4px;
+    }}
+    
+    .adaptive-table-container::-webkit-scrollbar-thumb:hover {{
+        background: #555;
+    }}
+    
+    /* Для Firefox */
+    .adaptive-table-container {{
+        scrollbar-width: thin;
+        scrollbar-color: #888 #f1f1f1;
     }}
     """
     
