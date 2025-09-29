@@ -89,6 +89,9 @@ if "results" not in st.session_state:
 #  последний df (polars), для построения графиков
 if "last_df" not in st.session_state:
     st.session_state["last_df"] = None
+# модель LLM по умолчанию (для режимов, где выбирается модель из состояния)
+if "model" not in st.session_state:
+    st.session_state["model"] = OPENAI_MODEL
 
 # Сохраняем последние метаданные SQL, чтобы всплывающие графики имели заголовок и SQL даже при ошибках
 if "last_sql_meta" not in st.session_state:
@@ -1621,8 +1624,9 @@ if user_input:
         )
         
         try:
+            model_name = st.session_state.get("model", OPENAI_MODEL)
             response = client.chat.completions.create(
-                model=st.session_state["model"],
+                model=model_name,
                 messages=exec_msgs,
                 temperature=0.1,
             )
