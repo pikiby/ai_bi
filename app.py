@@ -552,11 +552,11 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
 
 # СТАНДАРТНЫЕ СТИЛИ ТАБЛИЦЫ (базовый шаблон для AI)
 STANDARD_TABLE_STYLES = {
-    "header_fill_color": "#f0f0f0",
+    "header_fill_color": "rgba(240, 240, 240, 0.8)",  # полупрозрачный серый
     "cells_fill_color": "transparent", 
     "align": "left",
-    "font_color": None,  # наследует цвет от темы
-    "header_font_color": None  # наследует цвет от темы
+    "font_color": None,  # автоматический контрастный цвет
+    "header_font_color": None  # автоматический контрастный цвет
 }
 
 def _save_table_dataframe(pdf: pd.DataFrame, meta: dict) -> str:
@@ -618,12 +618,44 @@ def _build_css_styles(style_meta: dict) -> str:
     Использует только поддерживаемые Streamlit CSS свойства.
     Включает стилизованную прокрутку для таблиц.
     Поддерживает адаптацию к темной теме.
+    Автоматически подбирает контрастные цвета текста.
     """
-    header_bg = style_meta.get("header_fill_color", "#f0f0f0")
+    header_bg = style_meta.get("header_fill_color", "rgba(240, 240, 240, 0.8)")
     cell_bg = style_meta.get("cells_fill_color", "transparent")
     text_align = style_meta.get("align", "left")
     font_color = style_meta.get("font_color", None)
     header_font_color = style_meta.get("header_font_color", None)
+    
+    # Автоматический подбор контрастных цветов текста
+    def get_contrast_color(bg_color):
+        if not bg_color or bg_color == "transparent":
+            return None
+        # Простая эвристика: если фон светлый - темный текст, если темный - светлый
+        if isinstance(bg_color, str):
+            if bg_color.startswith('rgba'):
+                # Извлекаем RGB значения из rgba
+                import re
+                match = re.search(r'rgba\((\d+),\s*(\d+),\s*(\d+)', bg_color)
+                if match:
+                    r, g, b = map(int, match.groups())
+                    brightness = (r * 299 + g * 587 + b * 114) / 1000
+                    return "#000000" if brightness > 128 else "#ffffff"
+            elif bg_color.startswith('#'):
+                # Простая проверка для hex цветов
+                hex_color = bg_color.lstrip('#')
+                if len(hex_color) == 6:
+                    r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                    brightness = (r * 299 + g * 587 + b * 114) / 1000
+                    return "#000000" if brightness > 128 else "#ffffff"
+        return None
+    
+    # Автоматический подбор цветов текста
+    auto_header_text = get_contrast_color(header_bg)
+    auto_cell_text = get_contrast_color(cell_bg)
+    
+    # Используем автоматические цвета если не заданы явно
+    final_header_font_color = header_font_color or auto_header_text or "#333333"
+    final_font_color = font_color or auto_cell_text or "inherit"
     
     # Базовые стили таблицы с прокруткой и адаптацией к темной теме
     css = f"""
@@ -649,13 +681,13 @@ def _build_css_styles(style_meta: dict) -> str:
         
         .adaptive-table th {{
             background-color: {header_bg};
-            color: {header_font_color or '#ffffff'};
+            color: {final_header_font_color};
             border-color: #444;
         }}
         
         .adaptive-table td {{
             background-color: {cell_bg};
-            color: {font_color or '#ffffff'};
+            color: {final_font_color};
             border-color: #444;
         }}
         
@@ -678,7 +710,7 @@ def _build_css_styles(style_meta: dict) -> str:
     
     .adaptive-table th {{
         background-color: {header_bg};
-        color: {header_font_color or '#333'};
+        color: {final_header_font_color};
         padding: 8px;
         text-align: {text_align};
         border: 1px solid #ddd;
@@ -695,7 +727,7 @@ def _build_css_styles(style_meta: dict) -> str:
         text-align: {text_align};
         background-color: {cell_bg};
         font-size: 13px;
-        color: {font_color or 'inherit'};
+        color: {final_font_color};
     }}
     
     .adaptive-table tr:nth-child(even) {{

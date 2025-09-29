@@ -226,9 +226,14 @@ RULES_TABLE = r"""
 - Создавай переменную table_style = {"header_fill_color": "...", "cells_fill_color": "...", "align": "..."}
 - Никакого дополнительного вывода вне блока, только код.
 
-         Примеры стилей:
-         - Красные заголовки: table_style = {"header_fill_color": "red", "cells_fill_color": "transparent", "align": "left"}
-         - Синие ячейки: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "lightblue", "align": "center"}
-         - Цветной текст: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "transparent", "align": "left", "font_color": "blue", "header_font_color": "darkblue"}
-         - Выделение максимумов: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "transparent", "align": "left", "highlight_max": "red"}
+         Примеры стилей (ВСЕГДА используй полупрозрачные цвета):
+         - Красные заголовки: table_style = {"header_fill_color": "rgba(255, 0, 0, 0.7)", "cells_fill_color": "transparent", "align": "left"}
+         - Синие ячейки: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "rgba(173, 216, 230, 0.6)", "align": "center"}
+         - Цветной текст: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "align": "left", "font_color": "rgba(0, 0, 255, 0.8)", "header_font_color": "rgba(0, 0, 139, 0.9)"}
+         - Зеленые выделения: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "rgba(144, 238, 144, 0.5)", "align": "left"}
+         
+         ВАЖНО: 
+         - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
+         - Цвета текста подбираются автоматически для контраста
+         - Если нужен конкретный цвет текста, используй rgba() с прозрачностью
 """
