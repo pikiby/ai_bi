@@ -660,7 +660,7 @@ def _build_css_styles(style_meta: dict) -> str:
         }}
         
         .adaptive-table tr:nth-child(even) {{
-            background-color: #2a2a2a;
+            background-color: transparent;
         }}
         
         .adaptive-table tr:hover {{
