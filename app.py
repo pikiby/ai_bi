@@ -2277,69 +2277,69 @@ if user_input:
                 # Проверяем, что данные действительно есть
                 if st.session_state["last_df"] is None:
                     st.info("Нет данных для изменения таблицы: выполните SQL, чтобы получить df.")
-                    return
-                try:
-                    # Песочница для выполнения table_code
-                    df = st.session_state["last_df"]
-                    
-                    def col(*names):
-                        """Вернёт первое подходящее имя колонки из перечисленных."""
-                        for n in names:
-                            if isinstance(n, str) and n in df.columns:
-                                return n
-                        raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(df.columns)}")
-                    
-                    def has_col(name: str) -> bool:
-                        return isinstance(name, str) and name in df.columns
-                    
-                    safe_builtins = {
-                        "__builtins__": {
-                            "len": len, 
-                            "range": range, 
-                            "min": min, 
-                            "max": max, 
-                            "dict": dict, 
-                            "list": list,
-                            "str": str,
-                            "int": int,
-                            "float": float,
-                            "bool": bool
-                        },
-                        "df": st.session_state["last_df"],
-                        "st": st,
-                        "pd": pd,
-                        "col": col,
-                        "has_col": has_col,
-                    }
-                    local_vars = {}
-                    exec(table_code, safe_builtins, local_vars)
-                    
-                    # Получаем table_style из выполненного кода
-                    table_style = local_vars.get("table_style")
-                    if isinstance(table_style, dict):
-                        # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
-                        applied = False
-                        for it in reversed(st.session_state.get("results", [])):
-                            if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                # Копируем данные старой таблицы
-                                old_meta = it.get("meta") or {}
-                                old_df = it.get("df_pl")
-                                
-                                # Создаём новую мету с новыми стилями
-                                new_meta = dict(old_meta)
-                                new_meta["table_style"] = table_style
-                                
-                                # Создаём НОВЫЙ результат (новая таблица)
-                                _push_result("table", df_pl=old_df, meta=new_meta)
-                                applied = True
-                                created_table = True
-                                # Перезагружаем страницу для отображения новой таблицы
-                                st.rerun()
-                                break
-                        if not applied:
-                            st.session_state["next_table_style"] = table_style
-                except Exception as e:
-                    st.error(f"Ошибка выполнения table_code: {e}")
+                else:
+                    try:
+                        # Песочница для выполнения table_code
+                        df = st.session_state["last_df"]
+                        
+                        def col(*names):
+                            """Вернёт первое подходящее имя колонки из перечисленных."""
+                            for n in names:
+                                if isinstance(n, str) and n in df.columns:
+                                    return n
+                            raise KeyError(f"Нет ни одной из колонок {names}. Доступны: {list(df.columns)}")
+                        
+                        def has_col(name: str) -> bool:
+                            return isinstance(name, str) and name in df.columns
+                        
+                        safe_builtins = {
+                            "__builtins__": {
+                                "len": len, 
+                                "range": range, 
+                                "min": min, 
+                                "max": max, 
+                                "dict": dict, 
+                                "list": list,
+                                "str": str,
+                                "int": int,
+                                "float": float,
+                                "bool": bool
+                            },
+                            "df": st.session_state["last_df"],
+                            "st": st,
+                            "pd": pd,
+                            "col": col,
+                            "has_col": has_col,
+                        }
+                        local_vars = {}
+                        exec(table_code, safe_builtins, local_vars)
+                        
+                        # Получаем table_style из выполненного кода
+                        table_style = local_vars.get("table_style")
+                        if isinstance(table_style, dict):
+                            # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
+                            applied = False
+                            for it in reversed(st.session_state.get("results", [])):
+                                if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                                    # Копируем данные старой таблицы
+                                    old_meta = it.get("meta") or {}
+                                    old_df = it.get("df_pl")
+                                    
+                                    # Создаём новую мету с новыми стилями
+                                    new_meta = dict(old_meta)
+                                    new_meta["table_style"] = table_style
+                                    
+                                    # Создаём НОВЫЙ результат (новая таблица)
+                                    _push_result("table", df_pl=old_df, meta=new_meta)
+                                    applied = True
+                                    created_table = True
+                                    # Перезагружаем страницу для отображения новой таблицы
+                                    st.rerun()
+                                    break
+                            if not applied:
+                                st.session_state["next_table_style"] = table_style
+                    except Exception as e:
+                        st.error(f"Ошибка выполнения table_code: {e}")
 
         # Новый лёгкий формат для стилизации: блок ```table_style```
         m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
