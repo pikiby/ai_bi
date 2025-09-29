@@ -471,69 +471,15 @@ def _render_sql_block(meta: dict):
     if not used_sql and not orig_sql:
         return
     
-    # Создаем колонки для SQL и стилей
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        with st.expander("Показать SQL", expanded=False):
-            if used_sql:
-                st.markdown("**Использованный SQL**")
-                st.code(used_sql, language="sql")
-                if orig_sql and orig_sql != used_sql:
-                    st.markdown("**Исходный SQL от модели**")
-                    st.code(orig_sql, language="sql")
-            elif orig_sql:
+    with st.expander("Показать SQL", expanded=False):
+        if used_sql:
+            st.markdown("**Использованный SQL**")
+            st.code(used_sql, language="sql")
+            if orig_sql and orig_sql != used_sql:
+                st.markdown("**Исходный SQL от модели**")
                 st.code(orig_sql, language="sql")
-    
-    with col2:
-        _render_style_block(meta)
-
-
-# Отрисовка блока стилей
-def _render_style_block(meta: dict):
-    """Отрисовка свернутого блока со стилями таблицы"""
-    table_style = meta.get("table_style", {})
-    
-    if not table_style:
-        return
-    
-    with st.expander("Стили таблицы", expanded=False):
-        # Показываем основные стили
-        if table_style.get("header_fill_color"):
-            st.markdown(f"**Цвет заголовков:** `{table_style['header_fill_color']}`")
-        if table_style.get("cells_fill_color"):
-            st.markdown(f"**Цвет ячеек:** `{table_style['cells_fill_color']}`")
-        if table_style.get("align"):
-            st.markdown(f"**Выравнивание:** `{table_style['align']}`")
-        if table_style.get("striped"):
-            st.markdown("**Чередующиеся строки:** ✅")
-        if table_style.get("highlight_max"):
-            st.markdown("**Подсветка максимумов:** ✅")
-        if table_style.get("highlight_min"):
-            st.markdown("**Подсветка минимумов:** ✅")
-        
-        # Показываем правила ячеек
-        cell_rules = table_style.get("cell_rules", [])
-        if cell_rules:
-            st.markdown("**Правила ячеек:**")
-            for rule in cell_rules:
-                if isinstance(rule, dict):
-                    value = rule.get("value", "")
-                    color = rule.get("color", "")
-                    column = rule.get("column", "")
-                    text_color = rule.get("text_color", "")
-                    
-                    rule_text = f"`{value}` → {color}"
-                    if column:
-                        rule_text += f" (колонка: {column})"
-                    if text_color:
-                        rule_text += f", текст: {text_color}"
-                    
-                    st.markdown(f"- {rule_text}")
-        
-        # Показываем полный JSON стилей
-        st.markdown("**Полный код стилей:**")
-        st.code(f"table_style = {table_style}", language="python")
+        elif orig_sql:
+            st.code(orig_sql, language="sql")
 
 
 # Отрисовка кода Plotly
@@ -685,7 +631,12 @@ def _build_css_styles(style_meta: dict) -> str:
     Поддерживает адаптацию к темной теме.
     Автоматически подбирает контрастные цвета текста.
     """
-    header_bg = style_meta.get("header_fill_color", "rgba(240, 240, 240, 0.8)")
+    header_bg = style_meta.get("header_fill_color", "rgb(240, 240, 240)")
+    # Принудительно делаем заголовки непрозрачными
+    if header_bg and "rgba" in header_bg:
+        # Заменяем rgba на rgb, убирая альфа-канал
+        header_bg = header_bg.replace("rgba", "rgb").rsplit(",", 1)[0] + ")"
+    
     cell_bg = style_meta.get("cells_fill_color", "transparent")
     text_align = style_meta.get("align", "left")
     font_color = style_meta.get("font_color", None)
@@ -2213,9 +2164,29 @@ if user_input:
     # Убираем блок table_style из вывода в чат
     cleaned_reply = re.sub(r"```table_style[\s\S]*?```", "", cleaned_reply, flags=re.IGNORECASE).strip()
     
-    # Если после очистки остался пустой ответ (только служебные блоки), показываем placeholder
+    # Если после очистки остался пустой ответ (только служебные блоки), определяем умный placeholder
     if not cleaned_reply:
-        cleaned_reply = "Вношу правки..."
+        # Проверяем наличие блоков в исходном ответе
+        has_sql = re.search(r"```sql\s", final_reply, re.IGNORECASE)
+        has_plotly = re.search(r"```(plotly|python)\s", final_reply, re.IGNORECASE)
+        has_table_style = re.search(r"```table_style\s", final_reply, re.IGNORECASE)
+        has_table_code = re.search(r"```table_code\s", final_reply, re.IGNORECASE)
+        
+        # Определяем контекст: есть ли уже результаты?
+        has_previous_charts = any(r.get("kind") == "chart" for r in st.session_state.get("results", []))
+        has_previous_tables = any(r.get("kind") == "table" for r in st.session_state.get("results", []))
+        
+        if has_sql:
+            cleaned_reply = "Создаю запрос..."
+        elif has_plotly:
+            if has_previous_charts:
+                cleaned_reply = "Вношу правки..."
+            else:
+                cleaned_reply = "Создаю график..."
+        elif has_table_style or has_table_code:
+            cleaned_reply = "Вношу правки..."
+        else:
+            cleaned_reply = "Вношу правки..."
     
     # Публикуем ОЧИЩЕННЫЙ ответ ассистента в чат и сохраняем в историю
     st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
@@ -2343,21 +2314,23 @@ if user_input:
                     # Получаем table_style из выполненного кода
                     table_style = local_vars.get("table_style")
                     if isinstance(table_style, dict):
-                        # Применяем стили к последней таблице, если она есть; иначе откладываем
+                        # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
                         applied = False
                         for it in reversed(st.session_state.get("results", [])):
                             if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                meta_it = it.get("meta") or {}
-                                meta_it["table_style"] = table_style
-                                it["meta"] = meta_it
+                                # Копируем данные старой таблицы
+                                old_meta = it.get("meta") or {}
+                                old_df = it.get("df_pl")
+                                
+                                # Создаём новую мету с новыми стилями
+                                new_meta = dict(old_meta)
+                                new_meta["table_style"] = table_style
+                                
+                                # Создаём НОВЫЙ результат (новая таблица)
+                                _push_result("table", df_pl=old_df, meta=new_meta)
+                                _render_result(st.session_state["results"][-1])
                                 applied = True
-                                try:
-                                    st.rerun()
-                                except Exception:
-                                    try:
-                                        st.experimental_rerun()
-                                    except Exception:
-                                        pass
+                                created_table = True
                                 break
                         if not applied:
                             st.session_state["next_table_style"] = table_style
@@ -2377,25 +2350,28 @@ if user_input:
                     table_style = ast.literal_eval(dict_match.group(0))
                     
                     if isinstance(table_style, dict):
-                        # Применяем стили к последней таблице
+                        # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
                         applied = False
                         for it in reversed(st.session_state.get("results", [])):
                             if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                meta_it = it.get("meta") or {}
-                                existing_style = meta_it.get("table_style", {})
-                                # Обновляем существующие стили (merge)
-                                existing_style.update(table_style)
-                                meta_it["table_style"] = existing_style
-                                it["meta"] = meta_it
+                                # Копируем данные старой таблицы
+                                old_meta = it.get("meta") or {}
+                                old_df = it.get("df_pl")
+                                
+                                # Merge стилей: берём старые стили и обновляем новыми
+                                existing_style = old_meta.get("table_style", {})
+                                merged_style = dict(existing_style)
+                                merged_style.update(table_style)
+                                
+                                # Создаём новую мету с объединёнными стилями
+                                new_meta = dict(old_meta)
+                                new_meta["table_style"] = merged_style
+                                
+                                # Создаём НОВЫЙ результат (новая таблица)
+                                _push_result("table", df_pl=old_df, meta=new_meta)
+                                _render_result(st.session_state["results"][-1])
                                 applied = True
-                                # Тихое применение без вывода в чат
-                                try:
-                                    st.rerun()
-                                except Exception:
-                                    try:
-                                        st.experimental_rerun()
-                                    except Exception:
-                                        pass
+                                created_table = True
                                 break
                         
                         if not applied:
