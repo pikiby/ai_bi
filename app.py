@@ -319,6 +319,9 @@ def _last_result_hint() -> str | None:
 
 
 def _infer_mode_prehook(user_text: str) -> tuple[str | None, str | None]:
+    # Прехук временно отключён: решением режима управляет только LLM-роутер.
+    return None, None
+    # --- архивная логика ниже оставлена для будущего включения ---
     text = (user_text or "").strip()
     if not text:
         return None, None
@@ -2062,7 +2065,8 @@ if user_input:
 
     prompts_map, _ = _reload_prompts()  # >>> Горячая подгрузка актуальных блоков
 
-    pre_mode, mode_notice = _infer_mode_prehook(user_input)
+    # pre_mode, mode_notice = _infer_mode_prehook(user_input)
+    pre_mode, mode_notice = (None, None)
     mode_source = "router"
 
     if pre_mode:
