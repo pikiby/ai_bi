@@ -126,7 +126,13 @@ if "last_router_hint" not in st.session_state:
 # МЕСТА ИСПОЛЬЗОВАНИЯ: При каждом запросе пользователя (строка 1035), проверка предупреждений (строка 1008)
 # ВАЖНОСТЬ: Обеспечивает гибкость разработки, надежность через fallback-значения, отладку через предупреждения
 def _reload_prompts():
-    importlib.reload(prompts)
+    try:
+        importlib.reload(prompts)
+    except ImportError as e:
+        st.warning(f"Не удалось перезагрузить промпты: {e}. Используем кэшированные версии.")
+    except Exception as e:
+        st.warning(f"Ошибка при перезагрузке промптов: {e}. Используем кэшированные версии.")
+    
     warn = []
 
     def _get(name, default):
