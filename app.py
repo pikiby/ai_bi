@@ -685,10 +685,26 @@ def _build_css_styles(style_meta: dict) -> str:
             border-color: rgba(221, 221, 221, 0.6);
         }}
         
+        .adaptive-table th:first-child {{
+            text-align: left;
+        }}
+        
+        .adaptive-table th:not(:first-child) {{
+            text-align: right;
+        }}
+        
         .adaptive-table td {{
             background-color: {cell_bg};
             color: {final_font_color};
             border-color: rgba(221, 221, 221, 0.6);
+        }}
+        
+        .adaptive-table td:first-child {{
+            text-align: left;
+        }}
+        
+        .adaptive-table td:not(:first-child) {{
+            text-align: right;
         }}
         
         .adaptive-table tr:nth-child(even) {{
@@ -729,6 +745,14 @@ def _build_css_styles(style_meta: dict) -> str:
         font-size: 14px;
     }}
     
+    .adaptive-table th:first-child {{
+        text-align: left;
+    }}
+    
+    .adaptive-table th:not(:first-child) {{
+        text-align: right;
+    }}
+    
     .adaptive-table td {{
         padding: 6px 8px;
         border: 1px solid rgba(221, 221, 221, 0.6);
@@ -736,6 +760,14 @@ def _build_css_styles(style_meta: dict) -> str:
         background-color: {cell_bg};
         font-size: 13px;
         color: {final_font_color};
+    }}
+    
+    .adaptive-table td:first-child {{
+        text-align: left;
+    }}
+    
+    .adaptive-table td:not(:first-child) {{
+        text-align: right;
     }}
     
     .adaptive-table tr:nth-child(even) {{
