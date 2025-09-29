@@ -140,6 +140,10 @@ def _reload_prompts():
             "RULES_PLOTLY",
             "Режим PLOTLY. Верни ровно один блок ```plotly``` с кодом, создающим переменную fig."
         ),
+        "table": _get(
+            "RULES_TABLE",
+            "Режим TABLE. Верни ровно один блок ```table_code``` с кодом, создающим переменную table_style."
+        ),
     }
     return p_map, warn
 
@@ -394,23 +398,18 @@ def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql
 
 # Отрисовка содержимого таблицы с учетом стилей
 def _render_table_content(pdf: pd.DataFrame, meta: dict):
-    """Отрисовка содержимого таблицы (стилизованной или редактируемой)"""
-    # ИСПРАВЛЕНИЕ: Проверяем стили из метаданных И из глобального состояния
-    style_meta = (meta.get("table_style") or {})
-    if not style_meta and "next_table_style" in st.session_state:
-        style_meta = st.session_state["next_table_style"]
-        # Применяем стили к текущей таблице
-        meta["table_style"] = style_meta
-        # Очищаем глобальные стили после применения
-        del st.session_state["next_table_style"]
+    """
+    КОМПАКТНАЯ СИСТЕМА: Стандартная таблица + AI автоматически обрабатывает запросы.
+    """
+    # Сохраняем DataFrame для AI-генерации
+    table_key = _save_table_dataframe(pdf, meta)
     
-    # ОТЛАДКА: Показываем информацию о стилях
-    if style_meta:
-        st.info(f"🎨 Применяем стили: {style_meta}")
-        st.dataframe(_build_styled_df(pdf, style_meta), use_container_width=True)
-    else:
-        edit_key = f"ed_{meta.get('ts','')}"
-        st.data_editor(pdf, use_container_width=True, key=edit_key, num_rows="dynamic")
+    # СТАНДАРТНАЯ ТАБЛИЦА (без стилей)
+    edit_key = f"ed_{meta.get('ts','')}"
+    st.dataframe(pdf, use_container_width=True, key=edit_key)
+    
+    # AI автоматически анализирует запросы пользователя и генерирует код
+    # (Логика будет в основной части приложения, где обрабатываются запросы пользователя)
 
 
 # Отрисовка подписи таблицы
@@ -536,23 +535,127 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
     return buf.getvalue()
 
 
-def _build_styled_df(pdf: pd.DataFrame, style_meta: dict):
-    """Создаёт pandas Styler по простым параметрам стиля."""
-    header_bg = (style_meta or {}).get("header_fill_color") or None
-    cell_bg = (style_meta or {}).get("cells_fill_color") or None
-    text_align = (style_meta or {}).get("align") or "left"
+# ======================== КОМПАКТНАЯ СИСТЕМА: AI-генерация кода таблиц ========================
 
-    styles = []
-    if header_bg:
-        styles.append({"selector": "th", "props": [("background-color", header_bg), ("text-align", text_align)]})
-    else:
-        styles.append({"selector": "th", "props": [("text-align", text_align)]})
-    if cell_bg:
-        styles.append({"selector": "td", "props": [("background-color", cell_bg), ("text-align", text_align)]})
-    else:
-        styles.append({"selector": "td", "props": [("text-align", text_align)]})
+# СТАНДАРТНЫЕ СТИЛИ ТАБЛИЦЫ (базовый шаблон для AI)
+STANDARD_TABLE_STYLES = {
+    "header_fill_color": "#f0f0f0",
+    "cells_fill_color": "transparent", 
+    "align": "left"
+}
 
-    return pdf.style.set_table_styles(styles)
+def _save_table_dataframe(pdf: pd.DataFrame, meta: dict) -> str:
+    """Сохраняет DataFrame для последующей генерации кода."""
+    import datetime
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    table_key = f"table_{timestamp}"
+    
+    st.session_state[f"table_data_{table_key}"] = {
+        "df": pdf,
+        "meta": meta,
+        "timestamp": timestamp
+    }
+    
+    return table_key
+
+
+def _generate_table_code(table_key: str, user_request: str) -> str:
+    """
+    AI генерирует код таблицы на основе стандартного шаблона.
+    Минимум логики - только генерация кода.
+    """
+    # Получаем данные
+    table_data = st.session_state.get(f"table_data_{table_key}")
+    if not table_data:
+        return "❌ Данные таблицы не найдены"
+    
+    df = table_data["df"]
+    
+    # СТАНДАРТНЫЙ ШАБЛОН с базовыми стилями
+    template = f"""
+# Стандартный шаблон таблицы
+import pandas as pd
+import streamlit as st
+
+# Данные таблицы
+data = {df.to_dict('records')}
+
+# Создание DataFrame
+df = pd.DataFrame(data)
+
+# СТАНДАРТНЫЕ СТИЛИ ТАБЛИЦЫ
+standard_styles = {STANDARD_TABLE_STYLES}
+
+# ОТСЮДА AI ДОБАВЛЯЕТ КОД НА ОСНОВЕ ЗАПРОСА: {user_request}
+# AI анализирует запрос и добавляет нужные изменения к standard_styles
+
+# Вывод таблицы
+st.dataframe(df, use_container_width=True)
+"""
+    
+    return template
+
+
+def _build_css_styles(style_meta: dict) -> str:
+    """
+    Создает CSS стили на основе метаданных стиля.
+    Использует только поддерживаемые Streamlit CSS свойства.
+    """
+    header_bg = style_meta.get("header_fill_color", "#f0f0f0")
+    cell_bg = style_meta.get("cells_fill_color", "transparent")
+    text_align = style_meta.get("align", "left")
+    
+    # Базовые стили таблицы (адаптированы из test/test_table_styling.html)
+    css = f"""
+    .adaptive-table-container {{
+        width: 100%;
+        margin: 10px 0;
+    }}
+    
+    .adaptive-table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0;
+        font-family: Arial, sans-serif;
+    }}
+    
+    .adaptive-table th {{
+        background-color: {header_bg};
+        color: #333;
+        padding: 12px;
+        text-align: {text_align};
+        border: 1px solid #ddd;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table td {{
+        padding: 10px 12px;
+        border: 1px solid #ddd;
+        text-align: {text_align};
+        background-color: {cell_bg};
+    }}
+    
+    .adaptive-table tr:nth-child(even) {{
+        background-color: #f9f9f9;
+    }}
+    
+    .adaptive-table tr:hover {{
+        background-color: #f0f8ff;
+    }}
+    """
+    
+    return css
+
+
+# СТАРАЯ ФУНКЦИЯ (НЕ РАБОТАЕТ В STREAMLIT) - ЗАМЕНЕНА НА HTML ПОДХОД
+def _build_styled_df_OLD(pdf: pd.DataFrame, style_meta: dict):
+    """
+    ❌ УСТАРЕЛО: pandas Styler не работает в Streamlit с CSS селекторами.
+    Заменено на _generate_adaptive_html_table().
+    """
+    # Эта функция больше не используется
+    return pdf
 
 def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     """Создаёт Plotly-таблицу с темным стилем (контрастная шапка и строки)."""
@@ -1377,7 +1480,7 @@ if user_input:
     m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
     mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
 
-    if mode not in {"sql", "rag", "plotly", "catalog"}:
+    if mode not in {"sql", "rag", "plotly", "catalog", "table"}:
         mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
 
     final_reply = ""
@@ -1487,6 +1590,24 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (SQL): {e}")
 
     
+
+    elif mode == "table":
+        # Режим TABLE: генерация стилей для таблиц
+        exec_msgs = (
+            [{"role": "system", "content": prompts_map["table"]}]
+            + st.session_state["messages"]
+        )
+        
+        try:
+            response = client.chat.completions.create(
+                model=st.session_state["model"],
+                messages=exec_msgs,
+                temperature=0.1,
+            )
+            final_reply = response.choices[0].message.content
+        except Exception as e:
+            st.error(f"Ошибка TABLE: {e}")
+            final_reply = ""
 
     elif mode == "plotly":
          # 333-Новая: передаём модели подсказку со списком доступных колонок и их типами
@@ -1600,29 +1721,43 @@ if user_input:
         m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
 
-        # Применение стилей к Streamlit-таблице из go.Table кода — всегда (даже если таблица уже создана)
-        if plotly_code and re.search(r"go\.Table\(", plotly_code):
-            try:
-                m_hdr0 = re.search(r"header\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", plotly_code, re.IGNORECASE | re.DOTALL)
-                m_cells0 = re.search(r"cells\s*=\s*dict\([^)]*?fill_color\s*=\s*([\"'])\s*([^\"']+)\s*\1", plotly_code, re.IGNORECASE | re.DOTALL)
-                hdr_color0 = (m_hdr0.group(2).strip() if m_hdr0 else None)
-                cell_color0 = (m_cells0.group(2).strip() if m_cells0 else None)
-                if hdr_color0 or cell_color0:
-                    for it in reversed(st.session_state.get("results", [])):
-                        if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                            meta_it = it.get("meta") or {}
-                            meta_it["table_style"] = {"header_fill_color": hdr_color0, "cells_fill_color": cell_color0, "align": "left"}
-                            it["meta"] = meta_it
-                            try:
-                                st.rerun()
-                            except Exception:
+        # Убрана старая логика применения стилей к таблицам из plotly кода
+
+        # 6) Если ассистент вернул Table-код — исполняем его в песочнице и применяем стили
+        m_table = re.search(r"```table_code\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        if m_table:
+            table_code = m_table.group(1).strip()
+            if table_code and st.session_state["last_df"] is not None:
+                try:
+                    # Песочница для выполнения table_code
+                    safe_builtins = {
+                        "__builtins__": {},
+                        "df": st.session_state["last_df"],
+                        "st": st,
+                        "pd": pd,
+                    }
+                    local_vars = {}
+                    exec(table_code, safe_builtins, local_vars)
+                    
+                    # Получаем table_style из выполненного кода
+                    table_style = local_vars.get("table_style")
+                    if isinstance(table_style, dict):
+                        # Применяем стили к последней таблице
+                        for it in reversed(st.session_state.get("results", [])):
+                            if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                                meta_it = it.get("meta") or {}
+                                meta_it["table_style"] = table_style
+                                it["meta"] = meta_it
                                 try:
-                                    st.experimental_rerun()
+                                    st.rerun()
                                 except Exception:
-                                    pass
-                            break
-            except Exception:
-                pass
+                                    try:
+                                        st.experimental_rerun()
+                                    except Exception:
+                                        pass
+                                break
+                except Exception as e:
+                    st.error(f"Ошибка выполнения table_code: {e}")
 
         # Новый лёгкий формат для стилизации: блок ```table_style```
         m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
