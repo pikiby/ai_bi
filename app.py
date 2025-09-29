@@ -2205,6 +2205,15 @@ if user_input:
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     
+    # Подготовим контекст: был ли ранее график и хочет ли пользователь изменить его
+    prev_plotly_code = None
+    for _it in reversed(st.session_state.get("results", [])):
+        if _it.get("kind") == "chart":
+            prev_plotly_code = (_it.get("meta", {}) or {}).get("plotly_code")
+            break
+    last_user_text_for_edit = next((m.get("content", "") for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "user"), "")
+    modify_intent = bool(re.search(r"измен|сделай|поменяй|выдели|окрась|цвет|colou?r", last_user_text_for_edit, flags=re.IGNORECASE))
+
     with st.chat_message("assistant"):
         st.markdown(cleaned_reply)
         created_chart = False
@@ -2484,6 +2493,57 @@ if user_input:
                             _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
                             _render_result(st.session_state["results"][-1])
                             created_chart = True
+
+                            # Если пользователь просил изменить оформление, а в коде не видно настроек цвета,
+                            # попробуем один дополнительный проход: попросим модель изменить ПРЕДЫДУЩИЙ код графика.
+                            if modify_intent and prev_plotly_code:
+                                lacks_color = not re.search(r"color_discrete|marker_color|line_color|update_traces\(|update_layout\(.*color", plotly_code, flags=re.IGNORECASE|re.DOTALL)
+                                if lacks_color:
+                                    try:
+                                        _pdf2 = st.session_state["last_df"].to_pandas()
+                                        _cols2 = ", ".join(map(str, list(_pdf2.columns)))
+                                        edit_hint = (
+                                            "Внеси правки в существующий код графика под запрос пользователя. "
+                                            "Используй уже имеющийся df. Не пиши import/from. "
+                                            "Сфокусируйся на изменении цвета/выделении, если это запрашивается. "
+                                            "Доступные колонки: " + _cols2 + ".\n\n"
+                                            "Вот ТЕКУЩИЙ код графика, который надо изменить: \n```plotly\n" + prev_plotly_code + "\n```\n"
+                                            "Верни РОВНО ОДИН блок ```plotly``` с обновлённым кодом и переменной fig."
+                                        )
+                                        edit_msgs = (
+                                            [{"role": "system", "content": prompts_map["plotly"]},
+                                             {"role": "system", "content": edit_hint}]
+                                            + st.session_state["messages"]
+                                        )
+                                        edit_reply = client.chat.completions.create(
+                                            model=OPENAI_MODEL,
+                                            messages=edit_msgs,
+                                            temperature=0,
+                                        ).choices[0].message.content
+                                        m_plotly_edit = re.search(r"```plotly\s*(.*?)```", edit_reply, re.DOTALL | re.IGNORECASE)
+                                        if m_plotly_edit:
+                                            code_edit = m_plotly_edit.group(1).strip()
+                                            code_edit_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code_edit)
+                                            # базовые фильтры и безопасное окружение
+                                            code_edit_scan = re.sub(r"'''[\s\S]*?'''", "", code_edit_clean)
+                                            code_edit_scan = re.sub(r'"""[\s\S]*?"""', "", code_edit_scan)
+                                            code_edit_scan = re.sub(r"(?m)#.*$", "", code_edit_scan)
+                                            if not re.search(r"(?:\bopen\b|\bexec\b|\beval\b|subprocess|socket|os\.|sys\.|Path\(|write\(|remove\(|unlink\(|requests|httpx)", code_edit_scan, flags=re.IGNORECASE):
+                                                def _col2(*names):
+                                                    for n in names:
+                                                        if isinstance(n, str) and n in _pdf2.columns:
+                                                            return n
+                                                    raise KeyError("Нет подходящих колонок")
+                                                g = {"__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+                                                     "pd": pd, "px": px, "go": go, "df": _pdf2, "col": _col2, "COLS": list(_pdf2.columns)}
+                                                loc = {}
+                                                exec(code_edit_clean, g, loc)
+                                                fig2 = loc.get("fig")
+                                                if isinstance(fig2, go.Figure):
+                                                    _push_result("chart", fig=fig2, meta={"plotly_code": code_edit})
+                                                    _render_result(st.session_state["results"][-1])
+                                    except Exception:
+                                        pass
                         else:
                             st.error("Ожидается, что код в ```plotly``` создаст переменную fig (plotly.graph_objects.Figure).")
                     except Exception as e:
