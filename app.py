@@ -2005,7 +2005,9 @@ if _prompts_warn:
 if st.session_state["messages"]:
     for i, m in enumerate(st.session_state["messages"]):
         with st.chat_message(m["role"]):
-            st.markdown(m["content"])
+            # Не показываем пустые сообщения (защита от случайных пустых записей)
+            if m["content"]:
+                st.markdown(m["content"])
             if m["role"] == "assistant":
                 # >>> все результаты, привязанные к этому ответу
                 for item in st.session_state["results"]:
@@ -2212,9 +2214,13 @@ if user_input:
     cleaned_reply = re.sub(r"```table_style[\s\S]*?```", "", cleaned_reply, flags=re.IGNORECASE).strip()
     
     # Публикуем ОЧИЩЕННЫЙ ответ ассистента в чат и сохраняем в историю
-    st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
-    # индекс этого сообщения ассистента (нужен для привязки результатов)
-    st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
+    # НЕ сохраняем пустые сообщения (когда LLM вернул только служебные блоки)
+    if cleaned_reply:
+        st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
+        st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
+    else:
+        # Если ответ пустой, используем индекс для привязки результатов к последнему сообщению
+        st.session_state["last_assistant_idx"] = len(st.session_state["messages"])
     
     with st.chat_message("assistant"):
         if cleaned_reply:
