@@ -125,28 +125,30 @@ CREATE MATERIALIZED VIEW db1.t_ai_global_report_mv
 | `partner_lk`                  | String  | Личный кабинет партнёра                   |
 
 ### Метрики подписок
+**ВНИМАНИЕ: Все поля содержат количество подписок, а не суммы оплат!**
+
 | Поле                          | Тип     | Алиас (человекочитаемое)                  |
 | ----------------------------- | ------- | ----------------------------------------- |
-| `android_sub`                 | UInt64  | Подписки Android (старые данные)         |
-| `android_sub_extended_new`    | UInt64  | Продленные подписки Android (старые данные) |
-| `android_sub_extended_new_cart` | UInt64 | Продленные подписки Android с карты      |
-| `android_sub_first_new`      | UInt64  | Новые подписки Android (старые данные)    |
-| `android_sub_first_new_cart` | UInt64  | Новые подписки Android с карты            |
-| `android_sub_from_cart`       | UInt64  | Подписки Android с карты                  |
-| `ios_sub`                    | UInt64  | Подписки iOS через App Store              |
-| `ios_sub_extended_new`       | UInt64  | Продленные подписки iOS через App Store   |
-| `ios_sub_extended_new_cart`  | UInt64  | Продленные подписки iOS с карты           |
-| `ios_sub_first_new`          | UInt64  | Новые подписки iOS через App Store        |
-| `ios_sub_first_new_cart`     | UInt64  | Новые подписки iOS с карты                |
-| `ios_sub_first_new_cart_transition` | UInt64 | Новые подписки iOS с карты (переход из App Store) |
-| `ios_sub_from_cart`          | UInt64  | Подписки iOS с карты                      |
-| `paying_users`               | UInt64  | Все активированные подписки               |
-| `paying_users_day`           | UInt64  | Подписки, активированные в день данных    |
-| `paying_users_partner_pro`   | UInt64  | PRO подписки партнеров                    |
-| `paying_users_standart`      | UInt64  | Стандартные подписки                      |
-| `paying_users_standart_appstore` | UInt64 | Подписки iOS через App Store             |
-| `paying_users_standart_ios_from_cart` | UInt64 | Подписки iOS с карты (переход с App Store) |
-| `paying_users_standart_yakassa` | UInt64 | Подписки Android через YooKassa (старые данные) |
+| `android_sub`                 | UInt64  | Количество подписок Android (старые данные)         |
+| `android_sub_extended_new`    | UInt64  | Количество продленных подписок Android (старые данные) |
+| `android_sub_extended_new_cart` | UInt64 | Количество продленных подписок Android с карты      |
+| `android_sub_first_new`      | UInt64  | Количество новых подписок Android (старые данные)    |
+| `android_sub_first_new_cart` | UInt64  | Количество новых подписок Android с карты            |
+| `android_sub_from_cart`       | UInt64  | Количество подписок Android с карты                  |
+| `ios_sub`                    | UInt64  | Количество подписок iOS через App Store              |
+| `ios_sub_extended_new`       | UInt64  | Количество продленных подписок iOS через App Store   |
+| `ios_sub_extended_new_cart`  | UInt64  | Количество продленных подписок iOS с карты           |
+| `ios_sub_first_new`          | UInt64  | Количество новых подписок iOS через App Store        |
+| `ios_sub_first_new_cart`     | UInt64  | Количество новых подписок iOS с карты                |
+| `ios_sub_first_new_cart_transition` | UInt64 | Количество новых подписок iOS с карты (переход из App Store) |
+| `ios_sub_from_cart`          | UInt64  | Количество подписок iOS с карты                      |
+| `paying_users`               | UInt64  | Количество всех активированных подписок               |
+| `paying_users_day`           | UInt64  | Количество подписок, активированных в день данных    |
+| `paying_users_partner_pro`   | UInt64  | Количество PRO подписок партнеров                    |
+| `paying_users_standart`      | UInt64  | Количество стандартных подписок                      |
+| `paying_users_standart_appstore` | UInt64 | Количество подписок iOS через App Store             |
+| `paying_users_standart_ios_from_cart` | UInt64 | Количество подписок iOS с карты (переход с App Store) |
+| `paying_users_standart_yakassa` | UInt64 | Количество подписок Android через YooKassa (старые данные) |
 
 ### Метрики неудачных операций
 | Поле                          | Тип     | Алиас (человекочитаемое)                  |
