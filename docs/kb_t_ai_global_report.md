@@ -298,21 +298,6 @@ CREATE MATERIALIZED VIEW db1.t_ai_global_report_mv
 - **Кумулятивные метрики** — накопленные значения за текущий месяц (помечены `_cum` или "кумулятивно")
 - **28-дневные метрики** — значения за последние 28 дней
 
-### Источники данных
-Таблица формируется из следующих источников:
-- `units_on_sk_platform_rep_mobile_total` — единицы на платформе
-- `subscriptions_report_comerce_rep_mobile_total` — подписки и коммерция
-- `total_active_users_per_day_rep_mobile_total` — активные пользователи за день
-- `total_active_users_rep_mobile_total` — общие активные пользователи
-- `mobile_report_rep_mobile_full` — дневные платежи
-- `mobile_report_cum_rep_mobile_full` — кумулятивные платежи
-- `total_activated_account_rep_mobile_full` — активированные аккаунты
-- `new_users_pd_rep_mobile_total` — новые пользователи
-- `maf_rep_mobile_total` — метрики MAF
-- `t_subscriptions_after_licensed_keys` — метрики лицензионных ключей
-- `t_int_p_and_inst_by_cit_and_par` — метрики установочных точек
-- `companies_dir_partner_ch` — реквизиты партнёров (в том числе `partner_lk`, `tin`)
-- `entries_installation_points_dir_partner_ch` — справочник городов
 
 ### Ключевые особенности
 - **Обновление:** ежедневно в 06:05 через материализованное представление с фильтрацией `WHERE report_date < today() - 2`
