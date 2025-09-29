@@ -109,6 +109,14 @@ if "db_schema_cache" not in st.session_state:
 if "next_table_style" not in st.session_state:
     st.session_state["next_table_style"] = None
 
+# служебные поля для диагностики маршрутизации
+if "last_mode" not in st.session_state:
+    st.session_state["last_mode"] = None
+if "mode_source" not in st.session_state:
+    st.session_state["mode_source"] = "router"
+if "mode_history" not in st.session_state:
+    st.session_state["mode_history"] = []
+
 # ----------------------- Вспомогательные функции -----------------------
 
 # КРИТИЧЕСКИ ВАЖНАЯ ФУНКЦИЯ: Горячая перезагрузка системных промптов
@@ -289,6 +297,79 @@ def _strip_llm_blocks(text: str) -> str:
         )
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
+
+
+def _last_result_hint() -> str | None:
+    results = st.session_state.get("results", [])
+    if not results:
+        return "Последний результат: none. Данных ещё нет."
+
+    last = results[-1]
+    kind = last.get("kind") or "unknown"
+    mode = st.session_state.get("last_mode") or "unknown"
+
+    if kind == "table":
+        info = "Таблица уже построена. Если просят визуализацию или стили графика, переключайся в plotly."
+    elif kind == "chart":
+        info = "График уже существует. Если просят изменить его вид/цвет, используй режим plotly, не создавай новую таблицу."
+    else:
+        info = "Есть результат другого типа."
+
+    return f"Последний результат: {kind}. Последний режим: {mode}. {info}"
+
+
+def _infer_mode_prehook(user_text: str) -> tuple[str | None, str | None]:
+    text = (user_text or "").strip()
+    if not text:
+        return None, None
+
+    text_low = text.lower()
+    has_df = st.session_state.get("last_df") is not None
+    results = st.session_state.get("results", [])
+    has_table = any(r.get("kind") == "table" for r in results)
+    has_chart = any(r.get("kind") == "chart" for r in results)
+    last_sql = (st.session_state.get("last_sql_meta") or {}).get("sql")
+
+    def _has(pattern: str) -> bool:
+        return bool(re.search(pattern, text_low, re.IGNORECASE))
+
+    # Явные ключевые слова каталога
+    if _has(r"каталог|все\s+ресурс|все\s+таблиц|все\s+дашборд|какие\s+есть\s+(таблиц|ресурс)"):
+        return "catalog", "Ключевые слова каталога — выбираю режим catalog."
+
+    # Запрос на описание структуры/DDL
+    if _has(r"структур|описани|ddl|schema|схем|какие\s+поля|что\s+в\s+таблице"):
+        return "rag", "Вопрос про структуру данных — включаю режим rag."
+
+    # Повтор запроса
+    if _has(r"повтор(и|ить|ите)") or _has(r"перезапусти|запусти\s+снова|ещё\s+раз"):
+        if last_sql:
+            return "sql", "Пользователь просит повторить запрос — запускаю режим sql."
+        if has_chart or has_df:
+            return "plotly", "Запрос на повторное изменение визуализации — выбираю режим plotly."
+
+    style_words = r"цвет|фон|залив|выравн|ширин|границ|border|bold|шрифт|font|подсвет|градиент"
+    table_words = r"таблиц|строк|ячейк|столбц|header|tbody|колонк"
+    if has_table and _has(style_words) and _has(table_words):
+        return "table", "Обнаружены стилистические правки для таблицы — использую режим table."
+
+    chart_words = r"график|диаграм|chart|plot|визуал|круг|pie|heatmap|bar|line|scatter|гистограм"
+    color_words = r"цвет|окрас|подсвет|выдел|тон|shade|палитр|pink|blue|red|green|розов|синев|оранж"
+    if has_df or has_chart:
+        if _has(chart_words):
+            return "plotly", "Данные уже получены, запрос на визуализацию — включаю режим plotly."
+        if has_chart and _has(color_words) and not _has(table_words):
+            return "plotly", "Запрос на изменение параметров графика — выбираю режим plotly."
+
+    # Новая визуализация без данных — нужно сначала получить таблицу
+    if not (has_df or has_chart) and _has(chart_words):
+        return "sql", "Сначала нужно получить данные для графика — переключаюсь в режим sql."
+
+    data_words = r"сделай|получи|построй|сформируй|дай|нужна|выведи|покажи|рассчитай|сколько|топ|динамик|количеств|выручк|пользовател|активн|отчёт|report"
+    if _has(data_words) and _has(r"таблиц|данн|топ|отчёт|метрик|значени|строк"):
+        return "sql", "Запрос на новую таблицу или метрику — выбираю режим sql."
+
+    return None, None
 
 
 # КРИТИЧЕСКИ ВАЖНАЯ ФУНКЦИЯ: Главная функция отрисовки результатов (рефакторинг)
@@ -1981,27 +2062,49 @@ if user_input:
 
     prompts_map, _ = _reload_prompts()  # >>> Горячая подгрузка актуальных блоков
 
-    # 1) Маршрутизация: ждём ровно ```mode ...``` где в тексте sql|rag|plotly
-    router_msgs = (
-        [{"role": "system", "content": _tables_index_hint()}] +  # <<< новая «память» по таблицам
-        [{"role": "system", "content": prompts_map["router"]}] +
-        st.session_state["messages"]
-    )
+    pre_mode, mode_notice = _infer_mode_prehook(user_input)
+    mode_source = "router"
+
+    if pre_mode:
+        mode = pre_mode
+        mode_source = "prehook"
+    else:
+        # 1) Маршрутизация: ждём ровно ```mode ...``` где в тексте sql|rag|plotly
+        hint = _last_result_hint()
+        router_msgs = (
+            [{"role": "system", "content": _tables_index_hint()}]
+            + ([{"role": "system", "content": hint}] if hint else [])
+            + [{"role": "system", "content": prompts_map["router"]}]
+            + st.session_state["messages"]
+        )
+        try:
+            route = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=router_msgs,
+                temperature=0.0,
+            ).choices[0].message.content
+        except Exception as e:
+            route = "```mode\nsql\n```"
+            st.warning(f"Роутер недоступен, переключаюсь в 'sql': {e}")
+
+        m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
+        mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
+
+        if mode not in {"sql", "rag", "plotly", "catalog", "table"}:
+            mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
+        mode_notice = None
+
+    st.session_state["last_mode"] = mode
+    st.session_state["mode_source"] = mode_source
     try:
-        route = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=router_msgs,
-            temperature=0.0,
-        ).choices[0].message.content
-    except Exception as e:
-        route = "```mode\nsql\n```"
-        st.warning(f"Роутер недоступен, переключаюсь в 'sql': {e}")
-
-    m_mode = re.search(r"```mode\s*(.*?)```", route, re.DOTALL | re.IGNORECASE)
-    mode = (m_mode.group(1).strip() if m_mode else "sql").lower()
-
-    if mode not in {"sql", "rag", "plotly", "catalog", "table"}:
-        mode = "sql"  # >>> на случай 'pivot' или другого не реализованного режима
+        st.session_state["mode_history"].append({
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "user": user_input,
+            "mode": mode,
+            "source": mode_source,
+        })
+    except Exception:
+        pass
 
     final_reply = ""
 
@@ -2049,6 +2152,8 @@ if user_input:
         final_reply = "\n\n".join(out) if out else "Каталог пуст."
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
         with st.chat_message("assistant"):
+            if mode_notice and mode_source == "prehook":
+                st.caption(mode_notice)
             # Простой вывод без HTML-разметки
             st.markdown("**Вот что нашел:**")
             st.markdown(final_reply)
@@ -2094,8 +2199,10 @@ if user_input:
                 context = cached
 
         # 2b) Финальный ответ/SQL с учётом контекста
+        hint_exec = _last_result_hint()
         exec_msgs = (
             [{"role": "system", "content": _tables_index_hint()}]
+            + ([{"role": "system", "content": hint_exec}] if hint_exec else [])
             + [
                 {"role": "system", "content": prompts_map["sql"]},
                 {"role": "system", "content": "Если пользователь просит визуализацию (график/диаграмму), верни сразу после блока ```sql``` ещё и блок ```plotly```."},
@@ -2115,8 +2222,10 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
 
     elif mode == "sql":
+        hint_exec = _last_result_hint()
         exec_msgs = (
             [{"role": "system", "content": _tables_index_hint()}]
+            + ([{"role": "system", "content": hint_exec}] if hint_exec else [])
             + [
                 {"role": "system", "content": prompts_map["sql"]},
                 # Небольшой мост: объясняем, что график — в той же реплике
@@ -2135,15 +2244,17 @@ if user_input:
             final_reply = "Не удалось получить ответ в режиме SQL."
             st.error(f"Ошибка на шаге ответа (SQL): {e}")
 
-    
+
 
     elif mode == "table":
         # Режим TABLE: генерация стилей для таблиц
+        hint_exec = _last_result_hint()
         exec_msgs = (
-            [{"role": "system", "content": prompts_map["table"]}]
+            ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+            + [{"role": "system", "content": prompts_map["table"]}]
             + st.session_state["messages"]
         )
-        
+
         try:
             model_name = st.session_state.get("model", OPENAI_MODEL)
             response = client.chat.completions.create(
@@ -2171,8 +2282,10 @@ if user_input:
             # Если по каким-то причинам last_df ещё не готов — просто не добавляем подсказку
             cols_hint_msg = []
 
+        hint_exec = _last_result_hint()
         exec_msgs = (
-            [{"role": "system", "content": prompts_map["plotly"]}]
+            ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+            + [{"role": "system", "content": prompts_map["plotly"]}]
             + cols_hint_msg
             + st.session_state["messages"]
         )
@@ -2231,6 +2344,8 @@ if user_input:
     modify_intent = bool(re.search(r"измен|сделай|поменяй|выдели|окрась|цвет|colou?r", last_user_text_for_edit, flags=re.IGNORECASE))
 
     with st.chat_message("assistant"):
+        if mode_notice and st.session_state.get("mode_source") == "prehook":
+            st.caption(mode_notice)
         st.markdown(cleaned_reply)
         created_chart = False
         created_table = False
