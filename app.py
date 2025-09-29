@@ -116,6 +116,8 @@ if "mode_source" not in st.session_state:
     st.session_state["mode_source"] = "router"
 if "mode_history" not in st.session_state:
     st.session_state["mode_history"] = []
+if "last_router_hint" not in st.session_state:
+    st.session_state["last_router_hint"] = None
 
 # ----------------------- Вспомогательные функции -----------------------
 
@@ -301,21 +303,32 @@ def _strip_llm_blocks(text: str) -> str:
 
 def _last_result_hint() -> str | None:
     results = st.session_state.get("results", [])
+    has_df = st.session_state.get("last_df") is not None
+    last_mode = st.session_state.get("last_mode") or "unknown"
+
     if not results:
-        return "Последний результат: none. Данных ещё нет."
+        df_note = "готов" if has_df else "отсутствует"
+        return (
+            "Контекст: результатов ещё нет. df=" + df_note + ". "
+            "Если пользователь просит данные или график — сначала sql для получения таблицы." 
+            "Если запрос про структуру таблиц — режим rag."
+        )
 
     last = results[-1]
-    kind = last.get("kind") or "unknown"
-    mode = st.session_state.get("last_mode") or "unknown"
+    kind = (last.get("kind") or "unknown").lower()
+    df_note = "есть" if has_df else "нет"
 
-    if kind == "table":
-        info = "Таблица уже построена. Если просят визуализацию или стили графика, переключайся в plotly."
-    elif kind == "chart":
-        info = "График уже существует. Если просят изменить его вид/цвет, используй режим plotly, не создавай новую таблицу."
+    base = [f"Контекст: последний_результат={kind}", f"последний_режим={last_mode}", f"df={df_note}"]
+    if kind == "chart":
+        base.append("Если пользователь говорит про цвета, тип графика, круг/диаграмму/plot — выбирай plotly. Не выбирай table." )
+        base.append("Не генерируй новый SQL без прямого запроса на новые данные.")
+    elif kind == "table":
+        base.append("Если просят график или визуализацию — сначала sql (если df нет), затем plotly.")
+        base.append("Если просят стили таблицы — режим table.")
     else:
-        info = "Есть результат другого типа."
+        base.append("Следуй явным ключевым словам пользователя; если требуется расчёт данных — sql.")
 
-    return f"Последний результат: {kind}. Последний режим: {mode}. {info}"
+    return "; ".join(base)
 
 
 def _infer_mode_prehook(user_text: str) -> tuple[str | None, str | None]:
@@ -2075,6 +2088,7 @@ if user_input:
     else:
         # 1) Маршрутизация: ждём ровно ```mode ...``` где в тексте sql|rag|plotly
         hint = _last_result_hint()
+        st.session_state["last_router_hint"] = hint
         router_msgs = (
             [{"role": "system", "content": _tables_index_hint()}]
             + ([{"role": "system", "content": hint}] if hint else [])
@@ -2106,6 +2120,7 @@ if user_input:
             "user": user_input,
             "mode": mode,
             "source": mode_source,
+            "hint": st.session_state.get("last_router_hint"),
         })
     except Exception:
         pass
@@ -2350,6 +2365,9 @@ if user_input:
     with st.chat_message("assistant"):
         if mode_notice and st.session_state.get("mode_source") == "prehook":
             st.caption(mode_notice)
+        hint_debug = st.session_state.get("last_router_hint")
+        if hint_debug:
+            st.caption(f"Hint: {hint_debug}")
         st.markdown(cleaned_reply)
         created_chart = False
         created_table = False
