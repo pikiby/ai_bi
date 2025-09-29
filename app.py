@@ -2205,17 +2205,20 @@ if user_input:
             final_reply = "Не удалось получить код графика."
             st.error(f"Ошибка на шаге ответа (Plotly): {e}")
 
-    # 3) Публикуем ответ ассистента в чат и сохраняем в историю
-    st.session_state["messages"].append({"role": "assistant", "content": final_reply})
+    # 3) Очищаем ответ от служебных блоков ПЕРЕД сохранением в историю
+    # Не показываем служебные блоки title/explain/sql/table_style — они обрабатываются отдельно
+    cleaned_reply = _strip_llm_blocks(final_reply)
+    # Убираем блок table_style из вывода в чат
+    cleaned_reply = re.sub(r"```table_style[\s\S]*?```", "", cleaned_reply, flags=re.IGNORECASE).strip()
+    
+    # Публикуем ОЧИЩЕННЫЙ ответ ассистента в чат и сохраняем в историю
+    st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
+    
     with st.chat_message("assistant"):
-        # Не показываем служебные блоки title/explain/sql/table_style — они рендерятся отдельно
-        cleaned = _strip_llm_blocks(final_reply)
-        # Убираем блок table_style из вывода в чат
-        cleaned = re.sub(r"```table_style[\s\S]*?```", "", cleaned, flags=re.IGNORECASE).strip()
-        if cleaned:
-            st.markdown(cleaned)
+        if cleaned_reply:
+            st.markdown(cleaned_reply)
         created_chart = False
         created_table = False
 
