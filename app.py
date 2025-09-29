@@ -2049,18 +2049,9 @@ if user_input:
         final_reply = "\n\n".join(out) if out else "Каталог пуст."
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
         with st.chat_message("assistant"):
-            # Используем более компактные стили для каталога
-            st.markdown("""
-            <style>
-            .catalog-content h3 { font-size: 1.1em !important; margin: 0.5em 0 !important; }
-            .catalog-content h2 { font-size: 1.2em !important; margin: 0.5em 0 !important; }
-            .catalog-content h1 { font-size: 1.3em !important; margin: 0.5em 0 !important; }
-            .catalog-content p { margin: 0.3em 0 !important; line-height: 1.3 !important; }
-            .catalog-content ul { margin: 0.3em 0 !important; padding-left: 1.2em !important; }
-            .catalog-content li { margin: 0.2em 0 !important; }
-            </style>
-            <div class="catalog-content">
-            """ + final_reply + "</div>", unsafe_allow_html=True)
+            # Простой вывод без HTML-разметки
+            st.markdown("**Вот что нашел:**")
+            st.markdown(final_reply)
         st.stop()
 
     # 2) Выполнение по выбранному режиму
@@ -2246,6 +2237,31 @@ if user_input:
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+
+        # Fallback-SQL: иногда модель пишет заглушку, но не возвращает блок ```sql```.
+        # Если выбран режим sql/rag, таблицы ещё нет или нужна новая таблица, попробуем один строгий доген SQL.
+        if not m_sql and mode in {"sql", "rag"}:
+            try:
+                strict_msgs = (
+                    [{"role": "system", "content": _tables_index_hint()}]
+                    + [{"role": "system", "content": "Сгенерируй СТРОГО один блок ```sql``` для запроса пользователя. Без пояснений, без текста, только код."}]
+                    + [{"role": "system", "content": prompts_map["sql"]}]
+                    + st.session_state["messages"]
+                )
+                # Если есть кэш RAG — добавим как системный контекст
+                if st.session_state.get("last_rag_ctx"):
+                    strict_msgs.append({"role": "system", "content": "Контекст базы знаний:\n" + st.session_state["last_rag_ctx"]})
+                strict_reply = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=strict_msgs,
+                    temperature=0,
+                ).choices[0].message.content
+                m_sql = re.search(r"```sql\s*(.*?)```", strict_reply, re.DOTALL | re.IGNORECASE)
+                if m_sql:
+                    # расширим исходный final_reply, чтобы ниже сохранялся sql_meta/title/explain, если появятся
+                    final_reply = strict_reply
+            except Exception:
+                pass
         # Если у нас уже есть данные и пользователь просит график, игнорируем лишний SQL
         # (во избежание повторных запросов к БД и «потери» контекста графика)
         try:
