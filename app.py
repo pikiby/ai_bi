@@ -470,15 +470,69 @@ def _render_sql_block(meta: dict):
     if not used_sql and not orig_sql:
         return
     
-    with st.expander("Показать SQL", expanded=False):
-        if used_sql:
-            st.markdown("**Использованный SQL**")
-            st.code(used_sql, language="sql")
-            if orig_sql and orig_sql != used_sql:
-                st.markdown("**Исходный SQL от модели**")
+    # Создаем колонки для SQL и стилей
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        with st.expander("Показать SQL", expanded=False):
+            if used_sql:
+                st.markdown("**Использованный SQL**")
+                st.code(used_sql, language="sql")
+                if orig_sql and orig_sql != used_sql:
+                    st.markdown("**Исходный SQL от модели**")
+                    st.code(orig_sql, language="sql")
+            elif orig_sql:
                 st.code(orig_sql, language="sql")
-        elif orig_sql:
-            st.code(orig_sql, language="sql")
+    
+    with col2:
+        _render_style_block(meta)
+
+
+# Отрисовка блока стилей
+def _render_style_block(meta: dict):
+    """Отрисовка свернутого блока со стилями таблицы"""
+    table_style = meta.get("table_style", {})
+    
+    if not table_style:
+        return
+    
+    with st.expander("Стили таблицы", expanded=False):
+        # Показываем основные стили
+        if table_style.get("header_fill_color"):
+            st.markdown(f"**Цвет заголовков:** `{table_style['header_fill_color']}`")
+        if table_style.get("cells_fill_color"):
+            st.markdown(f"**Цвет ячеек:** `{table_style['cells_fill_color']}`")
+        if table_style.get("align"):
+            st.markdown(f"**Выравнивание:** `{table_style['align']}`")
+        if table_style.get("striped"):
+            st.markdown("**Чередующиеся строки:** ✅")
+        if table_style.get("highlight_max"):
+            st.markdown("**Подсветка максимумов:** ✅")
+        if table_style.get("highlight_min"):
+            st.markdown("**Подсветка минимумов:** ✅")
+        
+        # Показываем правила ячеек
+        cell_rules = table_style.get("cell_rules", [])
+        if cell_rules:
+            st.markdown("**Правила ячеек:**")
+            for rule in cell_rules:
+                if isinstance(rule, dict):
+                    value = rule.get("value", "")
+                    color = rule.get("color", "")
+                    column = rule.get("column", "")
+                    text_color = rule.get("text_color", "")
+                    
+                    rule_text = f"`{value}` → {color}"
+                    if column:
+                        rule_text += f" (колонка: {column})"
+                    if text_color:
+                        rule_text += f", текст: {text_color}"
+                    
+                    st.markdown(f"- {rule_text}")
+        
+        # Показываем полный JSON стилей
+        st.markdown("**Полный код стилей:**")
+        st.code(f"table_style = {table_style}", language="python")
 
 
 # Отрисовка кода Plotly
@@ -2264,26 +2318,112 @@ if user_input:
                 hdr_color1 = None
                 cell_color1 = None
                 align1 = None
+                striped1 = None
+                highlight_max1 = None
+                highlight_min1 = None
+                cell_rules1 = []
+                
                 for line in block.splitlines():
+                    line = line.strip()
                     if "header_fill_color" in line:
                         hdr_color1 = line.split(":", 1)[-1].strip().strip('"\'')
                     elif "cells_fill_color" in line:
                         cell_color1 = line.split(":", 1)[-1].strip().strip('"\'')
                     elif re.search(r"\balign\b", line):
                         align1 = line.split(":", 1)[-1].strip().strip('"\'')
+                    elif "striped" in line and "True" in line:
+                        striped1 = True
+                    elif "highlight_max" in line and "True" in line:
+                        highlight_max1 = True
+                    elif "highlight_min" in line and "True" in line:
+                        highlight_min1 = True
+                    elif "cell_rules" in line:
+                        # Улучшенный парсинг cell_rules
+                        if "[" in line and "]" in line:
+                            # Извлекаем содержимое между []
+                            start = line.find("[")
+                            end = line.rfind("]")
+                            if start != -1 and end != -1:
+                                rules_text = line[start+1:end]
+                                # Парсим правила с помощью регулярных выражений
+                                import re
+                                # Ищем паттерны типа {"value": "что-то", "color": "цвет", "column": "колонка", "text_color": "цвет_текста"}
+                                rule_pattern = r'\{[^}]*"value"[^}]*\}'
+                                rules = re.findall(rule_pattern, rules_text)
+                                for rule_str in rules:
+                                    try:
+                                        # Простой парсинг атрибутов
+                                        value_match = re.search(r'"value"\s*:\s*"([^"]*)"', rule_str)
+                                        color_match = re.search(r'"color"\s*:\s*"([^"]*)"', rule_str)
+                                        column_match = re.search(r'"column"\s*:\s*"([^"]*)"', rule_str)
+                                        text_color_match = re.search(r'"text_color"\s*:\s*"([^"]*)"', rule_str)
+                                        
+                                        if value_match and color_match:
+                                            rule_dict = {
+                                                "value": value_match.group(1),
+                                                "color": color_match.group(1)
+                                            }
+                                            if column_match:
+                                                rule_dict["column"] = column_match.group(1)
+                                            if text_color_match:
+                                                rule_dict["text_color"] = text_color_match.group(1)
+                                            cell_rules1.append(rule_dict)
+                                    except Exception:
+                                        pass
                 
-                # ИСПРАВЛЕНИЕ: Сохраняем стили для новых таблиц
-                if hdr_color1 or cell_color1 or align1:
+                # Применяем стили к последней таблице
+                applied = False
+                for it in reversed(st.session_state.get("results", [])):
+                    if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                        meta_it = it.get("meta") or {}
+                        table_style = meta_it.get("table_style", {})
+                        
+                        # Обновляем стили
+                        if hdr_color1:
+                            table_style["header_fill_color"] = hdr_color1
+                        if cell_color1:
+                            table_style["cells_fill_color"] = cell_color1
+                        if align1:
+                            table_style["align"] = align1
+                        if striped1:
+                            table_style["striped"] = striped1
+                        if highlight_max1:
+                            table_style["highlight_max"] = highlight_max1
+                        if highlight_min1:
+                            table_style["highlight_min"] = highlight_min1
+                        if cell_rules1:
+                            table_style["cell_rules"] = cell_rules1
+                        
+                        meta_it["table_style"] = table_style
+                        it["meta"] = meta_it
+                        applied = True
+                        st.success(f"🎨 Стили обновлены: {table_style}")
+                        try:
+                            st.rerun()
+                        except Exception:
+                            try:
+                                st.experimental_rerun()
+                            except Exception:
+                                pass
+                        break
+                
+                if not applied:
+                    # Сохраняем для новых таблиц
                     style_data = {
                         "header_fill_color": hdr_color1, 
                         "cells_fill_color": cell_color1, 
-                        "align": align1 or "left"
+                        "align": align1 or "left",
+                        "striped": striped1,
+                        "highlight_max": highlight_max1,
+                        "highlight_min": highlight_min1,
+                        "cell_rules": cell_rules1
                     }
+                    # Убираем None значения
+                    style_data = {k: v for k, v in style_data.items() if v is not None}
                     st.session_state["next_table_style"] = style_data
                     st.success(f"🎨 Стили сохранены для следующей таблицы: {style_data}")
-                    # НЕ применяем к существующим таблицам - только сохраняем для новых
-            except Exception:
-                pass
+            except Exception as e:
+                st.error(f"Ошибка обработки стилей: {e}")
 
         if plotly_code and not (created_chart or created_table):
             if st.session_state["last_df"] is None:
