@@ -2228,8 +2228,7 @@ if user_input:
                 # Обновим meta и общий state, чтобы заголовок/SQL подсасывались при отрисовке
                 meta_extra["sql"] = used_sql
                 st.session_state["last_sql_meta"] = dict(meta_extra)
-                if used_sql.strip() != sql.strip():
-                    st.info("SQL был автоматически скорректирован по схеме (отсутствующие поля/алиасы исправлены).")
+                # SQL автоматически корректируется, но не показываем это пользователю
                 if isinstance(df_any, pl.DataFrame):
                     df_pl = df_any
                 else:
@@ -2328,9 +2327,10 @@ if user_input:
                                 
                                 # Создаём НОВЫЙ результат (новая таблица)
                                 _push_result("table", df_pl=old_df, meta=new_meta)
-                                _render_result(st.session_state["results"][-1])
                                 applied = True
                                 created_table = True
+                                # Перезагружаем страницу для отображения новой таблицы
+                                st.rerun()
                                 break
                         if not applied:
                             st.session_state["next_table_style"] = table_style
@@ -2369,9 +2369,10 @@ if user_input:
                                 
                                 # Создаём НОВЫЙ результат (новая таблица)
                                 _push_result("table", df_pl=old_df, meta=new_meta)
-                                _render_result(st.session_state["results"][-1])
                                 applied = True
                                 created_table = True
+                                # Перезагружаем страницу для отображения новой таблицы
+                                st.rerun()
                                 break
                         
                         if not applied:
@@ -2381,7 +2382,7 @@ if user_input:
                 # Тихая обработка ошибок парсинга
                 pass
 
-        if plotly_code and not (created_chart or created_table):
+        if plotly_code and not created_chart:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
