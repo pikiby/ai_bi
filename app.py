@@ -780,6 +780,39 @@ def _build_css_styles(style_meta: dict) -> str:
             font-weight: bold;
         }}
         
+        /* Специальные стили для текста в темной теме */
+        .adaptive-table .text-white {{
+            color: #ffffff !important;
+        }}
+        
+        .adaptive-table .text-black {{
+            color: #000000 !important;
+        }}
+        
+        .adaptive-table .text-red {{
+            color: #ff0000 !important;
+        }}
+        
+        .adaptive-table .text-blue {{
+            color: #0000ff !important;
+        }}
+        
+        .adaptive-table .text-green {{
+            color: #008000 !important;
+        }}
+        
+        .adaptive-table .text-yellow {{
+            color: #ffff00 !important;
+        }}
+        
+        .adaptive-table .text-orange {{
+            color: #ffa500 !important;
+        }}
+        
+        .adaptive-table .text-purple {{
+            color: #800080 !important;
+        }}
+        
         .adaptive-table tr:hover {{
             background-color: rgba(58, 58, 58, 0.7);
         }}
@@ -902,6 +935,39 @@ def _build_css_styles(style_meta: dict) -> str:
         font-weight: bold;
     }}
     
+    /* Специальные стили для текста */
+    .adaptive-table .text-white {{
+        color: #ffffff !important;
+    }}
+    
+    .adaptive-table .text-black {{
+        color: #000000 !important;
+    }}
+    
+    .adaptive-table .text-red {{
+        color: #ff0000 !important;
+    }}
+    
+    .adaptive-table .text-blue {{
+        color: #0000ff !important;
+    }}
+    
+    .adaptive-table .text-green {{
+        color: #008000 !important;
+    }}
+    
+    .adaptive-table .text-yellow {{
+        color: #ffff00 !important;
+    }}
+    
+    .adaptive-table .text-orange {{
+        color: #ffa500 !important;
+    }}
+    
+    .adaptive-table .text-purple {{
+        color: #800080 !important;
+    }}
+    
     .adaptive-table tr:hover {{
         background-color: rgba(240, 248, 255, 0.7);
     }}
@@ -963,13 +1029,18 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
             
         value = rule.get("value")
         color = rule.get("color")
+        text_color = rule.get("text_color")
         column = rule.get("column")
         
         if not value or not color:
             continue
             
-        # Определяем CSS класс для цвета
+        # Определяем CSS классы
         color_class = f"cell-{color.lower()}"
+        text_class = f"text-{text_color.lower()}" if text_color else ""
+        
+        # Объединяем классы
+        all_classes = f"{color_class} {text_class}".strip()
         
         # Ищем ячейки с нужным значением
         if column and column in pdf.columns:
@@ -979,7 +1050,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
             def replace_cell(match):
                 cell_content = match.group(1)
                 if str(value) in cell_content:
-                    return f'<td class="{color_class}">{cell_content}</td>'
+                    return f'<td class="{all_classes}">{cell_content}</td>'
                 return match.group(0)
             table_html = re.sub(pattern, replace_cell, table_html)
         else:
@@ -988,7 +1059,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
             def replace_cell(match):
                 cell_content = match.group(1)
                 if str(value) in cell_content:
-                    return f'<td class="{color_class}">{cell_content}</td>'
+                    return f'<td class="{all_classes}">{cell_content}</td>'
                 return match.group(0)
             table_html = re.sub(pattern, replace_cell, table_html)
     

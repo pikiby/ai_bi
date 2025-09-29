@@ -74,8 +74,10 @@ table_style = {
 ### 9. Условное форматирование ячеек
 - **Выделение по значению**: `"cell_rules": [{"value": "Краснодар", "color": "blue"}]`
 - **Выделение по колонке**: `{"value": "100", "color": "green", "column": "amount"}`
-- **Доступные цвета**: blue, red, green, yellow, orange, purple
-- **CSS классы**: `.cell-blue`, `.cell-red`, `.cell-green`, `.cell-yellow`, `.cell-orange`, `.cell-purple`
+- **Изменение цвета текста**: `{"value": "Краснодар", "color": "red", "text_color": "white"}`
+- **Доступные цвета фона**: blue, red, green, yellow, orange, purple
+- **Доступные цвета текста**: white, black, red, blue, green, yellow, orange, purple
+- **CSS классы**: `.cell-blue`, `.cell-red`, `.text-white`, `.text-black` и др.
 - **Функция**: `_apply_cell_formatting()` для применения правил к HTML
 
 ## Результат
@@ -88,5 +90,6 @@ table_style = {
 - ✅ Чередующиеся строки (полосатые таблицы)
 - ✅ Подсветка максимальных/минимальных значений
 - ✅ Условное форматирование конкретных ячеек
+- ✅ Изменение цвета текста в ячейках
 - ✅ Исправлены ошибки с `range`, `col` и другими функциями
 - ✅ Улучшенная читаемость таблиц

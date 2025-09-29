@@ -236,6 +236,7 @@ RULES_TABLE = r"""
          - Подсветка минимумов: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "highlight_min": True}
          - Выделение конкретных значений: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "blue"}, {"value": "Москва", "color": "red"}]}
          - Выделение в конкретной колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "100", "color": "green", "column": "amount"}]}
+         - Изменение цвета текста: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "red", "text_color": "white"}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -247,7 +248,9 @@ RULES_TABLE = r"""
          - ПОДСВЕТКА ЗНАЧЕНИЙ: "highlight_max": True для максимумов, "highlight_min": True для минимумов
          - УСЛОВНОЕ ФОРМАТИРОВАНИЕ: "cell_rules": [{"value": "значение", "color": "blue/red/green/yellow/orange/purple"}]
          - ВЫДЕЛЕНИЕ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки"}
+         - ЦВЕТ ТЕКСТА: {"value": "значение", "color": "red", "text_color": "white/black/red/blue/green/yellow/orange/purple"}
          - ДОСТУПНЫЕ ФУНКЦИИ: len, range, min, max, dict, list, str, int, float, bool, col, has_col
          - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
-         - ДОСТУПНЫЕ ЦВЕТА: blue, red, green, yellow, orange, purple
+         - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple
+         - ДОСТУПНЫЕ ЦВЕТА ТЕКСТА: white, black, red, blue, green, yellow, orange, purple
 """
