@@ -699,6 +699,7 @@ def _build_css_styles(style_meta: dict) -> str:
             background-color: {header_bg};
             color: {final_header_font_color};
             border-color: rgba(221, 221, 221, 0.6);
+            font-size: 0.85em;
         }}
         
         .adaptive-table th:first-child {{
@@ -847,10 +848,10 @@ def _build_css_styles(style_meta: dict) -> str:
         text-align: {text_align};
         border: 1px solid rgba(221, 221, 221, 0.6);
         font-weight: bold;
+        font-size: 0.85em;
         position: sticky;
         top: 0;
         z-index: 10;
-        font-size: 14px;
     }}
     
     .adaptive-table th:first-child {{
@@ -2015,15 +2016,26 @@ if user_input:
         out = []
         if want_dash:
             dashboards_md = _read_text_file_quiet(CATALOG_DASHBOARDS_FILE)
-            out.append("### Дашборды\n" + (dashboards_md.strip() or "—"))
+            out.append("**Дашборды**\n" + (dashboards_md.strip() or "—"))
         if want_tables:
             tables_md = _read_text_file_quiet(CATALOG_TABLES_FILE)
-            out.append("### Таблицы\n" + (tables_md.strip() or "—"))
+            out.append("**Таблицы**\n" + (tables_md.strip() or "—"))
 
         final_reply = "\n\n".join(out) if out else "Каталог пуст."
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
         with st.chat_message("assistant"):
-            st.markdown(final_reply)
+            # Используем более компактные стили для каталога
+            st.markdown("""
+            <style>
+            .catalog-content h3 { font-size: 1.1em !important; margin: 0.5em 0 !important; }
+            .catalog-content h2 { font-size: 1.2em !important; margin: 0.5em 0 !important; }
+            .catalog-content h1 { font-size: 1.3em !important; margin: 0.5em 0 !important; }
+            .catalog-content p { margin: 0.3em 0 !important; line-height: 1.3 !important; }
+            .catalog-content ul { margin: 0.3em 0 !important; padding-left: 1.2em !important; }
+            .catalog-content li { margin: 0.2em 0 !important; }
+            </style>
+            <div class="catalog-content">
+            """ + final_reply + "</div>", unsafe_allow_html=True)
         st.stop()
 
     # 2) Выполнение по выбранному режиму
@@ -2276,6 +2288,7 @@ if user_input:
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         m_python = re.search(r"```python\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
         plotly_code = (m_plotly.group(1) if m_plotly else (m_python.group(1) if m_python else "")).strip()
+        saw_table_plotly = False  # признак, что модель прислала go.Table внутри plotly-кода
 
         # Убрана старая логика применения стилей к таблицам из plotly кода
 
@@ -2406,8 +2419,11 @@ if user_input:
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
-                # Если это go.Table — не строим график (таблица уже применена как стиль)
+                # Если это go.Table — это табличный код, а не график. Не исполняем,
+                # покажем подсказку и включим фолбэк на построение ГРАФИКА.
                 if re.search(r"go\.Table\(", code):
+                    saw_table_plotly = True
+                    st.info("Получен код таблицы (go.Table). Ожидается график — пропускаю этот код и попробую построить график по текущим данным.")
                     code = ""
 
                 # Базовая защита: не допускаем опасные конструкции
@@ -2427,7 +2443,7 @@ if user_input:
                 code_scan = re.sub(r"(?m)#.*$", "", code_scan)
 
                 if not code:
-                    # ничего не рисуем и не шумим
+                    # кода для графика нет (вероятно, был go.Table) — не рисуем здесь
                     pass
                 elif BANNED_RE.search(code_scan):
                     st.error("Код графика отклонён (запрещённые конструкции).")
@@ -2559,7 +2575,9 @@ if user_input:
                 if _m.get("role") == "user":
                     last_user_text = _m.get("content", "")
                     break
-            if re.search(r"\b(график|диаграмм|диаграмма|chart|plot)\b", last_user_text, flags=re.IGNORECASE):
+            # Триггерим фолбэк если пользователь явно просил график ИЛИ
+            # если модель прислала табличный plotly-код (go.Table), который мы пропустили
+            if re.search(r"\b(график|диаграмм|диаграмма|chart|plot)\b", last_user_text, flags=re.IGNORECASE) or saw_table_plotly:
                 try:
                     _pdf_fb = st.session_state["last_df"].to_pandas()
                     _cols_fb = ", ".join(map(str, list(_pdf_fb.columns)))
