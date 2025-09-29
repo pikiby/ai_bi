@@ -43,6 +43,8 @@ COLLECTION_NAME = os.getenv("KB_COLLECTION_NAME", "kb_docs")  # было, вер
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 CATALOG_TABLES_FILE = os.getenv("KB_CATALOG_TABLES_FILE", os.path.join("docs", "kb_catalog_tables.md"))
 CATALOG_DASHBOARDS_FILE = os.getenv("KB_CATALOG_DASHBOARDS_FILE", os.path.join("docs", "kb_catalog_dashboards.md"))
+KB_T_AI_GLOBAL_REPORT_FILE = os.path.join("docs", "kb_t_ai_global_report.md")
+SQL_SEMANTIC_GUARD = os.getenv("SQL_SEMANTIC_GUARD", "1") == "1"
 
 # --- Авто-индексация при старте (однократно на процесс) ---
 # Включается флагом окружения: KB_AUTO_INGEST_ON_START=1
@@ -679,6 +681,186 @@ def _schema_hint(ch_client, database: str = "db1", max_tables: int = 12, max_col
     return "\n".join(lines)
 
 
+# ======================== Семантическая защита SQL (из базы знаний) ========================
+
+def _read_kb_file(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def _parse_md_table_rows(md_section: str) -> list[tuple[str, str]]:
+    """Возвращает список пар (column_name, type) из markdown-таблицы в секции."""
+    rows = []
+    # Ищем строки вида: | `col` | Type | ... |
+    for m in re.finditer(r"^\|\s*`([^`]+)`\s*\|\s*([A-Za-z0-9_]+)\s*\|", md_section, flags=re.MULTILINE):
+        col = m.group(1).strip()
+        typ = m.group(2).strip()
+        if col:
+            rows.append((col, typ))
+    return rows
+
+
+def _extract_section(md: str, title_regex: str) -> str:
+    """Возвращает текст секции, начиная с заголовка до следующего заголовка того же уровня."""
+    m = re.search(title_regex, md, flags=re.IGNORECASE)
+    if not m:
+        return ""
+    start = m.start()
+    # Следующий заголовок уровня ###
+    m2 = re.search(r"^###\s+", md[start+3:], flags=re.MULTILINE)
+    end = (start + 3 + m2.start()) if m2 else len(md)
+    return md[start:end]
+
+
+def _build_metrics_meta_from_kb(md_path: str) -> dict:
+    """Строит мета-словарь категорий метрик из KB. Ключи категорий:
+    - subscriptions
+    - payments_amount
+    - payments_count
+    - active_users
+    """
+    md = _read_kb_file(md_path)
+    if not md:
+        return {
+            "subscriptions": set(),
+            "payments_amount": set(),
+            "payments_count": set(),
+            "active_users": set(),
+        }
+
+    subs_sec = _extract_section(md, r"^###\s+Метрики\s+подписок")
+    pay_day_sec = _extract_section(md, r"^###\s+Метрики\s+платежей\s*\(дневные\)")
+    pay_cum_sec = _extract_section(md, r"^###\s+Кумулятивные\s+метрики\s+платежей\s*\(месячные\)")
+    act_sec = _extract_section(md, r"^###\s+Метрики\s+активных\s+пользователей")
+
+    subs_rows = _parse_md_table_rows(subs_sec)
+    pay_day_rows = _parse_md_table_rows(pay_day_sec)
+    pay_cum_rows = _parse_md_table_rows(pay_cum_sec)
+    act_rows = _parse_md_table_rows(act_sec)
+
+    subscriptions = {c for c, _ in subs_rows} | {"paying_users", "paying_users_day"}
+
+    payments_amount = set()
+    payments_count = set()
+
+    def classify_payment_rows(rows: list[tuple[str, str]]):
+        for col, typ in rows:
+            low = col.lower()
+            if typ.lower().startswith("float") or ("_pl" in low) or ("amount" in low):
+                payments_amount.add(col)
+            elif ("count" in low) or ("refunded" in low) or typ.lower().startswith("uint"):
+                payments_count.add(col)
+            else:
+                # по умолчанию не относим
+                pass
+
+    classify_payment_rows(pay_day_rows)
+    classify_payment_rows(pay_cum_rows)
+
+    active_users = {c for c, _ in act_rows}
+
+    # Явные корректировки
+    payments_amount |= {"Android_PL", "IOS_PL", "Android_PL_cum", "IOS_PL_cum", "refunded_amount_appstore", "refunded_amount_yookassa"}
+
+    return {
+        "subscriptions": subscriptions,
+        "payments_amount": payments_amount,
+        "payments_count": payments_count,
+        "active_users": active_users,
+    }
+
+
+def _get_kb_metrics_meta() -> dict:
+    """Кэширует и возвращает метрики из KB."""
+    key = "kb_metrics_meta"
+    if key in st.session_state and isinstance(st.session_state[key], dict):
+        return st.session_state[key]
+    meta = _build_metrics_meta_from_kb(KB_T_AI_GLOBAL_REPORT_FILE)
+    st.session_state[key] = meta
+    return meta
+
+
+def _infer_intent_category(sql_text: str, base_messages: list) -> str | None:
+    """Грубая эвристика определения намерения: суммы оплат / кол-во оплат / подписки."""
+    text = (sql_text or "") + "\n" + "\n".join(
+        [m.get("content", "") for m in (base_messages or []) if isinstance(m, dict)]
+    )
+    low = text.lower()
+    if any(w in low for w in ["выручк", "сумм", "доход", "revenue", "amount"]):
+        return "payments_amount"
+    if any(w in low for w in ["число оплат", "кол-во оплат", "количество оплат", "покупк", "transactions", "count"]):
+        return "payments_count"
+    if any(w in low for w in ["подписк", "subscr", "paying users"]):
+        return "subscriptions"
+    return None
+
+
+def _semantic_guard_text(category: str, meta: dict) -> str:
+    cat2ru = {
+        "payments_amount": "суммы оплат/выручка",
+        "payments_count": "количество оплат/покупок",
+        "subscriptions": "количество подписок",
+        "active_users": "активные пользователи",
+    }
+    all_known = set().union(*meta.values()) if meta else set()
+    allowed = set(meta.get(category, set()))
+    forbidden = all_known - allowed
+    msg = [
+        f"Семантическая категория запроса: {cat2ru.get(category, category)}.",
+        "Сохраняй бизнес-смысл метрик. Запрещены подмены между оплатами и подписками.",
+        "Если нет подходящих полей — верни ошибку и НЕ меняй категорию.",
+        "Разрешено использовать только эти поля (как источники агрегатов): "
+        + ", ".join(sorted(f"`{c}`" for c in allowed)) if allowed else "—",
+    ]
+    if forbidden:
+        msg.append(
+            "Запрещено использовать в этой задаче: " + ", ".join(sorted(f"`{c}`" for c in forbidden))
+        )
+    return "\n".join(msg)
+
+
+def _extract_used_metrics(sql_text: str, meta: dict) -> set[str]:
+    """Грубый парсер: вытаскивает имена известных метрик, упомянутых в SELECT/WHERE/ORDER."""
+    if not sql_text:
+        return set()
+    known = set().union(*meta.values()) if meta else set()
+    used = set()
+    # Ищем бэктики `name`
+    for m in re.finditer(r"`([A-Za-z0-9_]+)`", sql_text):
+        name = m.group(1)
+        if name in known:
+            used.add(name)
+    # Ищем без бэктиков (ограничим известными именами)
+    tokens = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", sql_text))
+    used |= (tokens & known)
+    return used
+
+
+def _validate_sql_semantics(sql_text: str, category: str, meta: dict) -> tuple[bool, str]:
+    if not category or not meta:
+        return True, ""
+    allowed = set(meta.get(category, set()))
+    all_known = set().union(*meta.values())
+    forbidden = all_known - allowed
+    used = _extract_used_metrics(sql_text, meta)
+    bad = used & forbidden
+    if bad:
+        return False, "Семантическое нарушение: " + ", ".join(sorted(bad))
+    # Доп. правило: для payments_amount должны присутствовать денежные поля (PL/amount)
+    if category == "payments_amount":
+        if not any(("_PL" in u) or ("amount" in u.lower()) for u in used):
+            return False, "Ожидались денежные поля (PL/amount), но они не найдены."
+    if category == "payments_count":
+        if not any(("count" in u.lower()) or ("refunded" in u.lower()) for u in used):
+            return False, "Ожидались счётчики покупок/оплат (count/refunded), но они не найдены."
+    if category == "subscriptions":
+        if not any(("sub" in u.lower()) or (u.startswith("paying_users")) for u in used):
+            return False, "Ожидались метрики подписок, но они не найдены."
+    return True, ""
+
 # Возвращает список дашбордов из локальной папки документов.
 # Ищем .md/.txt/.json/.yaml с упоминаниями dashboard/дашборд/DataLens.
 # Ничего не режем, показываем всё, что нашли.
@@ -984,7 +1166,20 @@ def run_sql_with_auto_schema(sql_text: str,
     for table, cols in precise_schema.items():
         cols_s = ", ".join(f"`{name}` {ctype}" for name, ctype in cols)
         lines.append(f"- `{DEFAULT_DB}.{table}`: {cols_s}" if cols_s else f"- `{DEFAULT_DB}.{table}`: (пусто)")
+    # Семантический guard (на основе KB) — добавляем к precise_hint и отдельным сообщением
     precise_hint = "\n".join(lines)
+    guard_msgs_extra = []
+    if SQL_SEMANTIC_GUARD:
+        try:
+            kb_meta = _get_kb_metrics_meta()
+            category = _infer_intent_category(sql_text, base_messages)
+            if category:
+                sem_text = _semantic_guard_text(category, kb_meta)
+                precise_hint = precise_hint + "\n\n" + "Семантические правила (из базы знаний):\n" + sem_text
+                guard_msgs_extra = [{"role": "system", "content": sem_text}]
+        except Exception:
+            # Если что-то пошло не так — просто не добавляем guard
+            guard_msgs_extra = []
 
     # Попробуем извлечь отсутствующие колонки из текста ошибки
     missing_cols = []
@@ -1003,9 +1198,10 @@ def run_sql_with_auto_schema(sql_text: str,
 
     regen_msgs = (
         [{"role": "system", "content": precise_hint},
-         {"role": "system", "content": prompts_map["sql"]}] +
-        base_messages +
-        [{"role": "system", "content": guard_instr}]
+         {"role": "system", "content": prompts_map["sql"]}]
+        + guard_msgs_extra
+        + base_messages
+        + [{"role": "system", "content": guard_instr}]
     )
 
     regen = llm_client.chat.completions.create(
@@ -1021,6 +1217,41 @@ def run_sql_with_auto_schema(sql_text: str,
     dup2 = f"{DEFAULT_DB}.{DEFAULT_DB}."
     if dup2 in sql2:
         sql2 = sql2.replace(dup2, f"{DEFAULT_DB}.")
+
+    # Дополнительная семантическая проверка и, при необходимости, один повтор с усиленным guard
+    if SQL_SEMANTIC_GUARD:
+        try:
+            kb_meta = _get_kb_metrics_meta()
+            category = _infer_intent_category(sql_text, base_messages)
+            ok, reason = _validate_sql_semantics(sql2, category, kb_meta)
+            if not ok and category:
+                fix_hint = (
+                    "Предыдущий перегенерированный SQL нарушил семантические правила (" + reason + ").\n"
+                    "Исправь SQL: используй только допустимые поля для категории; не подменяй смысл. Верни только блок ```sql```."
+                )
+                retry_msgs = (
+                    [{"role": "system", "content": precise_hint},
+                     {"role": "system", "content": prompts_map["sql"]}]
+                    + [{"role": "system", "content": _semantic_guard_text(category, kb_meta)}]
+                    + base_messages
+                    + [{"role": "system", "content": guard_instr}, {"role": "system", "content": fix_hint}]
+                )
+                retry_reply = llm_client.chat.completions.create(
+                    model=model_name, messages=retry_msgs, temperature=0
+                ).choices[0].message.content
+                m_retry = re.search(r"```sql\s*(.*?)```", retry_reply, flags=re.DOTALL | re.IGNORECASE)
+                if m_retry:
+                    sql2_try = m_retry.group(1).strip()
+                    if dup2 in sql2_try:
+                        sql2_try = sql2_try.replace(dup2, f"{DEFAULT_DB}.")
+                    ok2, reason2 = _validate_sql_semantics(sql2_try, category, kb_meta)
+                    if ok2:
+                        sql2 = sql2_try
+                    else:
+                        # оставляем sql2 как есть — ниже упадём с ошибкой выполнения или вернём ошибку
+                        pass
+        except Exception:
+            pass
 
     # 3.3. Короткий retry на сетевые/временные сбои при втором запуске
     for _ in range(2):  # одна пауза и вторая попытка
