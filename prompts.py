@@ -237,6 +237,8 @@ RULES_TABLE = r"""
          - Выделение конкретных значений: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "blue"}, {"value": "Москва", "color": "red"}]}
          - Выделение в конкретной колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "100", "color": "green", "column": "amount"}]}
          - Изменение цвета текста: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "red", "text_color": "white"}]}
+         - Выделение максимума в колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
+         - Выделение минимума в колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -249,6 +251,7 @@ RULES_TABLE = r"""
          - УСЛОВНОЕ ФОРМАТИРОВАНИЕ: "cell_rules": [{"value": "значение", "color": "blue/red/green/yellow/orange/purple"}]
          - ВЫДЕЛЕНИЕ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки"}
          - ЦВЕТ ТЕКСТА: {"value": "значение", "color": "red", "text_color": "white/black/red/blue/green/yellow/orange/purple"}
+         - МАКСИМУМ/МИНИМУМ: {"value": "max/min", "color": "red", "column": "название_колонки"} - автоматически найдет максимальное/минимальное значение
          - ДОСТУПНЫЕ ФУНКЦИИ: len, range, min, max, dict, list, str, int, float, bool, col, has_col
          - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
          - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple
