@@ -2200,6 +2200,16 @@ if user_input:
 
         # 4) Если ассистент вернул SQL — выполняем ClickHouse и сохраняем таблицу
         m_sql = re.search(r"```sql\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        # Если у нас уже есть данные и пользователь просит график, игнорируем лишний SQL
+        # (во избежание повторных запросов к БД и «потери» контекста графика)
+        try:
+            last_user_text_guard = next((m["content"] for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "user"), "")
+        except Exception:
+            last_user_text_guard = ""
+        wants_chart_now = bool(re.search(r"\b(график|диаграмм|диаграмма|chart|plot)\b", last_user_text_guard, flags=re.IGNORECASE))
+        if m_sql and st.session_state.get("last_df") is not None and wants_chart_now:
+            # Пропускаем выполнение найденного SQL — сразу перейдём к построению графика ниже/фолбэку
+            m_sql = None
         if m_sql:
             sql = m_sql.group(1).strip()
             # Удаляем только симметричные обёртки кавычками/бэктиками, не трогая внутренние `...`
@@ -2466,16 +2476,19 @@ if user_input:
                         err_text = str(e)
                         needs_retry = isinstance(e, KeyError) or "Нет ни одной из колонок" in err_text
 
-                        if needs_retry:
+                        # Ретраим не только при отсутствии колонок, но и при типичных ошибках обработки строк
+                        strip_related = (
+                            "NoneType" in err_text or "'NoneType' object has no attribute 'strip'" in err_text or " strip(" in err_text
+                        )
+                        if needs_retry or strip_related:
                             try:
                                 _pdf = st.session_state["last_df"].to_pandas()
                                 _cols_list = list(_pdf.columns)
                                 retry_hint = (
-                                    "Ошибка выбора колонок при построении графика: "
-                                    + err_text
-                                    + "\nДоступные колонки: "
-                                    + ", ".join(map(str, _cols_list))
-                                    + "\nСгенерируй НОВЫЙ код для переменной fig, используя ТОЛЬКО эти имена через col(...)."
+                                    "Ошибка при построении графика: " + err_text
+                                    + "\nДоступные колонки: " + ", ".join(map(str, _cols_list))
+                                    + "\nСгенерируй НОВЫЙ код для переменной fig, используя ТОЛЬКО эти имена через col(...). "
+                                    + "Не используй .strip() или ручную обработку строк значений; работай напрямую с колонками."
                                 )
 
                                 retry_msgs = (
