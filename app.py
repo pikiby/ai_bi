@@ -2213,18 +2213,17 @@ if user_input:
     # Убираем блок table_style из вывода в чат
     cleaned_reply = re.sub(r"```table_style[\s\S]*?```", "", cleaned_reply, flags=re.IGNORECASE).strip()
     
+    # Если после очистки остался пустой ответ (только служебные блоки), показываем placeholder
+    if not cleaned_reply:
+        cleaned_reply = "Вношу правки..."
+    
     # Публикуем ОЧИЩЕННЫЙ ответ ассистента в чат и сохраняем в историю
-    # НЕ сохраняем пустые сообщения (когда LLM вернул только служебные блоки)
-    if cleaned_reply:
-        st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
-        st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
-    else:
-        # Если ответ пустой, используем индекс для привязки результатов к последнему сообщению
-        st.session_state["last_assistant_idx"] = len(st.session_state["messages"])
+    st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
+    # индекс этого сообщения ассистента (нужен для привязки результатов)
+    st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     
     with st.chat_message("assistant"):
-        if cleaned_reply:
-            st.markdown(cleaned_reply)
+        st.markdown(cleaned_reply)
         created_chart = False
         created_table = False
 
