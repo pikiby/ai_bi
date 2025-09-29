@@ -279,7 +279,8 @@ def _tables_index_hint() -> str:
 def _strip_llm_blocks(text: str) -> str:
     if not text:
         return text
-    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table", "table_style"):
+    # Убираем служебные блоки (table_style обрабатывается отдельно в строке 2172)
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
