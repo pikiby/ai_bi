@@ -2274,6 +2274,10 @@ if user_input:
         if m_table:
             table_code = m_table.group(1).strip()
             if table_code and st.session_state.get("last_df") is not None:
+                # Проверяем, что данные действительно есть
+                if st.session_state["last_df"] is None:
+                    st.info("Нет данных для изменения таблицы: выполните SQL, чтобы получить df.")
+                    return
                 try:
                     # Песочница для выполнения table_code
                     df = st.session_state["last_df"]
@@ -2385,6 +2389,10 @@ if user_input:
         if plotly_code:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
+            elif m_table or m_tstyle:
+                # Если есть table_code или table_style, не создаем график
+                st.info("Обнаружен режим TABLE - пропускаем создание графика")
+                pass
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
