@@ -2382,7 +2382,7 @@ if user_input:
                 # Тихая обработка ошибок парсинга
                 pass
 
-        if plotly_code and not created_chart:
+        if plotly_code:
             if st.session_state["last_df"] is None:
                 st.info("Нет данных для графика: выполните SQL, чтобы получить df.")
             else:
