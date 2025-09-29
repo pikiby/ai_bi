@@ -554,7 +554,9 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
 STANDARD_TABLE_STYLES = {
     "header_fill_color": "#f0f0f0",
     "cells_fill_color": "transparent", 
-    "align": "left"
+    "align": "left",
+    "font_color": None,  # наследует цвет от темы
+    "header_font_color": None  # наследует цвет от темы
 }
 
 def _save_table_dataframe(pdf: pd.DataFrame, meta: dict) -> str:
@@ -615,12 +617,15 @@ def _build_css_styles(style_meta: dict) -> str:
     Создает CSS стили на основе метаданных стиля.
     Использует только поддерживаемые Streamlit CSS свойства.
     Включает стилизованную прокрутку для таблиц.
+    Поддерживает адаптацию к темной теме.
     """
     header_bg = style_meta.get("header_fill_color", "#f0f0f0")
     cell_bg = style_meta.get("cells_fill_color", "transparent")
     text_align = style_meta.get("align", "left")
+    font_color = style_meta.get("font_color", None)
+    header_font_color = style_meta.get("header_font_color", None)
     
-    # Базовые стили таблицы с прокруткой
+    # Базовые стили таблицы с прокруткой и адаптацией к темной теме
     css = f"""
     .adaptive-table-container {{
         width: 100%;
@@ -630,6 +635,37 @@ def _build_css_styles(style_meta: dict) -> str:
         border: 1px solid #ddd;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        background-color: var(--background-color, #ffffff);
+        color: var(--text-color, #000000);
+    }}
+    
+    /* Адаптация к темной теме Streamlit */
+    @media (prefers-color-scheme: dark) {{
+        .adaptive-table-container {{
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border-color: #444;
+        }}
+        
+        .adaptive-table th {{
+            background-color: {header_bg};
+            color: {header_font_color or '#ffffff'};
+            border-color: #444;
+        }}
+        
+        .adaptive-table td {{
+            background-color: {cell_bg};
+            color: {font_color or '#ffffff'};
+            border-color: #444;
+        }}
+        
+        .adaptive-table tr:nth-child(even) {{
+            background-color: #2a2a2a;
+        }}
+        
+        .adaptive-table tr:hover {{
+            background-color: #3a3a3a;
+        }}
     }}
     
     .adaptive-table {{
@@ -642,21 +678,24 @@ def _build_css_styles(style_meta: dict) -> str:
     
     .adaptive-table th {{
         background-color: {header_bg};
-        color: #333;
-        padding: 12px;
+        color: {header_font_color or '#333'};
+        padding: 8px;
         text-align: {text_align};
         border: 1px solid #ddd;
         font-weight: bold;
         position: sticky;
         top: 0;
         z-index: 10;
+        font-size: 14px;
     }}
     
     .adaptive-table td {{
-        padding: 10px 12px;
+        padding: 6px 8px;
         border: 1px solid #ddd;
         text-align: {text_align};
         background-color: {cell_bg};
+        font-size: 13px;
+        color: {font_color or 'inherit'};
     }}
     
     .adaptive-table tr:nth-child(even) {{

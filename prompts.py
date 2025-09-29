@@ -226,8 +226,9 @@ RULES_TABLE = r"""
 - Создавай переменную table_style = {"header_fill_color": "...", "cells_fill_color": "...", "align": "..."}
 - Никакого дополнительного вывода вне блока, только код.
 
-Примеры стилей:
-- Красные заголовки: table_style = {"header_fill_color": "red", "cells_fill_color": "transparent", "align": "left"}
-- Синие ячейки: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "lightblue", "align": "center"}
-- Выделение максимумов: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "transparent", "align": "left", "highlight_max": "red"}
+         Примеры стилей:
+         - Красные заголовки: table_style = {"header_fill_color": "red", "cells_fill_color": "transparent", "align": "left"}
+         - Синие ячейки: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "lightblue", "align": "center"}
+         - Цветной текст: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "transparent", "align": "left", "font_color": "blue", "header_font_color": "darkblue"}
+         - Выделение максимумов: table_style = {"header_fill_color": "#f0f0f0", "cells_fill_color": "transparent", "align": "left", "highlight_max": "red"}
 """
