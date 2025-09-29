@@ -713,7 +713,7 @@ def _build_css_styles(style_meta: dict) -> str:
         color: {final_header_font_color};
         padding: 8px;
         text-align: {text_align};
-        border: 1px solid #ddd;
+        border: 1px solid rgba(221, 221, 221, 0.6);
         font-weight: bold;
         position: sticky;
         top: 0;
@@ -723,7 +723,7 @@ def _build_css_styles(style_meta: dict) -> str:
     
     .adaptive-table td {{
         padding: 6px 8px;
-        border: 1px solid #ddd;
+        border: 1px solid rgba(221, 221, 221, 0.6);
         text-align: {text_align};
         background-color: {cell_bg};
         font-size: 13px;
@@ -735,7 +735,15 @@ def _build_css_styles(style_meta: dict) -> str:
     }}
     
     .adaptive-table tr:hover {{
-        background-color: #f0f8ff;
+        background-color: rgba(240, 248, 255, 0.7);
+    }}
+    
+    .adaptive-table tr:hover td {{
+        color: #000000 !important;
+    }}
+    
+    .adaptive-table tr:hover th {{
+        color: #000000 !important;
     }}
     
     /* Стилизованная прокрутка */
