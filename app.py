@@ -1075,13 +1075,22 @@ def _enhanced_table_search(query: str, chroma_path: str, collection_name: str) -
                 )
         
         # Стратегия 2: Поиск по ключевым словам из запроса
+        ql = query.lower()
         keywords = []
-        if 'монетизация' in query.lower():
+        if 'монетизация' in ql:
             keywords.append('монетизация партнеры')
-        if 'партнер' in query.lower():
+        if 'партнер' in ql or 'партнёр' in ql:
             keywords.append('партнеры статус')
-        if 'блокировка' in query.lower():
+        if 'блокировка' in ql:
             keywords.append('блокировка монетизация')
+        # Новые ключи для оплат/выручки/топ по городам
+        if any(k in ql for k in ['оплат', 'платеж', 'платёж', 'выручк', 'revenue', 'android_pl', 'ios_pl']):
+            keywords += [
+                't_ai_global_report описание поля оплаты выручка',
+                'таблица t_ai_global_report метрики оплаты выручка',
+            ]
+        if any(k in ql for k in ['город', 'cities', 'по городам', 'top', 'топ']):
+            keywords.append('t_ai_global_report города метрики')
         
         for keyword in keywords:
             hits += retriever.retrieve(
