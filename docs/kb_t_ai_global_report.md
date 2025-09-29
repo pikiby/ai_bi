@@ -473,6 +473,194 @@ FROM t_ai_global_report
 INNER JOIN last_date USING (report_date);
 ```
 
+6) **Анализ установочных точек и домофонов по городам и партнерам**
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
+)
+SELECT
+  city,
+  partner_lk,
+  sum(countd_inst_by_c_and_p) AS total_installation_points,
+  sum(countd_inter_par_by_c_and_p) AS points_with_online_intercoms,
+  sum(countd_inst_par_onl_by_c_and_p) AS total_intercoms,
+  sum(countd_inter_par_onl_by_c_and_p) AS online_intercoms,
+  sum(countd_inter_par_onl_by_c_and_p) / nullIf(sum(countd_inst_par_onl_by_c_and_p), 0) AS intercom_online_rate
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date)
+GROUP BY city, partner_lk
+ORDER BY total_installation_points DESC
+LIMIT 20;
+```
+
+7) **Анализ лицензионных ключей и подписок**
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
+)
+SELECT
+  city,
+  partner_lk,
+  sum(activated_keys) AS total_activated_keys,
+  sum(activated_sub_w_key) AS returning_subscribers_with_key,
+  sum(created_first_sub_w_key) AS new_subscribers_with_key,
+  sum(d_activated_sub_w_key) AS cancelled_returning_subscribers,
+  sum(d_created_first_sub_w_key) AS cancelled_new_subscribers,
+  sum(activated_sub_w_key + created_first_sub_w_key) / nullIf(sum(activated_keys), 0) AS key_to_subscription_conversion
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date)
+GROUP BY city, partner_lk
+HAVING total_activated_keys > 0
+ORDER BY key_to_subscription_conversion DESC
+LIMIT 15;
+```
+
+8) **Комплексный анализ эффективности партнеров**
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
+)
+SELECT
+  partner_lk,
+  city,
+  sum(total_active_users) AS active_users,
+  sum(paying_users) AS paying_users,
+  sum(Android_PL + IOS_PL) AS revenue,
+  sum(countd_inst_by_c_and_p) AS installation_points,
+  sum(countd_inter_par_onl_by_c_and_p) AS online_intercoms,
+  sum(activated_keys) AS activated_keys,
+  sum(activated_sub_w_key + created_first_sub_w_key) AS subscribers_with_keys,
+  sum(paying_users) / nullIf(sum(total_active_users), 0) AS user_conversion,
+  sum(Android_PL + IOS_PL) / nullIf(sum(paying_users), 0) AS revenue_per_paying_user,
+  sum(countd_inter_par_onl_by_c_and_p) / nullIf(sum(countd_inst_par_onl_by_c_and_p), 0) AS intercom_online_rate
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date)
+GROUP BY partner_lk, city
+HAVING active_users > 0
+ORDER BY revenue DESC
+LIMIT 25;
+```
+
+9) **Детальный анализ платежей по тарифам и платформам**
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
+)
+SELECT
+  city,
+  partner_lk,
+  -- iOS App Store метрики
+  sum(appstore_count_1) AS appstore_1_rub,
+  sum(appstore_count_35) AS appstore_35_rub,
+  sum(appstore_count_69) AS appstore_69_rub,
+  sum(appstore_count_85) AS appstore_85_rub,
+  sum(appstore_count_249) AS appstore_249_rub,
+  sum(appstore_count_499) AS appstore_499_rub,
+  sum(appstore_count_2390) AS appstore_2390_rub,
+  sum(IOS_PL) AS ios_total_revenue,
+  -- Android YooKassa метрики
+  sum(yookassa_count_1) AS yookassa_1_rub,
+  sum(yookassa_count_35) AS yookassa_35_rub,
+  sum(yookassa_count_69) AS yookassa_69_rub,
+  sum(yookassa_count_85) AS yookassa_85_rub,
+  sum(yookassa_count_249) AS yookassa_249_rub,
+  sum(yookassa_count_499) AS yookassa_499_rub,
+  sum(yookassa_count_2390) AS yookassa_2390_rub,
+  sum(Android_PL) AS android_total_revenue,
+  -- Возвраты
+  sum(refunded_amount_appstore) AS appstore_refunds,
+  sum(refunded_amount_yookassa) AS yookassa_refunds
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date)
+GROUP BY city, partner_lk
+ORDER BY (ios_total_revenue + android_total_revenue) DESC
+LIMIT 20;
+```
+
+10) **Анализ популярности тарифов по платформам**
+```sql
+WITH last_date AS (
+  SELECT max(report_date) AS report_date
+  FROM t_ai_global_report
+  WHERE total_active_users > 0
+)
+SELECT
+  'iOS App Store' AS platform,
+  sum(appstore_count_1) AS tariff_1_rub,
+  sum(appstore_count_35) AS tariff_35_rub,
+  sum(appstore_count_69) AS tariff_69_rub,
+  sum(appstore_count_85) AS tariff_85_rub,
+  sum(appstore_count_249) AS tariff_249_rub,
+  sum(appstore_count_499) AS tariff_499_rub,
+  sum(appstore_count_2390) AS tariff_2390_rub,
+  sum(IOS_PL) AS total_revenue
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date)
+
+UNION ALL
+
+SELECT
+  'Android YooKassa' AS platform,
+  sum(yookassa_count_1) AS tariff_1_rub,
+  sum(yookassa_count_35) AS tariff_35_rub,
+  sum(yookassa_count_69) AS tariff_69_rub,
+  sum(yookassa_count_85) AS tariff_85_rub,
+  sum(yookassa_count_249) AS tariff_249_rub,
+  sum(yookassa_count_499) AS tariff_499_rub,
+  sum(yookassa_count_2390) AS tariff_2390_rub,
+  sum(Android_PL) AS total_revenue
+FROM t_ai_global_report
+INNER JOIN last_date USING (report_date)
+ORDER BY total_revenue DESC;
+```
+
+11) **Месячный анализ доходов с детализацией по тарифам**
+```sql
+WITH month_bounds AS (
+  SELECT toStartOfMonth(today()) AS m_start, 
+         addMonths(toStartOfMonth(today()), 1) AS m_end
+)
+SELECT
+  partner_lk,
+  city,
+  sum(IOS_PL) AS ios_monthly_revenue,
+  sum(Android_PL) AS android_monthly_revenue,
+  sum(IOS_PL + Android_PL) AS total_monthly_revenue,
+  -- Детализация по тарифам iOS
+  sum(appstore_count_1 * 1) AS ios_1_rub_total,
+  sum(appstore_count_35 * 35) AS ios_35_rub_total,
+  sum(appstore_count_69 * 69) AS ios_69_rub_total,
+  sum(appstore_count_85 * 85) AS ios_85_rub_total,
+  sum(appstore_count_249 * 249) AS ios_249_rub_total,
+  sum(appstore_count_499 * 499) AS ios_499_rub_total,
+  sum(appstore_count_2390 * 2390) AS ios_2390_rub_total,
+  -- Детализация по тарифам Android
+  sum(yookassa_count_1 * 1) AS android_1_rub_total,
+  sum(yookassa_count_35 * 35) AS android_35_rub_total,
+  sum(yookassa_count_69 * 69) AS android_69_rub_total,
+  sum(yookassa_count_85 * 85) AS android_85_rub_total,
+  sum(yookassa_count_249 * 249) AS android_249_rub_total,
+  sum(yookassa_count_499 * 499) AS android_499_rub_total,
+  sum(yookassa_count_2390 * 2390) AS android_2390_rub_total,
+  -- Возвраты
+  sum(refunded_amount_appstore) AS total_appstore_refunds,
+  sum(refunded_amount_yookassa) AS total_yookassa_refunds
+FROM t_ai_global_report
+CROSS JOIN month_bounds
+WHERE report_date >= m_start AND report_date < m_end
+GROUP BY partner_lk, city
+ORDER BY total_monthly_revenue DESC
+LIMIT 15;
+```
+
 ## Ключи и соединения
 - **Основные ключи:** `partner_uuid`, `city_uuid`, `report_date`
 - **Возможные связи:** 
