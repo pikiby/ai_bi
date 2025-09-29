@@ -346,8 +346,9 @@ def _render_chart(item: dict):
     
     meta = item.get("meta") or {}
     
-    title = _get_title(meta, fallback_source="context")
-    st.markdown(f"### {title}")
+    # Убираем лишний заголовок графика
+    # title = _get_title(meta, fallback_source="context")
+    # st.markdown(f"### {title}")
     
     st.plotly_chart(
         fig,
@@ -699,7 +700,7 @@ def _build_css_styles(style_meta: dict) -> str:
             background-color: {header_bg};
             color: {final_header_font_color};
             border-color: rgba(221, 221, 221, 0.6);
-            font-size: 0.85em;
+            font-size: 0.75em;
         }}
         
         .adaptive-table th:first-child {{
@@ -848,7 +849,7 @@ def _build_css_styles(style_meta: dict) -> str:
         text-align: {text_align};
         border: 1px solid rgba(221, 221, 221, 0.6);
         font-weight: bold;
-        font-size: 0.85em;
+        font-size: 0.75em;
         position: sticky;
         top: 0;
         z-index: 10;
@@ -2013,13 +2014,37 @@ if user_input:
             want_tables = True
             want_dash = True
 
+        def _clean_catalog_content(content: str) -> str:
+            """Очищает содержимое каталога от лишних элементов"""
+            if not content:
+                return "—"
+            
+            # Убираем YAML front matter (строки между ---)
+            content = re.sub(r'^---\s*\n.*?\n---\s*\n', '', content, flags=re.DOTALL)
+            
+            # Убираем заголовки типа "# Таблицы (каталог)"
+            content = re.sub(r'^#\s+.*?каталог.*?\n', '', content, flags=re.IGNORECASE)
+            
+            # Убираем вводные фразы
+            content = re.sub(r'^Ниже перечислены все таблицы.*?\n', '', content, flags=re.DOTALL)
+            
+            # Убираем раздел "Расширенные возможности анализа" и всё после него
+            content = re.sub(r'\n## Расширенные возможности анализа.*$', '', content, flags=re.DOTALL)
+            
+            # Убираем лишние пустые строки
+            content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+            
+            return content.strip()
+        
         out = []
         if want_dash:
             dashboards_md = _read_text_file_quiet(CATALOG_DASHBOARDS_FILE)
-            out.append("**Дашборды**\n" + (dashboards_md.strip() or "—"))
+            clean_dash = _clean_catalog_content(dashboards_md)
+            out.append("**Дашборды**\n" + clean_dash)
         if want_tables:
             tables_md = _read_text_file_quiet(CATALOG_TABLES_FILE)
-            out.append("**Таблицы**\n" + (tables_md.strip() or "—"))
+            clean_tables = _clean_catalog_content(tables_md)
+            out.append("**Таблицы**\n" + clean_tables)
 
         final_reply = "\n\n".join(out) if out else "Каталог пуст."
         st.session_state["messages"].append({"role": "assistant", "content": final_reply})
