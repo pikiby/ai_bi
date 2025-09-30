@@ -944,17 +944,17 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             color: #000000 !important;
         }}
         
-        /* Чередующиеся строки для темной темы (БЕЗ !important - условное форматирование приоритетнее) */
+        /* Чередующиеся строки для темной темы (В КОНЦЕ для приоритета!) */
         .adaptive-table.striped tbody tr:nth-child(even) {{
-            background-color: rgba(173, 216, 230, 0.2);
+            background-color: rgba(173, 216, 230, 0.2) !important;
         }}
         
-        .adaptive-table.striped tbody tr:nth-child(even) td:not([class*="cell-"]) {{
-            background-color: rgba(173, 216, 230, 0.2);
+        .adaptive-table.striped tbody tr:nth-child(even) td {{
+            background-color: rgba(173, 216, 230, 0.2) !important;
         }}
         
         .adaptive-table.striped tbody tr:nth-child(odd) {{
-            background-color: transparent;
+            background-color: transparent !important;
         }}
     }}
     
@@ -1097,17 +1097,17 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         color: #000000 !important;
     }}
     
-    /* Поддержка чередующихся строк (БЕЗ !important - условное форматирование приоритетнее) */
+    /* Поддержка чередующихся строк (В КОНЦЕ для приоритета!) */
     .adaptive-table.striped tbody tr:nth-child(even) {{
-        background-color: rgba(173, 216, 230, 0.3);
+        background-color: rgba(173, 216, 230, 0.3) !important;
     }}
     
-    .adaptive-table.striped tbody tr:nth-child(even) td:not([class*="cell-"]) {{
-        background-color: rgba(173, 216, 230, 0.3);
+    .adaptive-table.striped tbody tr:nth-child(even) td {{
+        background-color: rgba(173, 216, 230, 0.3) !important;
     }}
     
     .adaptive-table.striped tbody tr:nth-child(odd) {{
-        background-color: transparent;
+        background-color: transparent !important;
     }}
     
     /* Стилизованная прокрутка */
@@ -1258,19 +1258,9 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
                         row_close = row_match.group(3)
                         
                         # Применяем классы ко всем <td> в строке
-                        def add_class_to_td(match):
-                            attrs = match.group(1)
-                            # Проверяем, есть ли уже атрибут class
-                            if 'class=' in attrs:
-                                # Добавляем к существующему классу
-                                return re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', match.group(0))
-                            else:
-                                # Создаем новый атрибут class
-                                return f'<td{attrs} class="{all_classes}">'
-                        
                         row_content_new = re.sub(
                             r'<td([^>]*)>',
-                            add_class_to_td,
+                            rf'<td\1 class="{all_classes}">',
                             row_content
                         )
                         
@@ -1282,32 +1272,20 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
             # Обычная обработка для конкретных ячеек
             if column and column in pdf.columns:
                 # Форматируем конкретную колонку
-                pattern = rf'<td([^>]*)>([^<]*{re.escape(str(value))}[^<]*)</td>'
+                pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
                 def replace_cell(match):
-                    attrs = match.group(1)
-                    cell_content = match.group(2)
+                    cell_content = match.group(1)
                     if str(value) in cell_content:
-                        # Добавляем класс к существующим
-                        if 'class=' in attrs:
-                            new_attrs = re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', attrs)
-                            return f'<td{new_attrs}>{cell_content}</td>'
-                        else:
-                            return f'<td{attrs} class="{all_classes}">{cell_content}</td>'
+                        return f'<td class="{all_classes}">{cell_content}</td>'
                     return match.group(0)
                 table_html = re.sub(pattern, replace_cell, table_html)
             else:
                 # Форматируем все ячейки с этим значением
-                pattern = rf'<td([^>]*)>([^<]*{re.escape(str(value))}[^<]*)</td>'
+                pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
                 def replace_cell(match):
-                    attrs = match.group(1)
-                    cell_content = match.group(2)
+                    cell_content = match.group(1)
                     if str(value) in cell_content:
-                        # Добавляем класс к существующим
-                        if 'class=' in attrs:
-                            new_attrs = re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', attrs)
-                            return f'<td{new_attrs}>{cell_content}</td>'
-                        else:
-                            return f'<td{attrs} class="{all_classes}">{cell_content}</td>'
+                        return f'<td class="{all_classes}">{cell_content}</td>'
                     return match.group(0)
                 table_html = re.sub(pattern, replace_cell, table_html)
     
