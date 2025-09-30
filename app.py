@@ -516,7 +516,7 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
     style_meta = (meta.get("table_style") or {})
     if not style_meta and st.session_state.get("next_table_style"):
         style_meta = st.session_state["next_table_style"]
-        meta["table_style"] = style_meta
+        # НЕ модифицируем meta старых таблиц - только используем стиль для отрисовки
         try:
             del st.session_state["next_table_style"]
         except Exception:
