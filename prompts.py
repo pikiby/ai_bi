@@ -248,27 +248,19 @@ RULES_TABLE = r"""
 - Для условного форматирования ВСЕГДА используй "cell_rules": [...]
 - Никакого дополнительного вывода вне блока, только код.
 
-         Примеры стилей (ВСЕГДА используй полупрозрачные цвета):
-         - Красные заголовки: table_style = {"header_fill_color": "rgba(255, 0, 0, 0.7)", "cells_fill_color": "transparent", "align": "left"}
-         - Синие ячейки: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "rgba(173, 216, 230, 0.6)", "align": "center"}
-         - Цветной текст: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "align": "left", "font_color": "rgba(0, 0, 255, 0.8)", "header_font_color": "rgba(0, 0, 139, 0.9)"}
-         - Зеленые выделения: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "rgba(144, 238, 144, 0.5)", "align": "left"}
-         - Чередующиеся синие строки: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "striped": True}
-         - Подсветка максимумов: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "highlight_max": True}
-         - Подсветка минимумов: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "highlight_min": True}
-         - Выделение конкретных значений: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "blue"}, {"value": "Москва", "color": "red"}]}
-         - Выделение в конкретной колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "100", "color": "green", "column": "amount"}]}
-         - Изменение цвета текста: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "red", "text_color": "white"}]}
-         - Выделение максимума в колонке: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
-         - Выделение минимума в колонке: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
-         - Выделение целой строки: table_style = {"cell_rules": [{"value": "Краснодар", "color": "red", "row": True}]}
-         - Выделение строки по колонке: table_style = {"cell_rules": [{"value": "Краснодар", "color": "blue", "column": "Город", "row": True}]}
-         - ВЫДЕЛЕНИЕ СТРОКИ С МАКСИМУМОМ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка", "row": True}]}
-         - ВЫДЕЛЕНИЕ СТРОКИ С МИНИМУМОМ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество", "row": True}]}
-         - ВЫДЕЛЕНИЕ СТРОКИ ЧЕРЕЗ ROW_RULES: table_style = {"row_rules": [{"value": "Киров", "color": "green", "column": "Город"}]}
-         - КОМБИНИРОВАНИЕ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}], "row_rules": [{"value": "Киров", "color": "green", "column": "Город"}]}
-         - МАКСИМУМ В ЯЧЕЙКЕ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
-         - МИНИМУМ В ЯЧЕЙКЕ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
+         СТРОГИЕ ПРАВИЛА (следуй ТОЧНО):
+         - БАЗОВЫЙ ФОРМАТ: {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent"}
+         - ВЫДЕЛЕНИЕ ЯЧЕЕК: {"cell_rules": [{"value": "значение", "color": "red", "column": "колонка"}]}
+         - ВЫДЕЛЕНИЕ СТРОК: {"row_rules": [{"value": "значение", "color": "red", "column": "колонка"}]}
+         - ЧЕРЕДОВАНИЕ: {"striped": true}
+         - МАКСИМУМ: {"cell_rules": [{"value": "max", "color": "red", "column": "колонка"}]}
+         - МИНИМУМ: {"cell_rules": [{"value": "min", "color": "green", "column": "колонка"}]}
+         
+         ГОТОВЫЕ ШАБЛОНЫ (копируй точно):
+         - Выделить строку: {"row_rules": [{"value": "Краснодар", "color": "red", "column": "Город"}]}
+         - Выделить максимум: {"cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
+         - Чередование строк: {"striped": true}
+         - Комбинация: {"row_rules": [{"value": "Краснодар", "color": "red", "column": "Город"}], "cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -292,17 +284,23 @@ RULES_TABLE = r"""
          - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple
          - ДОСТУПНЫЕ ЦВЕТА ТЕКСТА: white, black, red, blue, green, yellow, orange, purple
          
-         КРИТИЧНО ДЛЯ JSON ФОРМАТА:
-         - ВСЕГДА ставь запятые между элементами: {"key1": "value1", "key2": "value2"}
-         - В массивах cell_rules: [{"value": "max", "color": "red", "column": "Общая выручка", "row": true}, {"value": "2", "color": "green", "row": true}]
-         - В массивах row_rules: [{"value": "Киров", "color": "green", "column": "Город"}]
-         - Используй "column" (НЕ "column_id"), "value" (НЕ "rule")
-         - Для max/min используй: {"value": "max", "color": "red", "column": "название_колонки", "row": true}
-         - Для конкретных значений: {"value": "2", "color": "green", "row": true}
-         - ROW_RULES автоматически выделяют всю строку (не нужно указывать "row": true)
-         - Можно комбинировать: {"cell_rules": [...], "row_rules": [...]}
-         - ЗАПРЕЩЕНО: "column_rules", "max_value_color", "row_alternating_color", "striped_rows" - используй только "cell_rules", "row_rules", "striped"
-         - ПРАВИЛЬНО: {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
-         - НЕПРАВИЛЬНО: {"column_rules": [{"column": "Общая выручка", "max_value_color": "red"}]}
-         - ЧЕРЕДУЮЩИЕСЯ СТРОКИ: {"striped": true} (НЕ "row_alternating_color" или "striped_rows")
+         КРИТИЧНО - СТРОГО СЛЕДУЙ ЭТИМ ПРАВИЛАМ:
+         - ТОЛЬКО эти ключи: "header_fill_color", "cells_fill_color", "cell_rules", "row_rules", "striped"
+         - ЗАПРЕЩЕНО: "column_rules", "max_value_color", "row_alternating_color", "striped_rows", "cells_fill_color" как массив
+         - ВСЕГДА ставь запятые: {"key1": "value1", "key2": "value2"}
+         - cells_fill_color ТОЛЬКО строка: "transparent" (НЕ массив)
+         - row_rules для строк, cell_rules для ячеек
+         - striped: true для чередования (НЕ другие ключи)
+         - НЕ ИЗОБРЕТАЙ новые ключи - используй ТОЛЬКО разрешенные!
+         
+         ПРИМЕРЫ ПРАВИЛЬНОГО JSON:
+         - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "row_rules": [{"value": "Краснодар", "color": "red", "column": "Город"}]}
+         - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
+         - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "striped": true}
+         
+         ПРОВЕРЬ СВОЙ JSON ПЕРЕД ОТПРАВКОЙ:
+         - Есть ли только разрешенные ключи?
+         - cells_fill_color это строка (НЕ массив)?
+         - Все ли запятые на месте?
+         - row_rules для строк, cell_rules для ячеек?
 """

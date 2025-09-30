@@ -645,8 +645,9 @@ def _render_table_style_block(meta: dict):
             column_rules = table_style.get("column_rules", [])
             row_alternating_color = table_style.get("row_alternating_color")
             striped_rows = table_style.get("striped_rows")
+            cells_fill_color = table_style.get("cells_fill_color")
             
-            if cell_rules or row_rules or column_rules or row_alternating_color or striped_rows:
+            if cell_rules or row_rules or column_rules or row_alternating_color or striped_rows or isinstance(cells_fill_color, list):
                 st.markdown("**Проверка правил форматирования:**")
                 
                 # Предупреждение о неправильных ключах
@@ -661,6 +662,10 @@ def _render_table_style_block(meta: dict):
                 if striped_rows:
                     st.warning("⚠️ Обнаружен устаревший ключ 'striped_rows'. Используйте 'striped': true для чередующихся строк.")
                     st.info("Пример правильного формата: {\"striped\": true}")
+                
+                if isinstance(cells_fill_color, list):
+                    st.warning("⚠️ Обнаружен неправильный формат 'cells_fill_color' как массив. Используйте строку для цвета ячеек.")
+                    st.info("Пример правильного формата: {\"cells_fill_color\": \"transparent\"}")
                 
                 # Проверяем cell_rules
                 for i, rule in enumerate(cell_rules):
@@ -861,6 +866,14 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         header_bg = header_bg.replace("rgba", "rgb").rsplit(",", 1)[0] + ")"
     
     cell_bg = style_meta.get("cells_fill_color", "transparent")
+    
+    # Поддержка cells_fill_color как массива (неправильный формат)
+    if isinstance(cell_bg, list) and len(cell_bg) >= 2:
+        # Если это массив, активируем striped и используем первый цвет
+        cell_bg = cell_bg[0] if cell_bg[0] else "transparent"
+        # Также активируем striped для чередования
+        if "striped" not in style_meta:
+            style_meta["striped"] = True
     text_align = style_meta.get("align", "left")
     font_color = style_meta.get("font_color", None)
     header_font_color = style_meta.get("header_font_color", None)
@@ -1268,10 +1281,17 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
     # Объединяем все правила, добавляя row=true для row_rules
     all_rules = []
     
-    # Добавляем cell_rules как есть
+    # Добавляем cell_rules, но конвертируем те, что имеют row=true в row_rules
     for rule in cell_rules:
         if isinstance(rule, dict):
-            all_rules.append(rule)
+            if rule.get("row", False):
+                # Конвертируем cell_rules с row=true в row_rules
+                rule_copy = rule.copy()
+                rule_copy["row"] = True
+                all_rules.append(rule_copy)
+            else:
+                # Обычные cell_rules без row=true
+                all_rules.append(rule)
     
     # Добавляем row_rules с row=true
     for rule in row_rules:
@@ -2743,6 +2763,63 @@ if user_input:
                         # Получаем table_style из выполненного кода
                         table_style = local_vars.get("table_style")
                         if isinstance(table_style, dict):
+                            # ВАЛИДАЦИЯ: проверяем на неправильные ключи
+                            invalid_keys = []
+                            if "column_rules" in table_style:
+                                invalid_keys.append("column_rules")
+                            if "max_value_color" in table_style:
+                                invalid_keys.append("max_value_color")
+                            if "row_alternating_color" in table_style:
+                                invalid_keys.append("row_alternating_color")
+                            if "striped_rows" in table_style:
+                                invalid_keys.append("striped_rows")
+                            if isinstance(table_style.get("cells_fill_color"), list):
+                                invalid_keys.append("cells_fill_color as array")
+                            
+                            if invalid_keys:
+                                st.warning(f"⚠️ Обнаружены неправильные ключи: {', '.join(invalid_keys)}. Исправляю автоматически...")
+                            
+                            # ПРИНУДИТЕЛЬНАЯ НОРМАЛИЗАЦИЯ: исправляем неправильные ключи
+                            normalized_style = {}
+                            
+                            # Копируем правильные ключи
+                            for key in ["header_fill_color", "cells_fill_color", "cell_rules", "row_rules", "striped"]:
+                                if key in table_style:
+                                    normalized_style[key] = table_style[key]
+                            
+                            # Исправляем cells_fill_color если это массив
+                            if isinstance(normalized_style.get("cells_fill_color"), list):
+                                normalized_style["cells_fill_color"] = "transparent"
+                                normalized_style["striped"] = True
+                            
+                            # Конвертируем column_rules в cell_rules
+                            if "column_rules" in table_style:
+                                if "cell_rules" not in normalized_style:
+                                    normalized_style["cell_rules"] = []
+                                for rule in table_style["column_rules"]:
+                                    if isinstance(rule, dict):
+                                        new_rule = {}
+                                        if "column" in rule:
+                                            new_rule["column"] = rule["column"]
+                                        if "max_value_color" in rule:
+                                            new_rule["value"] = "max"
+                                            new_rule["color"] = rule["max_value_color"]
+                                        elif "min_value_color" in rule:
+                                            new_rule["value"] = "min"
+                                            new_rule["color"] = rule["min_value_color"]
+                                        if new_rule:
+                                            normalized_style["cell_rules"].append(new_rule)
+                            
+                            # Конвертируем row_alternating_color в striped
+                            if "row_alternating_color" in table_style:
+                                normalized_style["striped"] = True
+                            
+                            # Конвертируем striped_rows в striped
+                            if "striped_rows" in table_style:
+                                normalized_style["striped"] = True
+                            
+                            # Используем нормализованный стиль
+                            table_style = normalized_style
                             # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
