@@ -856,16 +856,12 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         }}
         
         /* Чередующиеся строки для темной темы */
-        .adaptive-table.striped tbody tr:nth-child(even) {{
-            background-color: rgba(173, 216, 230, 0.2) !important;
+        .adaptive-table.striped tr:nth-child(even) {{
+            background-color: rgba(173, 216, 230, 0.2);
         }}
         
-        .adaptive-table.striped tbody tr:nth-child(even) td {{
-            background-color: rgba(173, 216, 230, 0.2) !important;
-        }}
-        
-        .adaptive-table.striped tbody tr:nth-child(odd) {{
-            background-color: transparent !important;
+        .adaptive-table.striped tr:nth-child(odd) {{
+            background-color: transparent;
         }}
         
         /* Подсветка для темной темы */
@@ -1009,16 +1005,12 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
     }}
     
     /* Поддержка чередующихся строк */
-    .adaptive-table.striped tbody tr:nth-child(even) {{
-        background-color: rgba(173, 216, 230, 0.3) !important;
+    .adaptive-table.striped tr:nth-child(even) {{
+        background-color: rgba(173, 216, 230, 0.3);
     }}
     
-    .adaptive-table.striped tbody tr:nth-child(even) td {{
-        background-color: rgba(173, 216, 230, 0.3) !important;
-    }}
-    
-    .adaptive-table.striped tbody tr:nth-child(odd) {{
-        background-color: transparent !important;
+    .adaptive-table.striped tr:nth-child(odd) {{
+        background-color: transparent;
     }}
     
     /* Подсветка максимальных значений */
