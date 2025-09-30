@@ -2497,12 +2497,13 @@ if user_input:
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
                                 if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                    # Копируем данные старой таблицы
+                                    # Копируем данные старой таблицы (ГЛУБОКАЯ копия для meta!)
+                                    import copy
                                     old_meta = it.get("meta") or {}
                                     old_df = it.get("df_pl")
                                     
-                                    # Создаём новую мету с новыми стилями
-                                    new_meta = dict(old_meta)
+                                    # Создаём новую мету с новыми стилями (глубокая копия!)
+                                    new_meta = copy.deepcopy(old_meta)
                                     new_meta["table_style"] = table_style
                                     
                                     # Создаём НОВЫЙ результат (новая таблица)
@@ -2534,7 +2535,8 @@ if user_input:
                         applied = False
                         for it in reversed(st.session_state.get("results", [])):
                             if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                # Копируем данные старой таблицы
+                                # Копируем данные старой таблицы (ГЛУБОКАЯ копия для meta!)
+                                import copy
                                 old_meta = it.get("meta") or {}
                                 old_df = it.get("df_pl")
                                 
@@ -2543,8 +2545,8 @@ if user_input:
                                 merged_style = dict(existing_style)
                                 merged_style.update(table_style)
                                 
-                                # Создаём новую мету с объединёнными стилями
-                                new_meta = dict(old_meta)
+                                # Создаём новую мету с объединёнными стилями (глубокая копия!)
+                                new_meta = copy.deepcopy(old_meta)
                                 new_meta["table_style"] = merged_style
                                 
                                 # Создаём НОВЫЙ результат (новая таблица)
