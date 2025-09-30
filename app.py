@@ -2493,23 +2493,17 @@ if user_input:
                         # Получаем table_style из выполненного кода
                         table_style = local_vars.get("table_style")
                         if isinstance(table_style, dict):
-                            # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
+                            # ОБНОВЛЯЕМ стили существующей таблицы (не создаем новую)
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
                                 if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                    # Копируем данные старой таблицы
-                                    old_meta = it.get("meta") or {}
-                                    old_df = it.get("df_pl")
-                                    
-                                    # Создаём новую мету с новыми стилями
-                                    new_meta = dict(old_meta)
-                                    new_meta["table_style"] = table_style
-                                    
-                                    # Создаём НОВЫЙ результат (новая таблица)
-                                    _push_result("table", df_pl=old_df, meta=new_meta)
+                                    # Обновляем стили напрямую в существующей таблице
+                                    if "meta" not in it:
+                                        it["meta"] = {}
+                                    it["meta"]["table_style"] = table_style
                                     applied = True
                                     created_table = True
-                                    # Перезагружаем страницу для отображения новой таблицы
+                                    # Перезагружаем страницу для отображения обновленных стилей
                                     st.rerun()
                                     break
                             if not applied:
@@ -2530,28 +2524,22 @@ if user_input:
                     table_style = ast.literal_eval(dict_match.group(0))
                     
                     if isinstance(table_style, dict):
-                        # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
+                        # ОБНОВЛЯЕМ стили существующей таблицы (не создаем новую)
                         applied = False
                         for it in reversed(st.session_state.get("results", [])):
                             if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                # Копируем данные старой таблицы
-                                old_meta = it.get("meta") or {}
-                                old_df = it.get("df_pl")
-                                
                                 # Merge стилей: берём старые стили и обновляем новыми
-                                existing_style = old_meta.get("table_style", {})
+                                if "meta" not in it:
+                                    it["meta"] = {}
+                                existing_style = it["meta"].get("table_style", {})
                                 merged_style = dict(existing_style)
                                 merged_style.update(table_style)
                                 
-                                # Создаём новую мету с объединёнными стилями
-                                new_meta = dict(old_meta)
-                                new_meta["table_style"] = merged_style
-                                
-                                # Создаём НОВЫЙ результат (новая таблица)
-                                _push_result("table", df_pl=old_df, meta=new_meta)
+                                # Обновляем стили напрямую в существующей таблице
+                                it["meta"]["table_style"] = merged_style
                                 applied = True
                                 created_table = True
-                                # Перезагружаем страницу для отображения новой таблицы
+                                # Перезагружаем страницу для отображения обновленных стилей
                                 st.rerun()
                                 break
                         
