@@ -248,7 +248,7 @@ RULES_TABLE = r"""
 - Для условного форматирования ВСЕГДА используй "cell_rules": [...]
 - Никакого дополнительного вывода вне блока, только код.
 
-         СТРОГИЕ ПРАВИЛА (следуй ТОЧНО):
+         ОСНОВНЫЕ ПРАВИЛА (система автоисправления поможет):
          - БАЗОВЫЙ ФОРМАТ: {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent"}
          - ВЫДЕЛЕНИЕ ЯЧЕЕК: {"cell_rules": [{"value": "значение", "color": "red", "column": "колонка"}]}
          - ВЫДЕЛЕНИЕ СТРОК: {"row_rules": [{"value": "значение", "color": "red", "column": "колонка"}]}
@@ -256,7 +256,7 @@ RULES_TABLE = r"""
          - МАКСИМУМ: {"cell_rules": [{"value": "max", "color": "red", "column": "колонка"}]}
          - МИНИМУМ: {"cell_rules": [{"value": "min", "color": "green", "column": "колонка"}]}
          
-         ГОТОВЫЕ ШАБЛОНЫ (копируй точно):
+         ГОТОВЫЕ ШАБЛОНЫ (можно адаптировать):
          - Выделить строку: {"row_rules": [{"value": "Краснодар", "color": "red", "column": "Город"}]}
          - Выделить максимум: {"cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
          - Чередование строк: {"striped": true}
@@ -283,24 +283,33 @@ RULES_TABLE = r"""
          - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
          - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple
          - ДОСТУПНЫЕ ЦВЕТА ТЕКСТА: white, black, red, blue, green, yellow, orange, purple
+         - BOOLEAN ЗНАЧЕНИЯ: используй true/false (НЕ True/False) для совместимости с JSON
          
-         КРИТИЧНО - СТРОГО СЛЕДУЙ ЭТИМ ПРАВИЛАМ:
-         - ТОЛЬКО эти ключи: "header_fill_color", "cells_fill_color", "cell_rules", "row_rules", "striped"
-         - ЗАПРЕЩЕНО: "column_rules", "max_value_color", "row_alternating_color", "striped_rows", "cells_fill_color" как массив
+         РЕКОМЕНДУЕМЫЕ ПРАВИЛА (система автоисправления поможет с ошибками):
+         - ЛУЧШЕ использовать: "header_fill_color", "cells_fill_color", "cell_rules", "row_rules", "striped"
+         - МОЖНО использовать альтернативы (будут исправлены автоматически):
+           * "column_rules" → "cell_rules"
+           * "max_value_color" → "value": "max", "color": "red"
+           * "row_alternating_color" → "striped": true
+           * "striped_rows" → "striped": true
          - ВСЕГДА ставь запятые: {"key1": "value1", "key2": "value2"}
-         - cells_fill_color ТОЛЬКО строка: "transparent" (НЕ массив)
+         - cells_fill_color лучше строка: "transparent" (массив будет исправлен)
          - row_rules для строк, cell_rules для ячеек
-         - striped: true для чередования (НЕ другие ключи)
-         - НЕ ИЗОБРЕТАЙ новые ключи - используй ТОЛЬКО разрешенные!
+         - striped: true для чередования
          
          ПРИМЕРЫ ПРАВИЛЬНОГО JSON:
          - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "row_rules": [{"value": "Краснодар", "color": "red", "column": "Город"}]}
          - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
          - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "striped": true}
+         - {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "red", "row": true}]}
          
-         ПРОВЕРЬ СВОЙ JSON ПЕРЕД ОТПРАВКОЙ:
-         - Есть ли только разрешенные ключи?
-         - cells_fill_color это строка (НЕ массив)?
-         - Все ли запятые на месте?
-         - row_rules для строк, cell_rules для ячеек?
+         АВТОИСПРАВЛЕНИЕ:
+         - Система автоматически исправит неправильные ключи и форматы
+         - Не нужно беспокоиться о мелких ошибках - они будут исправлены
+         - Сосредоточься на логике стилизации, а не на синтаксисе
+         
+         ПРИМЕРЫ АЛЬТЕРНАТИВНОГО СИНТАКСА (будут исправлены):
+         - {"column_rules": [{"column": "Выручка", "max_value_color": "red"}]} → {"cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
+         - {"row_alternating_color": ["white", "lightgray"]} → {"striped": true}
+         - {"cells_fill_color": ["white", "lightgray"]} → {"cells_fill_color": "transparent", "striped": true}
 """

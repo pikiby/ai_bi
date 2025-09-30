@@ -1265,6 +1265,161 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
     return css
 
 
+def _is_style_error(style_dict: dict) -> tuple[bool, list[str]]:
+    """
+    Проверяет стиль на наличие неправильных ключей и форматов.
+    Возвращает (есть_ли_ошибки, список_ошибок)
+    """
+    errors = []
+    
+    # Проверяем на неправильные ключи
+    invalid_keys = []
+    if "column_rules" in style_dict:
+        invalid_keys.append("column_rules")
+    if "max_value_color" in style_dict:
+        invalid_keys.append("max_value_color")
+    if "row_alternating_color" in style_dict:
+        invalid_keys.append("row_alternating_color")
+    if "striped_rows" in style_dict:
+        invalid_keys.append("striped_rows")
+    
+    if invalid_keys:
+        errors.append(f"Неправильные ключи: {', '.join(invalid_keys)}")
+    
+    # Проверяем cells_fill_color как массив
+    if isinstance(style_dict.get("cells_fill_color"), list):
+        errors.append("cells_fill_color не должен быть массивом")
+    
+    # Проверяем JSON синтаксис в cell_rules и row_rules
+    for rule_type in ["cell_rules", "row_rules"]:
+        rules = style_dict.get(rule_type, [])
+        if not isinstance(rules, list):
+            errors.append(f"{rule_type} должен быть массивом")
+            continue
+            
+        for i, rule in enumerate(rules):
+            if not isinstance(rule, dict):
+                errors.append(f"{rule_type}[{i}] должен быть словарем")
+                continue
+                
+            # Проверяем обязательные поля
+            if not rule.get("value") and not rule.get("rule"):
+                errors.append(f"{rule_type}[{i}] отсутствует 'value'")
+            if not rule.get("color"):
+                errors.append(f"{rule_type}[{i}] отсутствует 'color'")
+    
+    return len(errors) > 0, errors
+
+
+def normalize_table_style_with_auto_fix(style_dict: dict, llm_client=None, model_name: str = "gpt-4o-mini") -> dict:
+    """
+    Нормализует стиль таблицы с автоматическим исправлением ошибок.
+    Аналогично run_sql_with_auto_schema, но для стилей таблиц.
+    
+    Args:
+        style_dict: Исходный словарь стилей
+        llm_client: Клиент LLM для перегенерации (опционально)
+        model_name: Имя модели для перегенерации
+        
+    Returns:
+        Нормализованный словарь стилей
+    """
+    import re
+    
+    # 1. Проверяем на ошибки
+    has_errors, errors = _is_style_error(style_dict)
+    
+    if not has_errors:
+        # Нет ошибок - возвращаем как есть
+        return style_dict
+    
+    # 2. Автоматическое исправление простых ошибок
+    normalized_style = {}
+    
+    # Копируем правильные ключи
+    for key in ["header_fill_color", "cells_fill_color", "cell_rules", "row_rules", "striped"]:
+        if key in style_dict:
+            normalized_style[key] = style_dict[key]
+    
+    # Исправляем cells_fill_color если это массив
+    if isinstance(normalized_style.get("cells_fill_color"), list):
+        normalized_style["cells_fill_color"] = "transparent"
+        normalized_style["striped"] = True
+    
+    # Конвертируем column_rules в cell_rules
+    if "column_rules" in style_dict:
+        if "cell_rules" not in normalized_style:
+            normalized_style["cell_rules"] = []
+        for rule in style_dict["column_rules"]:
+            if isinstance(rule, dict):
+                new_rule = {}
+                if "column" in rule:
+                    new_rule["column"] = rule["column"]
+                if "max_value_color" in rule:
+                    new_rule["value"] = "max"
+                    new_rule["color"] = rule["max_value_color"]
+                elif "min_value_color" in rule:
+                    new_rule["value"] = "min"
+                    new_rule["color"] = rule["min_value_color"]
+                if new_rule:
+                    normalized_style["cell_rules"].append(new_rule)
+    
+    # Конвертируем row_alternating_color в striped
+    if "row_alternating_color" in style_dict:
+        normalized_style["striped"] = True
+    
+    # Конвертируем striped_rows в striped
+    if "striped_rows" in style_dict:
+        normalized_style["striped"] = True
+    
+    # 3. Если есть LLM клиент, пытаемся перегенерировать сложные случаи
+    if llm_client and len(errors) > 2:  # Только для сложных случаев
+        try:
+            fix_hint = (
+                "Обнаружены ошибки в JSON стилей таблицы. "
+                "Исправь согласно правилам:\n"
+                "- ТОЛЬКО ключи: header_fill_color, cells_fill_color, cell_rules, row_rules, striped\n"
+                "- cells_fill_color ТОЛЬКО строка (НЕ массив)\n"
+                "- row_rules для строк, cell_rules для ячеек\n"
+                "- striped: true для чередования\n"
+                "Верни только исправленный JSON."
+            )
+            
+            # Формируем сообщения для LLM
+            messages = [
+                {"role": "system", "content": "Ты эксперт по JSON стилей таблиц. Исправляй ошибки в JSON."},
+                {"role": "system", "content": fix_hint},
+                {"role": "user", "content": f"Исходный JSON (исправь):\n{style_dict}"}
+            ]
+            
+            response = llm_client.chat.completions.create(
+                model=model_name, 
+                messages=messages, 
+                temperature=0
+            )
+            
+            fixed_content = response.choices[0].message.content
+            
+            # Пытаемся извлечь JSON из ответа
+            import json
+            try:
+                # Ищем JSON в ответе
+                json_match = re.search(r'\{.*\}', fixed_content, re.DOTALL)
+                if json_match:
+                    fixed_style = json.loads(json_match.group())
+                    # Проверяем, что исправленный стиль лучше
+                    fixed_has_errors, _ = _is_style_error(fixed_style)
+                    if not fixed_has_errors:
+                        return fixed_style
+            except Exception:
+                pass  # Если не удалось распарсить, используем автоматическое исправление
+                
+        except Exception:
+            pass  # Если LLM недоступен, используем автоматическое исправление
+    
+    return normalized_style
+
+
 def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict) -> str:
     """
     Применяет условное форматирование к HTML таблице.
@@ -2756,6 +2911,9 @@ if user_input:
                             "pd": pd,
                             "col": col,
                             "has_col": has_col,
+                            "true": True,  # Поддержка JSON-стиля
+                            "false": False,
+                            "null": None,
                         }
                         local_vars = {}
                         exec(table_code, safe_builtins, local_vars)
@@ -2763,63 +2921,18 @@ if user_input:
                         # Получаем table_style из выполненного кода
                         table_style = local_vars.get("table_style")
                         if isinstance(table_style, dict):
-                            # ВАЛИДАЦИЯ: проверяем на неправильные ключи
-                            invalid_keys = []
-                            if "column_rules" in table_style:
-                                invalid_keys.append("column_rules")
-                            if "max_value_color" in table_style:
-                                invalid_keys.append("max_value_color")
-                            if "row_alternating_color" in table_style:
-                                invalid_keys.append("row_alternating_color")
-                            if "striped_rows" in table_style:
-                                invalid_keys.append("striped_rows")
-                            if isinstance(table_style.get("cells_fill_color"), list):
-                                invalid_keys.append("cells_fill_color as array")
+                            # ИСПОЛЬЗУЕМ НОВУЮ СИСТЕМУ АВТОИСПРАВЛЕНИЯ
+                            has_errors, errors = _is_style_error(table_style)
                             
-                            if invalid_keys:
-                                st.warning(f"⚠️ Обнаружены неправильные ключи: {', '.join(invalid_keys)}. Исправляю автоматически...")
-                            
-                            # ПРИНУДИТЕЛЬНАЯ НОРМАЛИЗАЦИЯ: исправляем неправильные ключи
-                            normalized_style = {}
-                            
-                            # Копируем правильные ключи
-                            for key in ["header_fill_color", "cells_fill_color", "cell_rules", "row_rules", "striped"]:
-                                if key in table_style:
-                                    normalized_style[key] = table_style[key]
-                            
-                            # Исправляем cells_fill_color если это массив
-                            if isinstance(normalized_style.get("cells_fill_color"), list):
-                                normalized_style["cells_fill_color"] = "transparent"
-                                normalized_style["striped"] = True
-                            
-                            # Конвертируем column_rules в cell_rules
-                            if "column_rules" in table_style:
-                                if "cell_rules" not in normalized_style:
-                                    normalized_style["cell_rules"] = []
-                                for rule in table_style["column_rules"]:
-                                    if isinstance(rule, dict):
-                                        new_rule = {}
-                                        if "column" in rule:
-                                            new_rule["column"] = rule["column"]
-                                        if "max_value_color" in rule:
-                                            new_rule["value"] = "max"
-                                            new_rule["color"] = rule["max_value_color"]
-                                        elif "min_value_color" in rule:
-                                            new_rule["value"] = "min"
-                                            new_rule["color"] = rule["min_value_color"]
-                                        if new_rule:
-                                            normalized_style["cell_rules"].append(new_rule)
-                            
-                            # Конвертируем row_alternating_color в striped
-                            if "row_alternating_color" in table_style:
-                                normalized_style["striped"] = True
-                            
-                            # Конвертируем striped_rows в striped
-                            if "striped_rows" in table_style:
-                                normalized_style["striped"] = True
-                            
-                            # Используем нормализованный стиль
-                            table_style = normalized_style
+                            if has_errors:
+                                st.warning(f"⚠️ Обнаружены ошибки в стилях: {', '.join(errors[:3])}{'...' if len(errors) > 3 else ''}. Исправляю автоматически...")
+                                
+                                # Используем новую функцию автоисправления
+                                table_style = normalize_table_style_with_auto_fix(
+                                    table_style, 
+                                    llm_client=None,  # Пока без LLM для простоты
+                                    model_name=model_name
+                                )
                             # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
