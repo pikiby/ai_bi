@@ -709,8 +709,8 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                 # Обработка строковых значений
                 styler = styler.apply(
                     lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == value else "" 
-                              for _ in x], 
+                              if x == value else "" 
+                              for x in x], 
                     subset=[column]
                 )
     
