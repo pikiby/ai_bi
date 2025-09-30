@@ -574,6 +574,12 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     if not style_config:
         style_config = _create_default_styler_config()
     
+    # Нормализуем конфиг: поддержка col_rules и автофикс устаревших ключей
+    try:
+        style_config = normalize_table_style_with_auto_fix(style_config)
+    except Exception:
+        pass
+    
     # Создаем стилизованную таблицу
     styled_df = _create_styled_dataframe(pdf, style_config)
     
@@ -841,20 +847,7 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                 else:
                     matching_rows = []
                 
-                if matching_rows:
-                    styles_to_add = []
-                    for row_idx in matching_rows:
-                        styles_to_add.append({
-                            "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
-                            "props": [
-                                ("background-color", color),
-                                ("color", "white")
-                            ]
-                        })
-                    
-                    # Добавляем к существующим стилям
-                    existing_styles = styler.table_styles
-                    styler = styler.set_table_styles(existing_styles + styles_to_add)
+                styler = _add_row_css_for_indices(styler, matching_rows, color, text_only=False)
         elif rule_type == "first_n_cols":
             # Первые N столбцов
             n = rule.get("count", 1)
@@ -877,11 +870,52 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             # Конкретный столбец
             col_name = rule.get("column")
             if col_name and col_name in pdf.columns:
+                if rule.get("transparent"):
+                    styler = styler.set_properties(subset=[col_name], **{"background-color": "transparent"})
+                else:
+                    styler = styler.apply(
+                        lambda x: [f"background-color: {color}; color: white" for _ in x],
+                        subset=[col_name]
+                    )
+        elif rule_type == "columns":
+            # Индексы столбцов (0-based): columns: [1,3]
+            indices = rule.get("columns", []) or []
+            for idx in indices:
+                if isinstance(idx, int) and 0 <= idx < len(pdf.columns):
+                    col_name = pdf.columns[idx]
+                    styler = styler.apply(
+                        lambda x: [f"background-color: {color}; color: white" for _ in x],
+                        subset=[col_name]
+                    )
+        elif rule_type in ("rightmost_col", "last_col", "right_col"):
+            # Правый (последний) столбец
+            if len(pdf.columns) > 0:
                 styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              for _ in x], 
-                    subset=[col_name]
+                    lambda x: [f"background-color: {color}; color: white" for _ in x],
+                    subset=[pdf.columns[-1]]
                 )
+        elif rule_type in ("leftmost_col", "first_col", "left_col"):
+            # Левый (первый) столбец
+            if len(pdf.columns) > 0:
+                styler = styler.apply(
+                    lambda x: [f"background-color: {color}; color: white" for _ in x],
+                    subset=[pdf.columns[0]]
+                )
+        elif rule_type == "nth_col":
+            # N-й столбец (1-based): n: 2
+            n = rule.get("n")
+            if isinstance(n, int) and 1 <= n <= len(pdf.columns):
+                styler = styler.apply(
+                    lambda x: [f"background-color: {color}; color: white" for _ in x],
+                    subset=[pdf.columns[n-1]]
+                )
+        elif rule_type == "col_transparent":
+            # Сделать фон столбцов прозрачным: columns: [1, 2]
+            indices = rule.get("columns", []) or []
+            for idx in indices:
+                if isinstance(idx, int) and 0 <= idx < len(pdf.columns):
+                    col_name = pdf.columns[idx]
+                    styler = styler.set_properties(subset=[col_name], **{"background-color": "transparent"})
     
     # Базовая прозрачность фона таблицы (не ломает условные стили)
     try:
@@ -896,8 +930,6 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
     ]
 
     styler = styler.set_table_styles(existing_styles + transparent_styles, overwrite=False)
-    # Подстраховка против инлайновых стилей
-    styler = styler.set_properties(**{"background-color": "transparent"})
 
     return styler
 
@@ -920,7 +952,7 @@ def _create_default_styler_config():
     return {
         "header_fill_color": "#f4f4f4",
         "header_font_color": "black",
-        "cells_fill_color": "white",
+        "cells_fill_color": "transparent",
         "font_color": "black",
         "striped": False,
         "cell_rules": []
@@ -1702,12 +1734,87 @@ def normalize_table_style_with_auto_fix(style_dict: dict, llm_client=None, model
     """
     import re
     
+    # 0. Хелпер: расширение col_rules → special_rules (канон для движка)
+    def _extend_with_col_rules(s: dict) -> dict:
+        style = dict(s)
+        col_rules = style.get("col_rules")
+        if not col_rules or not isinstance(col_rules, list):
+            return style
+        special = list(style.get("special_rules", []))
+
+        # Унифицированная сборка правил на основе effect
+        def _mk_effect_rules(target_kind: str, targets, effect: dict):
+            bg = (effect or {}).get("bg")
+            fg = (effect or {}).get("fg", "white")
+            transparent = bool((effect or {}).get("transparent"))
+
+            out = []
+            if transparent:
+                # прозрачный: используем col_transparent для индексов и
+                # specific_col с флагом transparent для имён
+                if target_kind == "by_index":
+                    out.append({"type": "col_transparent", "columns": targets})
+                elif target_kind == "by_name":
+                    for name in targets:
+                        out.append({"type": "specific_col", "column": name, "transparent": True})
+                elif target_kind == "nth":
+                    for n in targets:
+                        out.append({"type": "nth_col", "n": int(n), "transparent": True})
+                elif target_kind == "relative":
+                    left = int(targets.get("left", 0) or 0)
+                    right = int(targets.get("right", 0) or 0)
+                    if left > 0:
+                        out.append({"type": "first_n_cols", "count": left, "transparent": True})
+                    if right > 0:
+                        out.append({"type": "last_n_cols", "count": right, "transparent": True})
+                return out
+
+            # цвет фона
+            color = bg or "#00AAFF"
+            if target_kind == "by_index":
+                out.append({"type": "columns", "columns": targets, "color": color})
+            elif target_kind == "by_name":
+                for name in targets:
+                    out.append({"type": "specific_col", "column": name, "color": color})
+            elif target_kind == "nth":
+                for n in targets:
+                    out.append({"type": "nth_col", "n": int(n), "color": color})
+            elif target_kind == "relative":
+                left = int(targets.get("left", 0) or 0)
+                right = int(targets.get("right", 0) or 0)
+                if left > 0:
+                    out.append({"type": "first_n_cols", "count": left, "color": color})
+                if right > 0:
+                    out.append({"type": "last_n_cols", "count": right, "color": color})
+            return out
+
+        for r in col_rules:
+            if not isinstance(r, dict):
+                continue
+            effect = r.get("effect") or {}
+            if r.get("by_name"):
+                names = [c for c in r.get("by_name", []) if isinstance(c, str)]
+                special += _mk_effect_rules("by_name", names, effect)
+            if r.get("by_index"):
+                idxs = [int(i) for i in r.get("by_index", []) if isinstance(i, int)]
+                special += _mk_effect_rules("by_index", idxs, effect)
+            if r.get("nth"):
+                nths = [int(i) for i in r.get("nth", []) if isinstance(i, int)]
+                special += _mk_effect_rules("nth", nths, effect)
+            if r.get("relative"):
+                rel = r.get("relative")
+                if isinstance(rel, dict):
+                    special += _mk_effect_rules("relative", rel, effect)
+
+        style["special_rules"] = special
+        return style
+
     # 1. Проверяем на ошибки
     has_errors, errors = _is_style_error(style_dict)
     
     if not has_errors:
-        # Нет ошибок - возвращаем как есть
-        return style_dict
+        # Нет ошибок — вернём стиль + расширения col_rules→special_rules
+        return _extend_with_col_rules(style_dict)
     
     # 2. Автоматическое исправление простых ошибок
     normalized_style = {}
@@ -1793,6 +1900,8 @@ def normalize_table_style_with_auto_fix(style_dict: dict, llm_client=None, model
         except Exception:
             pass  # Если LLM недоступен, используем автоматическое исправление
     
+    # Добавляем совместимость col_rules -> special_rules даже при автофиксе
+    normalized_style = _extend_with_col_rules(normalized_style)
     return normalized_style
 
 
