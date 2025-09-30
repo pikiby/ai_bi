@@ -926,45 +926,33 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             background-color: transparent;
         }}
         
-        /* Условное форматирование для темной темы - максимальная специфичность для перекрытия striped! */
-        .adaptive-table tbody tr td.cell-blue,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-blue,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-blue {{
+        /* Условное форматирование для темной темы - ПОСЛЕ striped, высокая специфичность + !important */
+        .adaptive-table tbody tr td.cell-blue {{
             background-color: rgba(0, 0, 255, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-red,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-red,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-red {{
+        .adaptive-table tbody tr td.cell-red {{
             background-color: rgba(255, 0, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-green,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-green,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-green {{
+        .adaptive-table tbody tr td.cell-green {{
             background-color: rgba(0, 255, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-yellow,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-yellow,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-yellow {{
+        .adaptive-table tbody tr td.cell-yellow {{
             background-color: rgba(255, 255, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-orange,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-orange,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-orange {{
+        .adaptive-table tbody tr td.cell-orange {{
             background-color: rgba(255, 165, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-purple,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-purple,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-purple {{
+        .adaptive-table tbody tr td.cell-purple {{
             background-color: rgba(128, 0, 128, 0.4) !important;
             font-weight: bold;
         }}
@@ -1091,45 +1079,33 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         background-color: transparent;
     }}
     
-    /* Условное форматирование ячеек - максимальная специфичность для перекрытия striped! */
-    .adaptive-table tbody tr td.cell-blue,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-blue,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-blue {{
+    /* Условное форматирование ячеек - ПОСЛЕ striped, высокая специфичность + !important */
+    .adaptive-table tbody tr td.cell-blue {{
         background-color: rgba(0, 0, 255, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-red,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-red,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-red {{
+    .adaptive-table tbody tr td.cell-red {{
         background-color: rgba(255, 0, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-green,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-green,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-green {{
+    .adaptive-table tbody tr td.cell-green {{
         background-color: rgba(0, 255, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-yellow,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-yellow,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-yellow {{
+    .adaptive-table tbody tr td.cell-yellow {{
         background-color: rgba(255, 255, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-orange,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-orange,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-orange {{
+    .adaptive-table tbody tr td.cell-orange {{
         background-color: rgba(255, 165, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-purple,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-purple,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-purple {{
+    .adaptive-table tbody tr td.cell-purple {{
         background-color: rgba(128, 0, 128, 0.3) !important;
         font-weight: bold;
     }}
