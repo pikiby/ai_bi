@@ -12,6 +12,7 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 import polars as pl
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio  # для to_image(fig, format="png")
@@ -1191,53 +1192,73 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         all_classes = f"{color_class} {text_class}".strip()
         
         # Специальная обработка для "max" и "min"
-        if isinstance(value, str) and value.lower() in ["max", "maximum"] and column and column in pdf.columns:
-            # Находим максимальное значение в колонке
-            try:
-                # Пытаемся преобразовать в числовой формат
-                numeric_col = pd.to_numeric(pdf[column], errors='coerce')
-                if not numeric_col.isna().all():
-                    max_value = numeric_col.max()
-                    if not pd.isna(max_value):
-                        # Если нужно выделить всю строку - заменяем value на найденное значение
-                        if is_row_rule:
-                            value = max_value  # Подменяем value для обработки ниже
-                        else:
-                            # Выделяем только ячейку с максимумом
-                            max_str = str(max_value)
-                            pattern = rf'<td[^>]*>([^<]*{re.escape(max_str)}[^<]*)</td>'
-                            def replace_cell(match):
-                                cell_content = match.group(1)
-                                if max_str in cell_content:
-                                    return f'<td class="{all_classes}">{cell_content}</td>'
-                                return match.group(0)
-                            table_html = re.sub(pattern, replace_cell, table_html)
-                            continue
-            except Exception:
+        if isinstance(value, str) and value.lower() in ["max", "maximum"]:
+            # Если колонка не указана, ищем во всех числовых колонках
+            if not column or column not in pdf.columns:
+                # Находим первую числовую колонку
+                numeric_cols = pdf.select_dtypes(include=[np.number]).columns
+                if len(numeric_cols) > 0:
+                    column = numeric_cols[0]  # Берем первую числовую колонку
+                else:
+                    continue  # Нет числовых колонок
+            
+            if column and column in pdf.columns:
+                # Находим максимальное значение в колонке
+                try:
+                    # Пытаемся преобразовать в числовой формат
+                    numeric_col = pd.to_numeric(pdf[column], errors='coerce')
+                    if not numeric_col.isna().all():
+                        max_value = numeric_col.max()
+                        if not pd.isna(max_value):
+                            # Если нужно выделить всю строку - заменяем value на найденное значение
+                            if is_row_rule:
+                                value = max_value  # Подменяем value для обработки ниже
+                            else:
+                                # Выделяем только ячейку с максимумом
+                                max_str = str(max_value)
+                                pattern = rf'<td[^>]*>([^<]*{re.escape(max_str)}[^<]*)</td>'
+                                def replace_cell(match):
+                                    cell_content = match.group(1)
+                                    if max_str in cell_content:
+                                        return f'<td class="{all_classes}">{cell_content}</td>'
+                                    return match.group(0)
+                                table_html = re.sub(pattern, replace_cell, table_html)
+                                continue
+                except Exception:
                     pass
-        elif isinstance(value, str) and value.lower() in ["min", "minimum"] and column and column in pdf.columns:
-            # Находим минимальное значение в колонке
-            try:
-                numeric_col = pd.to_numeric(pdf[column], errors='coerce')
-                if not numeric_col.isna().all():
-                    min_value = numeric_col.min()
-                    if not pd.isna(min_value):
-                        # Если нужно выделить всю строку - заменяем value на найденное значение
-                        if is_row_rule:
-                            value = min_value  # Подменяем value для обработки ниже
-                        else:
-                            # Выделяем только ячейку с минимумом
-                            min_str = str(min_value)
-                            pattern = rf'<td[^>]*>([^<]*{re.escape(min_str)}[^<]*)</td>'
-                            def replace_cell(match):
-                                cell_content = match.group(1)
-                                if min_str in cell_content:
-                                    return f'<td class="{all_classes}">{cell_content}</td>'
-                                return match.group(0)
-                            table_html = re.sub(pattern, replace_cell, table_html)
-                            continue
-            except Exception:
-                pass
+        elif isinstance(value, str) and value.lower() in ["min", "minimum"]:
+            # Если колонка не указана, ищем во всех числовых колонках
+            if not column or column not in pdf.columns:
+                # Находим первую числовую колонку
+                numeric_cols = pdf.select_dtypes(include=[np.number]).columns
+                if len(numeric_cols) > 0:
+                    column = numeric_cols[0]  # Берем первую числовую колонку
+                else:
+                    continue  # Нет числовых колонок
+            
+            if column and column in pdf.columns:
+                # Находим минимальное значение в колонке
+                try:
+                    numeric_col = pd.to_numeric(pdf[column], errors='coerce')
+                    if not numeric_col.isna().all():
+                        min_value = numeric_col.min()
+                        if not pd.isna(min_value):
+                            # Если нужно выделить всю строку - заменяем value на найденное значение
+                            if is_row_rule:
+                                value = min_value  # Подменяем value для обработки ниже
+                            else:
+                                # Выделяем только ячейку с минимумом
+                                min_str = str(min_value)
+                                pattern = rf'<td[^>]*>([^<]*{re.escape(min_str)}[^<]*)</td>'
+                                def replace_cell(match):
+                                    cell_content = match.group(1)
+                                    if min_str in cell_content:
+                                        return f'<td class="{all_classes}">{cell_content}</td>'
+                                    return match.group(0)
+                                table_html = re.sub(pattern, replace_cell, table_html)
+                                continue
+                except Exception:
+                    pass
         
         # Обработка правил для целых строк
         if is_row_rule:
