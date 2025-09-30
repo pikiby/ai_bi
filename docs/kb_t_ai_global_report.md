@@ -556,6 +556,7 @@ ORDER BY revenue DESC
 LIMIT 25;
 ```
 
+
 9) **Детальный анализ платежей по тарифам и платформам**
 ```sql
 WITH last_date AS (
