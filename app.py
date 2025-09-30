@@ -387,6 +387,7 @@ def _render_table(item: dict):
     _render_table_content_styler(pdf, meta)
     _render_table_caption(meta, pdf)
     _render_sql_block(meta)
+    _render_table_code(meta)
     _render_table_style_block_styler(meta)
     _render_download_buttons(pdf, item, "table")
 
@@ -670,6 +671,14 @@ def _render_plotly_code(meta: dict):
     
     with st.expander("Показать код Plotly", expanded=False):
         st.code(plotly_src, language="python")
+
+def _render_table_code(meta: dict):
+    """Отрисовка свернутого блока с кодом TABLE (table_code)."""
+    table_src = (meta.get("table_code") or "").strip()
+    if not table_src:
+        return
+    with st.expander("Показать код TABLE (table_code)", expanded=False):
+        st.code(table_src, language="python")
 
 
 # Отрисовка кнопок скачивания
@@ -2668,6 +2677,7 @@ if user_input:
                                     old_df = it.get("df_pl")
                                     new_meta = copy.deepcopy(old_meta)
                                     new_meta["rendered_html"] = styled_html
+                                    new_meta["table_code"] = table_code
                                     _push_result("table", df_pl=old_df, meta=new_meta)
                                     applied = True
                                     created_table = True
@@ -2687,6 +2697,7 @@ if user_input:
                                             old_df = it.get("df_pl")
                                             new_meta = copy.deepcopy(old_meta)
                                             new_meta["rendered_html"] = html_out
+                                            new_meta["table_code"] = table_code
                                             _push_result("table", df_pl=old_df, meta=new_meta)
                                             applied = True
                                             created_table = True
@@ -2706,6 +2717,7 @@ if user_input:
                                         old_df = it.get("df_pl")
                                         new_meta = copy.deepcopy(old_meta)
                                         new_meta["styler_config"] = styler_config
+                                        new_meta["table_code"] = table_code
                                         _push_result("table", df_pl=old_df, meta=new_meta)
                                         applied = True
                                         created_table = True
