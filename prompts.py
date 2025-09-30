@@ -265,6 +265,8 @@ RULES_TABLE = r"""
          - Выделение строки по колонке: table_style = {"cell_rules": [{"value": "Краснодар", "color": "blue", "column": "Город", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ С МАКСИМУМОМ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ С МИНИМУМОМ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество", "row": True}]}
+         - ВЫДЕЛЕНИЕ СТРОКИ ЧЕРЕЗ ROW_RULES: table_style = {"row_rules": [{"value": "Киров", "color": "green", "column": "Город"}]}
+         - КОМБИНИРОВАНИЕ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}], "row_rules": [{"value": "Киров", "color": "green", "column": "Город"}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -281,6 +283,8 @@ RULES_TABLE = r"""
          - ВЫДЕЛЕНИЕ СТРОКИ: {"value": "значение", "color": "blue", "row": True} - выделит всю строку, где найдено значение
          - ВЫДЕЛЕНИЕ СТРОКИ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки", "row": True}
          - СТРОКА С MAX/MIN: {"value": "max/min", "color": "red", "column": "название_колонки", "row": True} - выделит всю строку с максимальным/минимальным значением
+         - ROW_RULES ДЛЯ СТРОК: "row_rules": [{"value": "значение", "color": "blue", "column": "название_колонки"}] - автоматически выделит всю строку
+         - КОМБИНИРОВАНИЕ RULES: можно использовать и "cell_rules" и "row_rules" одновременно
          - ДОСТУПНЫЕ ФУНКЦИИ: len, range, min, max, dict, list, str, int, float, bool, col, has_col
          - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
          - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple
@@ -289,7 +293,10 @@ RULES_TABLE = r"""
          КРИТИЧНО ДЛЯ JSON ФОРМАТА:
          - ВСЕГДА ставь запятые между элементами: {"key1": "value1", "key2": "value2"}
          - В массивах cell_rules: [{"value": "max", "color": "red", "column": "Общая выручка", "row": true}, {"value": "2", "color": "green", "row": true}]
+         - В массивах row_rules: [{"value": "Киров", "color": "green", "column": "Город"}]
          - Используй "column" (НЕ "column_id"), "value" (НЕ "rule")
          - Для max/min используй: {"value": "max", "color": "red", "column": "название_колонки", "row": true}
          - Для конкретных значений: {"value": "2", "color": "green", "row": true}
+         - ROW_RULES автоматически выделяют всю строку (не нужно указывать "row": true)
+         - Можно комбинировать: {"cell_rules": [...], "row_rules": [...]}
 """

@@ -625,26 +625,46 @@ def _render_table_style_block(meta: dict):
             json_str = json.dumps(table_style, ensure_ascii=False, indent=2)
             st.json(table_style)
             
-            # Проверяем cell_rules на корректность
+            # Проверяем cell_rules и row_rules на корректность
             cell_rules = table_style.get("cell_rules", [])
-            if cell_rules:
+            row_rules = table_style.get("row_rules", [])
+            
+            if cell_rules or row_rules:
                 st.markdown("**Проверка правил форматирования:**")
+                
+                # Проверяем cell_rules
                 for i, rule in enumerate(cell_rules):
                     if not isinstance(rule, dict):
-                        st.error(f"Правило {i+1}: должно быть словарем")
+                        st.error(f"cell_rules {i+1}: должно быть словарем")
                         continue
                     
                     # Проверяем обязательные поля
                     if not rule.get("value") and not rule.get("rule"):
-                        st.error(f"Правило {i+1}: отсутствует 'value' или 'rule'")
+                        st.error(f"cell_rules {i+1}: отсутствует 'value' или 'rule'")
                     if not rule.get("color"):
-                        st.error(f"Правило {i+1}: отсутствует 'color'")
+                        st.error(f"cell_rules {i+1}: отсутствует 'color'")
                     
                     # Предупреждения о неправильных ключах
                     if "column_id" in rule and "column" not in rule:
-                        st.warning(f"Правило {i+1}: используйте 'column' вместо 'column_id'")
+                        st.warning(f"cell_rules {i+1}: используйте 'column' вместо 'column_id'")
                     if "rule" in rule and "value" not in rule:
-                        st.warning(f"Правило {i+1}: используйте 'value' вместо 'rule'")
+                        st.warning(f"cell_rules {i+1}: используйте 'value' вместо 'rule'")
+                
+                # Проверяем row_rules
+                for i, rule in enumerate(row_rules):
+                    if not isinstance(rule, dict):
+                        st.error(f"row_rules {i+1}: должно быть словарем")
+                        continue
+                    
+                    # Проверяем обязательные поля
+                    if not rule.get("value") and not rule.get("rule"):
+                        st.error(f"row_rules {i+1}: отсутствует 'value' или 'rule'")
+                    if not rule.get("color"):
+                        st.error(f"row_rules {i+1}: отсутствует 'color'")
+                    if not rule.get("column"):
+                        st.warning(f"row_rules {i+1}: рекомендуется указать 'column' для поиска")
+                    
+                    st.info(f"row_rules {i+1}: будет выделена вся строка с '{rule.get('value')}' в колонке '{rule.get('column')}'")
                         
         except Exception as e:
             st.error(f"Ошибка в JSON стилей: {e}")
@@ -1212,11 +1232,28 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
     
     # Получаем правила форматирования из метаданных
     cell_rules = style_meta.get("cell_rules", [])
-    if not cell_rules:
+    row_rules = style_meta.get("row_rules", [])
+    
+    # Объединяем все правила, добавляя row=true для row_rules
+    all_rules = []
+    
+    # Добавляем cell_rules как есть
+    for rule in cell_rules:
+        if isinstance(rule, dict):
+            all_rules.append(rule)
+    
+    # Добавляем row_rules с row=true
+    for rule in row_rules:
+        if isinstance(rule, dict):
+            rule_copy = rule.copy()
+            rule_copy["row"] = True  # Принудительно устанавливаем row=true для row_rules
+            all_rules.append(rule_copy)
+    
+    if not all_rules:
         return table_html
     
     # Применяем каждое правило
-    for rule in cell_rules:
+    for rule in all_rules:
         if not isinstance(rule, dict):
             continue
             
