@@ -930,6 +930,42 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                 # Добавляем к существующим стилям
                 existing_styles = styler.table_styles
                 styler = styler.set_table_styles(existing_styles + styles_to_add)
+        elif rule_type == "column_value_condition":
+            # Условное форматирование по значению в колонке
+            column = rule.get("column")
+            operator = rule.get("operator", ">")
+            value = rule.get("value")
+            # st.info(f"🔍 DEBUG: Условие {column} {operator} {value}")
+            
+            if column and column in pdf.columns and value is not None:
+                # Находим строки, соответствующие условию
+                if operator == ">":
+                    matching_rows = pdf[pdf[column] > value].index.tolist()
+                elif operator == "<":
+                    matching_rows = pdf[pdf[column] < value].index.tolist()
+                elif operator == ">=":
+                    matching_rows = pdf[pdf[column] >= value].index.tolist()
+                elif operator == "<=":
+                    matching_rows = pdf[pdf[column] <= value].index.tolist()
+                elif operator == "==":
+                    matching_rows = pdf[pdf[column] == value].index.tolist()
+                else:
+                    matching_rows = []
+                
+                if matching_rows:
+                    styles_to_add = []
+                    for row_idx in matching_rows:
+                        styles_to_add.append({
+                            "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
+                            "props": [
+                                ("background-color", color),
+                                ("color", "white")
+                            ]
+                        })
+                    
+                    # Добавляем к существующим стилям
+                    existing_styles = styler.table_styles
+                    styler = styler.set_table_styles(existing_styles + styles_to_add)
         elif rule_type == "first_n_cols":
             # Первые N столбцов
             n = rule.get("count", 1)

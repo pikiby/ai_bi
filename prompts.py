@@ -249,6 +249,8 @@ RULES_TABLE = r"""
 - Если просят выделить последнюю строку → используй special_rules с "type": "last_n_rows"
 - Если просят выделить конкретную строку по номеру → используй special_rules с "type": "specific_row"
 - Если просят выделить несколько конкретных строк → используй special_rules с "type": "specific_rows"
+- Если просят выделить значения больше/меньше N → используй special_rules с "type": "column_value_condition"
+- Если просят выделить максимальные/минимальные значения → используй cell_rules с "value": "max"/"min"
 - Если просят выделить строку по тексту → используй row_rules с "column" и "value"
 - Если просят выделить столбец → используй column_rules с "column" и "color"
 - ВСЕГДА указывай "column" в row_rules для поиска по колонке
@@ -317,6 +319,20 @@ styler_config = {
     "header_fill_color": "#f4f4f4",
     "cells_fill_color": "white",
     "special_rules": [{"type": "specific_rows", "rows": [3, 9], "color": "red"}]
+}
+
+10. Выделение значений больше 10000:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "special_rules": [{"type": "column_value_condition", "column": "Общая выручка", "operator": ">", "value": 10000, "color": "red"}]
+}
+
+11. Выделение максимальных значений:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "cell_rules": [{"column": "Общая выручка", "value": "max", "color": "black"}]
 }
 
 """
