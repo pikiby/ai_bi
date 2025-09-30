@@ -1209,8 +1209,33 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         text_color = rule.get("text_color")
         column = rule.get("column")
         is_row_rule = rule.get("row", False)  # Новый параметр для выделения строк
-        
-        if not value or not color:
+
+        # Расширенная поддержка индекса строки: index/row_index/first/last/отрицательные индексы
+        row_index_raw = rule.get("row_index", rule.get("index"))
+        explicit_row_index = None
+        if is_row_rule:
+            try:
+                if row_index_raw is not None:
+                    explicit_row_index = int(str(row_index_raw).strip())
+                elif isinstance(value, int):
+                    explicit_row_index = value
+                elif isinstance(value, str):
+                    v_low = value.strip().lower()
+                    if v_low in ("first", "первый", "первая"):
+                        explicit_row_index = 0
+                    elif v_low in ("last", "последний", "последняя"):
+                        explicit_row_index = len(pdf) - 1 if len(pdf) > 0 else None
+                    else:
+                        # Попробуем интерпретировать как число (включая отрицательные)
+                        explicit_row_index = int(v_low)
+            except Exception:
+                explicit_row_index = None
+
+        # Проверка обязательных полей: цвет обязателен всегда.
+        # Для правил по ячейкам value обязателен; для правил по строке допустим индекс без value.
+        if not color:
+            continue
+        if not is_row_rule and (value is None or str(value) == ""):
             continue
             
         # Определяем CSS классы
@@ -1221,7 +1246,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         all_classes = f"{color_class} {text_class}".strip()
         
         # Специальная обработка для "max" и "min"
-        if value.lower() in ["max", "maximum"] and column and column in pdf.columns:
+        if isinstance(value, str) and value.lower() in ["max", "maximum"] and column and column in pdf.columns:
             # Находим максимальное значение в колонке
             try:
                 # Пытаемся преобразовать в числовой формат
@@ -1245,7 +1270,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
                             continue
             except Exception:
                 pass
-        elif value.lower() in ["min", "minimum"] and column and column in pdf.columns:
+        elif isinstance(value, str) and value.lower() in ["min", "minimum"] and column and column in pdf.columns:
             # Находим минимальное значение в колонке
             try:
                 numeric_col = pd.to_numeric(pdf[column], errors='coerce')
@@ -1271,17 +1296,18 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         
         # Обработка правил для целых строк
         if is_row_rule:
-            # Находим индексы строк, где найдено значение
+            # Находим индексы строк, где найдено значение/индекс
             matching_rows = []
-            
-            # Проверяем, является ли value индексом строки (число)
-            try:
-                row_index = int(value)
-                # Если это число - используем как индекс строки напрямую
-                if 0 <= row_index < len(pdf):
-                    matching_rows.append(row_index)
-            except (ValueError, TypeError):
-                # Если не число - ищем по значению
+
+            # 1) Явный индекс имеет приоритет
+            if explicit_row_index is not None:
+                idx_norm = explicit_row_index
+                if idx_norm < 0:
+                    idx_norm = len(pdf) + idx_norm
+                if 0 <= idx_norm < len(pdf):
+                    matching_rows.append(idx_norm)
+            # 2) Поиск по значению, если индекс не задан
+            elif value is not None and str(value) != "":
                 if column and column in pdf.columns:
                     # Ищем в конкретной колонке
                     for idx, val in enumerate(pdf[column]):
