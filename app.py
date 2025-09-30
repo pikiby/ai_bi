@@ -634,167 +634,88 @@ def _apply_styler_base_styles(styler, style_config: dict):
     return styler
 
 def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config: dict):
-    """Применяет условное форматирование"""
+    """Применяет условное форматирование (сокращённая реализация без изменения логики)."""
+
+    def _apply_cell_rule(st, column, val, color):
+        if val == "max":
+            return st.apply(lambda x: [f"background-color: {color}; color: white" if x[column] == x[column].max() else "" for _ in x], subset=[column])
+        if val == "min":
+            return st.apply(lambda x: [f"background-color: {color}; color: white" if x[column] == x[column].min() else "" for _ in x], subset=[column])
+        if isinstance(val, (int, float)):
+            return st.apply(lambda x: [f"background-color: {color}; color: white" if x[column] == val else "" for _ in x], subset=[column])
+        if isinstance(val, str):
+            if val.startswith(">="):
+                thr = float(val[2:])
+                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') >= thr else "" for _ in x], subset=[column])
+            if val.startswith("<="):
+                thr = float(val[2:])
+                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') <= thr else "" for _ in x], subset=[column])
+            if val.startswith(">"):
+                thr = float(val[1:])
+                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') > thr else "" for _ in x], subset=[column])
+            if val.startswith("<"):
+                thr = float(val[1:])
+                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') < thr else "" for _ in x], subset=[column])
+            # строковые метки через CSS
+            matching_rows = pdf[pdf[column] == val].index.tolist()
+            if matching_rows:
+                col_idx = list(pdf.columns).index(column)
+                styles_to_add = [{
+                    "selector": f"tbody tr:nth-child({row_idx + 1}) td:nth-child({col_idx + 1})",
+                    "props": [("background-color", color), ("color", "white")]
+                } for row_idx in matching_rows]
+                existing = st.table_styles or []
+                return st.set_table_styles(existing + styles_to_add)
+        return st
+
+    def _add_row_css_for_indices(st, row_indices, color, text_only=False):
+        if not row_indices:
+            return st
+        props = [("color", color)] if text_only else [("background-color", color), ("color", "white")]
+        styles_to_add = [{
+            "selector": f"tbody tr:nth-child({row_idx + 1}) td",
+            "props": props
+        } for row_idx in row_indices]
+        existing = st.table_styles or []
+        return st.set_table_styles(existing + styles_to_add)
+
+    def _apply_row_condition(st, column, value, cond_col, cond_val, color):
+        def row_lambda(x):
+            def pass_cond():
+                if isinstance(cond_val, str) and cond_val.startswith(">"):
+                    return pd.to_numeric(x[cond_col], errors='coerce') > float(cond_val[1:])
+                if isinstance(cond_val, str) and cond_val.startswith("<"):
+                    return pd.to_numeric(x[cond_col], errors='coerce') < float(cond_val[1:])
+                if isinstance(cond_val, (int, float)):
+                    return pd.to_numeric(x[cond_col], errors='coerce') > cond_val
+                return False
+            return [f"background-color: {color}; color: white" if (x[column] == value and pass_cond()) else "" for _ in x]
+        return st.apply(row_lambda, axis=1)
     
     # Обработка cell_rules (выделение ячеек)
-    cell_rules = style_config.get("cell_rules", [])
-    
-    for rule in cell_rules:
+    for rule in style_config.get("cell_rules", []):
         column = rule.get("column")
         value = rule.get("value")
         color = rule.get("color", "red")
-        
         if column and column in pdf.columns:
-            if value == "max":
-                # Выделить максимальные значения
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == x[column].max() else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif value == "min":
-                # Выделить минимальные значения
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == x[column].min() else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, (int, float)):
-                # Выделить конкретные значения
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == value else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith(">"):
-                # Выделить значения больше указанного числа
-                threshold = float(value[1:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') > threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith("<"):
-                # Выделить значения меньше указанного числа
-                threshold = float(value[1:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') < threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith(">="):
-                # Выделить значения больше или равные указанному числу
-                threshold = float(value[2:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') >= threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith("<="):
-                # Выделить значения меньше или равные указанному числу
-                threshold = float(value[2:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') <= threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and not (value.startswith(">") or value.startswith("<")):
-                # Обработка строковых значений через set_table_styles
-                matching_rows = pdf[pdf[column] == value].index.tolist()
-                if matching_rows:
-                    styles_to_add = []
-                    for row_idx in matching_rows:
-                        col_idx = list(pdf.columns).index(column)
-                        styles_to_add.append({
-                            "selector": f"tbody tr:nth-child({row_idx + 1}) td:nth-child({col_idx + 1})", 
-                            "props": [
-                                ("background-color", color),
-                                ("color", "white")
-                            ]
-                        })
-                    
-                    existing_styles = styler.table_styles
-                    styler = styler.set_table_styles(existing_styles + styles_to_add)
+            styler = _apply_cell_rule(styler, column, value, color)
     
     # Обработка row_rules (выделение строк)
     row_rules = style_config.get("row_rules", [])
     # st.info(f"🔍 DEBUG: Обрабатываю {len(row_rules)} row_rules")
     
-    for i, rule in enumerate(row_rules):
+    for rule in row_rules:
         column = rule.get("column")
         value = rule.get("value")
         color = rule.get("color", "red")
-        condition_column = rule.get("condition_column")  # Дополнительное условие
-        condition_value = rule.get("condition_value")     # Значение для условия
-        
-        # st.info(f"🔍 DEBUG: row_rules[{i}]: column='{column}', value='{value}', color='{color}'")
-        # st.info(f"🔍 DEBUG: Доступные колонки: {list(pdf.columns)}")
-        # st.info(f"🔍 DEBUG: column in pdf.columns: {column in pdf.columns if column else False}")
-        
+        condition_column = rule.get("condition_column")
+        condition_value = rule.get("condition_value")
         if column and column in pdf.columns:
-            # st.info(f"🔍 DEBUG: Внутри обработки row_rules")
             if condition_column and condition_column in pdf.columns and condition_value is not None:
-                st.info(f"🔍 DEBUG: Сложное условие")
-                # Сложное условие: выделить строки где column=value И condition_column>condition_value
-                if isinstance(condition_value, str) and condition_value.startswith(">"):
-                    threshold = float(condition_value[1:])
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" 
-                                  if (x[column] == value and 
-                                      pd.to_numeric(x[condition_column], errors='coerce') > threshold) 
-                                  else "" 
-                                  for _ in x], 
-                        axis=1
-                    )
-                elif isinstance(condition_value, str) and condition_value.startswith("<"):
-                    threshold = float(condition_value[1:])
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" 
-                                  if (x[column] == value and 
-                                      pd.to_numeric(x[condition_column], errors='coerce') < threshold) 
-                                  else "" 
-                                  for _ in x], 
-                        axis=1
-                    )
-                elif isinstance(condition_value, (int, float)):
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" 
-                                  if (x[column] == value and 
-                                      pd.to_numeric(x[condition_column], errors='coerce') > condition_value) 
-                                  else "" 
-                                  for _ in x], 
-                        axis=1
-                    )
+                styler = _apply_row_condition(styler, column, value, condition_column, condition_value, color)
             else:
-                # Простое условие: выделить всю строку, где найдено значение
-                # st.info(f"🔍 DEBUG: Простое условие - ищу '{value}' в колонке '{column}'")
-                
-                # НОВЫЙ ПОДХОД: используем set_table_styles вместо apply
-                # Находим индексы строк с нужным значением
                 matching_rows = pdf[pdf[column] == value].index.tolist()
-                # st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
-                
-                if matching_rows:
-                    # Создаем CSS селекторы для найденных строк
-                    styles_to_add = []
-                    for row_idx in matching_rows:
-                        styles_to_add.append({
-                            "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
-                            "props": [
-                                ("color", color)
-                            ]
-                        })
-                    
-                    # Получаем существующие стили и добавляем новые
-                    existing_styles = styler.table_styles
-                    styler = styler.set_table_styles(existing_styles + styles_to_add)
+                styler = _add_row_css_for_indices(styler, matching_rows, color, text_only=True)
                     # st.info(f"🔍 DEBUG: Применил стили через set_table_styles")
                 # else:
                 #     st.info(f"🔍 DEBUG: Строки с '{value}' не найдены")
@@ -816,25 +737,12 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
     for i, rule in enumerate(column_rules):
         column = rule.get("column")
         color = rule.get("color", "red")
-        # st.info(f"🔍 DEBUG: column_rules[{i}]: column='{column}', color='{color}'")
-        
         if column and column in pdf.columns:
-            # st.info(f"🔍 DEBUG: Выделяю столбец '{column}' цветом '{color}'")
-            
-            # Находим индекс столбца
             col_index = list(pdf.columns).index(column)
-            # st.info(f"🔍 DEBUG: Индекс столбца: {col_index}")
-            
-            # Создаем стили для всего столбца
             styles_to_add = [{
-                "selector": f"tbody td:nth-child({col_index + 1})", 
-                "props": [
-                    ("background-color", color),
-                    ("color", "white")
-                ]
+                "selector": f"tbody td:nth-child({col_index + 1})",
+                "props": [("background-color", color), ("color", "white")]
             }]
-            
-            # Добавляем к существующим стилям
             existing_styles = styler.table_styles
             styler = styler.set_table_styles(existing_styles + styles_to_add)
             # st.info(f"🔍 DEBUG: Применил стили для столбца")
@@ -890,17 +798,7 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             # Конкретная строка (0-based)
             row_index = rule.get("row_index", 0)
             # st.info(f"🔍 DEBUG: Выделяю строку {row_index}")
-            styles_to_add = [{
-                "selector": f"tbody tr:nth-child({row_index + 1}) td", 
-                "props": [
-                    ("background-color", color),
-                    ("color", "white")
-                ]
-            }]
-            
-            # Добавляем к существующим стилям
-            existing_styles = styler.table_styles
-            styler = styler.set_table_styles(existing_styles + styles_to_add)
+            styler = _add_row_css_for_indices(styler, [row_index], color, text_only=False)
         elif rule_type == "by_value":
             # Выделение строки по значению в колонке
             column = rule.get("column")
@@ -911,20 +809,7 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                 matching_rows = pdf[pdf[column] == value].index.tolist()
                 # st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
                 
-                if matching_rows:
-                    styles_to_add = []
-                    for row_idx in matching_rows:
-                        styles_to_add.append({
-                            "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
-                            "props": [
-                                ("background-color", color),
-                                ("color", "white")
-                            ]
-                        })
-                    
-                    # Добавляем к существующим стилям
-                    existing_styles = styler.table_styles
-                    styler = styler.set_table_styles(existing_styles + styles_to_add)
+                styler = _add_row_css_for_indices(styler, matching_rows, color, text_only=False)
             # else:
             #     st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
         elif rule_type == "specific_rows":
@@ -933,19 +818,7 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             # st.info(f"🔍 DEBUG: Выделяю строки: {rows}")
             
             if rows:
-                styles_to_add = []
-                for row_idx in rows:
-                    styles_to_add.append({
-                        "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
-                        "props": [
-                            ("background-color", color),
-                            ("color", "white")
-                        ]
-                    })
-                
-                # Добавляем к существующим стилям
-                existing_styles = styler.table_styles
-                styler = styler.set_table_styles(existing_styles + styles_to_add)
+                styler = _add_row_css_for_indices(styler, rows, color, text_only=False)
         elif rule_type == "column_value_condition":
             # Условное форматирование по значению в колонке
             column = rule.get("column")
