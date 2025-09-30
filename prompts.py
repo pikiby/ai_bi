@@ -256,6 +256,8 @@ RULES_TABLE = r"""
          - МАКСИМУМ: {"cell_rules": [{"value": "max", "color": "red", "column": "колонка"}]}
          - МИНИМУМ: {"cell_rules": [{"value": "min", "color": "green", "column": "колонка"}]}
          
+
+         
          ГОТОВЫЕ ШАБЛОНЫ (можно адаптировать):
          - Выделить строку: {"row_rules": [{"value": "Краснодар", "color": "red", "column": "Город"}]}
          - Выделить максимум: {"cell_rules": [{"value": "max", "color": "red", "column": "Выручка"}]}
