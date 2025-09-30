@@ -1010,6 +1010,22 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     subset=[col_name]
                 )
     
+    # Базовая прозрачность фона таблицы (не ломает условные стили)
+    try:
+        existing_styles = styler.table_styles or []
+    except Exception:
+        existing_styles = []
+
+    transparent_styles = [
+        {"selector": "table", "props": [("background-color", "transparent")]},
+        {"selector": "thead th", "props": [("background-color", "transparent")]},
+        {"selector": "tbody td", "props": [("background-color", "transparent")]},
+    ]
+
+    styler = styler.set_table_styles(existing_styles + transparent_styles, overwrite=False)
+    # Подстраховка против инлайновых стилей
+    styler = styler.set_properties(**{"background-color": "transparent"})
+
     return styler
 
 def _apply_styler_striping(styler, style_config: dict):
