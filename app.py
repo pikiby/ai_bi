@@ -7,6 +7,7 @@ import re
 import json
 import io
 import zipfile
+import copy
 from datetime import datetime
 
 import streamlit as st
@@ -296,7 +297,7 @@ def _strip_llm_blocks(text: str) -> str:
     if not text:
         return text
     # Убираем служебные блоки (table_style обрабатывается отдельно в строке 2172)
-    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table"):
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table", "table_code"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
@@ -513,14 +514,17 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
     _save_table_dataframe(pdf, meta)
 
     # 1) Берём стили из meta или из отложенного состояния (one-shot)
-    style_meta = (meta.get("table_style") or {})
-    if not style_meta and st.session_state.get("next_table_style"):
-        style_meta = st.session_state["next_table_style"]
-        meta["table_style"] = style_meta
+    style_meta_raw = meta.get("table_style") or {}
+    if not style_meta_raw and st.session_state.get("next_table_style"):
+        style_meta_raw = st.session_state["next_table_style"]
+        meta["table_style"] = style_meta_raw
         try:
             del st.session_state["next_table_style"]
         except Exception:
             pass
+
+    style_meta = _normalize_table_style(style_meta_raw)
+    meta["table_style"] = style_meta
 
     # 2) Всегда рисуем HTML-таблицу с CSS (включая прокрутку)
     # Сливаем со стандартными стилями (стиль пользователя перекрывает дефолт)
@@ -674,6 +678,61 @@ STANDARD_TABLE_STYLES = {
     "header_font_color": None  # автоматический контрастный цвет
 }
 
+
+
+def _normalize_table_style(style: dict | None) -> dict:
+    """Приводит table_style из LLM к ожидаемому формату."""
+    if not isinstance(style, dict):
+        return {}
+
+    data = copy.deepcopy(style)
+
+    raw_rules = data.get("cell_rules")
+    cell_rules = []
+    if isinstance(raw_rules, list):
+        for rule in raw_rules:
+            if isinstance(rule, dict):
+                cell_rules.append(copy.deepcopy(rule))
+    data["cell_rules"] = cell_rules
+
+    def _consume_list(key: str, *, text_color: bool = False):
+        values = data.get(key)
+        default_value = None
+        if isinstance(values, list):
+            for entry in values:
+                if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                    match_value, color_value = entry[0], entry[1]
+                    column = entry[2] if len(entry) >= 3 else None
+                    if match_value:
+                        rule = {"value": match_value, "row": True}
+                        if column:
+                            rule["column"] = column
+                        if text_color:
+                            rule["text_color"] = color_value
+                        else:
+                            rule["color"] = color_value
+                        cell_rules.append(rule)
+                    else:
+                        default_value = color_value
+            data[key] = default_value
+
+    _consume_list("cells_fill_color", text_color=False)
+    if data.get("cells_fill_color") is None:
+        data["cells_fill_color"] = "transparent"
+
+    _consume_list("font_color", text_color=True)
+    if data.get("font_color") is None:
+        data["font_color"] = None
+
+    header_font = data.get("header_font_color")
+    if isinstance(header_font, list):
+        default_header = None
+        for entry in header_font:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2 and not entry[0]:
+                default_header = entry[1]
+        data["header_font_color"] = default_header
+
+    return data
 def _save_table_dataframe(pdf: pd.DataFrame, meta: dict) -> str:
     """Сохраняет DataFrame для последующей генерации кода."""
     import datetime
@@ -1121,142 +1180,130 @@ def _build_css_styles(style_meta: dict) -> str:
     return css
 
 
+
 def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict) -> str:
-    """
-    Применяет условное форматирование к HTML таблице.
-    Поддерживает выделение конкретных значений по содержимому и целых строк.
-    """
+    """Применяет условное форматирование к HTML таблице."""
     import re
     import pandas as pd
-    
-    # Получаем правила форматирования из метаданных
+
     cell_rules = style_meta.get("cell_rules", [])
-    if not cell_rules:
+    if not isinstance(cell_rules, list) or not cell_rules:
         return table_html
-    
-    # Применяем каждое правило
+
+    def _class_or_style(value, prefix: str, css_prop: str):
+        classes, styles = [], []
+        if isinstance(value, str) and value.strip():
+            raw = value.strip()
+            if re.match(r'^(rgba?|#)', raw, re.IGNORECASE):
+                styles.append(f"{css_prop}: {raw} !important")
+            else:
+                classes.append(f"{prefix}-{raw.lower()}")
+        return classes, styles
+
+    def _merge_attrs(attrs: str, class_tokens, style_parts) -> str:
+        attrs = attrs or ""
+        class_tokens = [c for c in class_tokens if c]
+        style_parts = [s for s in style_parts if s]
+        if class_tokens:
+            if 'class=' in attrs:
+                attrs = re.sub(
+                    r'class="([^"]*)"',
+                    lambda m: f'class="{(m.group(1) + " " + " ".join(class_tokens)).strip()}"',
+                    attrs,
+                    count=1,
+                )
+            else:
+                attrs += f' class="{" ".join(class_tokens)}"'
+        if style_parts:
+            style_str = '; '.join(s.rstrip(';') for s in style_parts)
+            if 'style=' in attrs:
+                attrs = re.sub(
+                    r'style="([^"]*)"',
+                    lambda m: f'style="{(m.group(1).rstrip(";") + "; " + style_str).rstrip(";")};"',
+                    attrs,
+                    count=1,
+                )
+            else:
+                attrs += f' style="{style_str};"'
+        attrs = attrs.rstrip()
+        if attrs and not attrs.startswith(' '):
+            attrs = ' ' + attrs
+        return attrs
+
     for rule in cell_rules:
         if not isinstance(rule, dict):
             continue
-            
+
         value = rule.get("value")
-        color = rule.get("color")
+        background = rule.get("background") or rule.get("fill_color") or rule.get("color")
         text_color = rule.get("text_color")
         column = rule.get("column")
-        is_row_rule = rule.get("row", False)  # Новый параметр для выделения строк
-        
-        if not value or not color:
+        is_row_rule = bool(rule.get("row"))
+
+        if not value:
             continue
-            
-        # Определяем CSS классы
-        color_class = f"cell-{color.lower()}"
-        text_class = f"text-{text_color.lower()}" if text_color else ""
-        
-        # Объединяем классы
-        all_classes = f"{color_class} {text_class}".strip()
-        
-        # Специальная обработка для "max" и "min"
-        if value.lower() in ["max", "maximum"] and column and column in pdf.columns:
-            # Находим максимальное значение в колонке
-            try:
-                # Пытаемся преобразовать в числовой формат
-                numeric_col = pd.to_numeric(pdf[column], errors='coerce')
-                if not numeric_col.isna().all():
-                    max_value = numeric_col.max()
-                    if not pd.isna(max_value):
-                        # Форматируем максимальное значение
-                        max_str = str(max_value)
-                        pattern = rf'<td[^>]*>([^<]*{re.escape(max_str)}[^<]*)</td>'
-                        def replace_cell(match):
-                            cell_content = match.group(1)
-                            if max_str in cell_content:
-                                return f'<td class="{all_classes}">{cell_content}</td>'
-                            return match.group(0)
-                        table_html = re.sub(pattern, replace_cell, table_html)
-                        continue
-            except Exception:
-                pass
-        elif value.lower() in ["min", "minimum"] and column and column in pdf.columns:
-            # Находим минимальное значение в колонке
-            try:
-                numeric_col = pd.to_numeric(pdf[column], errors='coerce')
-                if not numeric_col.isna().all():
-                    min_value = numeric_col.min()
-                    if not pd.isna(min_value):
-                        min_str = str(min_value)
-                        pattern = rf'<td[^>]*>([^<]*{re.escape(min_str)}[^<]*)</td>'
-                        def replace_cell(match):
-                            cell_content = match.group(1)
-                            if min_str in cell_content:
-                                return f'<td class="{all_classes}">{cell_content}</td>'
-                            return match.group(0)
-                        table_html = re.sub(pattern, replace_cell, table_html)
-                        continue
-            except Exception:
-                pass
-        
-        # Обработка правил для целых строк
+
+        class_tokens = []
+        style_parts = []
+        classes_bg, styles_bg = _class_or_style(background, "cell", "background-color")
+        classes_text, styles_text = _class_or_style(text_color, "text", "color")
+        class_tokens.extend(classes_bg)
+        class_tokens.extend(classes_text)
+        style_parts.extend(styles_bg)
+        style_parts.extend(styles_text)
+
+        # Специальная обработка max/min
+        if isinstance(value, str) and column and column in pdf.columns:
+            numeric_col = pd.to_numeric(pdf[column], errors='coerce')
+            if not numeric_col.isna().all():
+                if value.lower() in {"max", "maximum"}:
+                    target_value = numeric_col.max()
+                elif value.lower() in {"min", "minimum"}:
+                    target_value = numeric_col.min()
+                else:
+                    target_value = None
+                if target_value is not None and not pd.isna(target_value):
+                    value = str(target_value)
+
+        value_lower = str(value).lower()
+
         if is_row_rule:
-            # Находим индексы строк, где найдено значение
             matching_rows = []
             if column and column in pdf.columns:
-                # Ищем в конкретной колонке
-                for idx, val in enumerate(pdf[column]):
-                    if str(value).lower() in str(val).lower():
+                for idx, cell in enumerate(pdf[column]):
+                    if value_lower in str(cell).lower():
                         matching_rows.append(idx)
             else:
-                # Ищем во всех колонках
                 for idx, row in pdf.iterrows():
-                    if any(str(value).lower() in str(cell).lower() for cell in row):
+                    if any(value_lower in str(cell).lower() for cell in row):
                         matching_rows.append(idx)
-            
-            # Применяем классы ко всем ячейкам в найденных строках
+
             if matching_rows:
-                # Разбиваем HTML на строки таблицы
                 rows_pattern = r'(<tr[^>]*>)(.*?)(</tr>)'
                 rows = list(re.finditer(rows_pattern, table_html, re.DOTALL))
-                
-                # Пропускаем заголовок (первую строку)
                 for row_idx in matching_rows:
-                    # +1 потому что первая строка — заголовок
                     if row_idx + 1 < len(rows):
                         row_match = rows[row_idx + 1]
-                        row_open = row_match.group(1)
-                        row_content = row_match.group(2)
-                        row_close = row_match.group(3)
-                        
-                        # Применяем классы ко всем <td> в строке
+                        row_open, row_content, row_close = row_match.groups()
                         row_content_new = re.sub(
                             r'<td([^>]*)>',
-                            rf'<td\1 class="{all_classes}">',
-                            row_content
+                            lambda m: f'<td{_merge_attrs(m.group(1), class_tokens, style_parts)}>',
+                            row_content,
                         )
-                        
-                        # Заменяем строку
                         old_row = row_match.group(0)
                         new_row = row_open + row_content_new + row_close
                         table_html = table_html.replace(old_row, new_row, 1)
         else:
-            # Обычная обработка для конкретных ячеек
-            if column and column in pdf.columns:
-                # Форматируем конкретную колонку
-                pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
-                def replace_cell(match):
-                    cell_content = match.group(1)
-                    if str(value) in cell_content:
-                        return f'<td class="{all_classes}">{cell_content}</td>'
-                    return match.group(0)
-                table_html = re.sub(pattern, replace_cell, table_html)
-            else:
-                # Форматируем все ячейки с этим значением
-                pattern = rf'<td[^>]*>([^<]*{re.escape(str(value))}[^<]*)</td>'
-                def replace_cell(match):
-                    cell_content = match.group(1)
-                    if str(value) in cell_content:
-                        return f'<td class="{all_classes}">{cell_content}</td>'
-                    return match.group(0)
-                table_html = re.sub(pattern, replace_cell, table_html)
-    
+            pattern = rf'<td([^>]*)>([^<]*{re.escape(str(value))}[^<]*)</td>'
+
+            def replace_cell(match):
+                attrs = match.group(1)
+                cell_content = match.group(2)
+                new_attrs = _merge_attrs(attrs, class_tokens, style_parts)
+                return f'<td{new_attrs}>{cell_content}</td>'
+
+            table_html = re.sub(pattern, replace_cell, table_html, flags=re.IGNORECASE)
+
     return table_html
 
 
@@ -2493,6 +2540,7 @@ if user_input:
                         # Получаем table_style из выполненного кода
                         table_style = local_vars.get("table_style")
                         if isinstance(table_style, dict):
+                            table_style = _normalize_table_style(table_style)
                             # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
@@ -2530,6 +2578,7 @@ if user_input:
                     table_style = ast.literal_eval(dict_match.group(0))
                     
                     if isinstance(table_style, dict):
+                        table_style = _normalize_table_style(table_style)
                         # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
                         applied = False
                         for it in reversed(st.session_state.get("results", [])):
@@ -2538,10 +2587,10 @@ if user_input:
                                 old_meta = it.get("meta") or {}
                                 old_df = it.get("df_pl")
                                 
-                                # Merge стилей: берём старые стили и обновляем новыми
-                                existing_style = old_meta.get("table_style", {})
-                                merged_style = dict(existing_style)
+                                existing_style = _normalize_table_style(old_meta.get("table_style", {}))
+                                merged_style = copy.deepcopy(existing_style)
                                 merged_style.update(table_style)
+                                merged_style = _normalize_table_style(merged_style)
                                 
                                 # Создаём новую мету с объединёнными стилями
                                 new_meta = dict(old_meta)
