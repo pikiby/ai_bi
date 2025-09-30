@@ -2324,57 +2324,17 @@ if user_input:
             final_reply = "Не удалось получить код графика."
             st.error(f"Ошибка на шаге ответа (Plotly): {e}")
 
-    # 3) Очищаем ответ от служебных блоков ПЕРЕД сохранением в историю
-    # Не показываем служебные блоки title/explain/sql/table_style — они обрабатываются отдельно
-    cleaned_reply = _strip_llm_blocks(final_reply)
-    # Убираем блок table_style из вывода в чат
-    cleaned_reply = re.sub(r"```table_style[\s\S]*?```", "", cleaned_reply, flags=re.IGNORECASE).strip()
-    
-    # Если после очистки остался пустой ответ (только служебные блоки), определяем умный placeholder
-    if not cleaned_reply:
-        # Проверяем наличие блоков в исходном ответе
-        has_sql = re.search(r"```sql\s", final_reply, re.IGNORECASE)
-        has_plotly = re.search(r"```(plotly|python)\s", final_reply, re.IGNORECASE)
-        has_table_style = re.search(r"```table_style\s", final_reply, re.IGNORECASE)
-        has_table_code = re.search(r"```table_code\s", final_reply, re.IGNORECASE)
-        
-        # Определяем контекст: есть ли уже результаты?
-        has_previous_charts = any(r.get("kind") == "chart" for r in st.session_state.get("results", []))
-        has_previous_tables = any(r.get("kind") == "table" for r in st.session_state.get("results", []))
-        
-        if has_sql:
-            cleaned_reply = "Создаю запрос..."
-        elif has_plotly:
-            if has_previous_charts:
-                cleaned_reply = "Вношу правки..."
-            else:
-                cleaned_reply = "Создаю график..."
-        elif has_table_style or has_table_code:
-            cleaned_reply = "Вношу правки..."
-        else:
-            cleaned_reply = "Вношу правки..."
-    
-    # Публикуем ОЧИЩЕННЫЙ ответ ассистента в чат и сохраняем в историю
-    st.session_state["messages"].append({"role": "assistant", "content": cleaned_reply})
+    # 3) Публикуем ответ ассистента в чат и сохраняем в историю
+    st.session_state["messages"].append({"role": "assistant", "content": final_reply})
     # индекс этого сообщения ассистента (нужен для привязки результатов)
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
-    
-    # Подготовим контекст: был ли ранее график и хочет ли пользователь изменить его
-    prev_plotly_code = None
-    for _it in reversed(st.session_state.get("results", [])):
-        if _it.get("kind") == "chart":
-            prev_plotly_code = (_it.get("meta", {}) or {}).get("plotly_code")
-            break
-    last_user_text_for_edit = next((m.get("content", "") for m in reversed(st.session_state.get("messages", [])) if m.get("role") == "user"), "")
-    modify_intent = bool(re.search(r"измен|сделай|поменяй|выдели|окрась|цвет|colou?r", last_user_text_for_edit, flags=re.IGNORECASE))
-
     with st.chat_message("assistant"):
-        if mode_notice and st.session_state.get("mode_source") == "prehook":
-            st.caption(mode_notice)
-        hint_debug = st.session_state.get("last_router_hint")
-        if hint_debug:
-            st.caption(f"Hint: {hint_debug}")
-        st.markdown(cleaned_reply)
+        # Не показываем служебные блоки title/explain/sql/table_style — они рендерятся отдельно
+        cleaned = _strip_llm_blocks(final_reply)
+        # Убираем блок table_style из вывода в чат
+        cleaned = re.sub(r"```table_style[\s\S]*?```", "", cleaned, flags=re.IGNORECASE).strip()
+        if cleaned:
+            st.markdown(cleaned)
         created_chart = False
         created_table = False
 
