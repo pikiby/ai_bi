@@ -1,0 +1,17 @@
+{
+  "header_fill_color": "rgba(240, 240, 240, 0.8)",
+  "cells_fill_color": "transparent",
+  "cell_rules": [
+    {
+      "value": "2",
+      "color": "green",
+      "row": true
+    },
+    {
+      "value": "max",
+      "color": "red",
+      "column": "Общая выручка",
+      "row": true
+    }
+  ]
+}

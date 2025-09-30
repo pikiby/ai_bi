@@ -285,4 +285,11 @@ RULES_TABLE = r"""
          - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
          - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple
          - ДОСТУПНЫЕ ЦВЕТА ТЕКСТА: white, black, red, blue, green, yellow, orange, purple
+         
+         КРИТИЧНО ДЛЯ JSON ФОРМАТА:
+         - ВСЕГДА ставь запятые между элементами: {"key1": "value1", "key2": "value2"}
+         - В массивах cell_rules: [{"value": "max", "color": "red", "column": "Общая выручка", "row": true}, {"value": "2", "color": "green", "row": true}]
+         - Используй "column" (НЕ "column_id"), "value" (НЕ "rule")
+         - Для max/min используй: {"value": "max", "color": "red", "column": "название_колонки", "row": true}
+         - Для конкретных значений: {"value": "2", "color": "green", "row": true}
 """

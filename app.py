@@ -618,7 +618,37 @@ def _render_table_style_block(meta: dict):
     
     with st.expander("Показать стили таблицы", expanded=False):
         st.markdown("**Стили таблицы**")
-        st.json(table_style)
+        
+        # Проверяем валидность JSON и показываем ошибки
+        try:
+            import json
+            json_str = json.dumps(table_style, ensure_ascii=False, indent=2)
+            st.json(table_style)
+            
+            # Проверяем cell_rules на корректность
+            cell_rules = table_style.get("cell_rules", [])
+            if cell_rules:
+                st.markdown("**Проверка правил форматирования:**")
+                for i, rule in enumerate(cell_rules):
+                    if not isinstance(rule, dict):
+                        st.error(f"Правило {i+1}: должно быть словарем")
+                        continue
+                    
+                    # Проверяем обязательные поля
+                    if not rule.get("value") and not rule.get("rule"):
+                        st.error(f"Правило {i+1}: отсутствует 'value' или 'rule'")
+                    if not rule.get("color"):
+                        st.error(f"Правило {i+1}: отсутствует 'color'")
+                    
+                    # Предупреждения о неправильных ключах
+                    if "column_id" in rule and "column" not in rule:
+                        st.warning(f"Правило {i+1}: используйте 'column' вместо 'column_id'")
+                    if "rule" in rule and "value" not in rule:
+                        st.warning(f"Правило {i+1}: используйте 'value' вместо 'rule'")
+                        
+        except Exception as e:
+            st.error(f"Ошибка в JSON стилей: {e}")
+            st.json(table_style)
 
 
 # Отрисовка кода Plotly
@@ -1190,10 +1220,11 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         if not isinstance(rule, dict):
             continue
             
-        value = rule.get("value")
+        # Поддержка альтернативных ключей для обратной совместимости
+        value = rule.get("value") or rule.get("rule")
         color = rule.get("color")
         text_color = rule.get("text_color")
-        column = rule.get("column")
+        column = rule.get("column") or rule.get("column_id")
         is_row_rule = rule.get("row", False)  # Новый параметр для выделения строк
         
         if not value or not color:
