@@ -243,8 +243,12 @@ RULES_TABLE = r"""
 - Если просят выделить максимум → используй "value": "max"
 - Если просят выделить минимум → используй "value": "min"  
 - Если просят выделить значения больше N → используй "value": ">N"
-- Если просят выделить строку с текстом → используй row_rules
+- Если просят выделить строку с текстом → используй row_rules с указанием колонки
 - Если просят чередование строк → используй "striped": true
+- Если просят выделить первую строку → используй special_rules с "type": "first_n_rows"
+- Если просят выделить последнюю строку → используй special_rules с "type": "last_n_rows"
+- Если просят выделить конкретную строку по номеру → используй special_rules с "type": "specific_row"
+- ВСЕГДА указывай "column" в row_rules для поиска по колонке
 - НЕ создавай новые SQL-запросы и НЕ упоминай SQL в ответе!
 
 ПРИМЕРЫ ПРАВИЛЬНОГО ФОРМАТА:
@@ -267,6 +271,34 @@ styler_config = {
     "header_fill_color": "#f4f4f4",
     "cells_fill_color": "white",
     "cell_rules": [{"column": "Выручка", "value": "max", "color": "red"}]
+}
+
+4. Выделение строки с конкретным текстом:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "row_rules": [{"column": "название_колонки", "value": "искомый_текст", "color": "red"}]
+}
+
+5. Выделение первой строки:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "special_rules": [{"type": "first_n_rows", "count": 1, "color": "red"}]
+}
+
+6. Выделение последней строки:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "special_rules": [{"type": "last_n_rows", "count": 1, "color": "red"}]
+}
+
+7. Выделение конкретной строки по номеру:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "special_rules": [{"type": "specific_row", "row_index": 5, "color": "red"}]
 }
 
 """
