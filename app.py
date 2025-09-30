@@ -577,11 +577,14 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     # Создаем стилизованную таблицу
     styled_df = _create_styled_dataframe(pdf, style_config)
     
-    # Отображаем в Streamlit
-    st.info("🔍 DEBUG: Отображаю таблицу с Pandas Styler")
+    # Отображаем в Streamlit через HTML (styler не поддерживается в st.dataframe)
+    st.info("🔍 DEBUG: Отображаю таблицу через HTML")
     st.info(f"🔍 DEBUG: Тип styled_df: {type(styled_df)}")
     st.info(f"🔍 DEBUG: style_config: {style_config}")
-    st.dataframe(styled_df, use_container_width=True)
+    
+    # Конвертируем styler в HTML
+    html = styled_df.to_html(escape=False, table_id="styled-table")
+    st.markdown(html, unsafe_allow_html=True)
 
 def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
     """
