@@ -517,30 +517,8 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     </style>
     """
 
-    import uuid as _uuid
-    uid = _uuid.uuid4().hex[:8]
-
-    # Кнопка полноэкранного режима
-    col_left, col_right = st.columns([1, 6])
-    with col_left:
-        if st.button("Во весь экран", key=f"full_{uid}"):
-            # Рендер в модальном окне с увеличенным контейнером
-            with st.modal("Таблица — полноэкранный режим", key=f"modal_{uid}", max_width=None):
-                modal_css = """
-                <style>
-                .styler-box-full { max-height: 85vh; overflow: auto; border-radius: 12px; border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 2px 6px rgba(0,0,0,.12); background: transparent; }
-                .styler-box-full::-webkit-scrollbar { width: 12px; height: 12px; }
-                .styler-box-full::-webkit-scrollbar-thumb { background: rgba(0,0,0,.35); border-radius: 10px; }
-                .styler-box-full { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.35) transparent; }
-                .styler-box-full table { color: #111111; background: transparent; }
-                @media (prefers-color-scheme: dark) { .styler-box-full table { color: #f5f5f7; } }
-                .styler-box-full table { border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; }
-                </style>
-                """
-                st.markdown(modal_css + f"<div class='styler-box-full'>{html}</div>", unsafe_allow_html=True)
-
-    with col_right:
-        st.markdown(container_css + f"<div class='styler-box'>{html}</div>", unsafe_allow_html=True)
+    # Рендерим базовую таблицу и накладываем только "маску" оформления (контейнер)
+    st.markdown(container_css + f"<div class='styler-box'>{html}</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
