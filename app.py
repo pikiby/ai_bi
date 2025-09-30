@@ -868,33 +868,39 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             font-weight: bold;
         }}
         
-        /* Условное форматирование для темной темы */
-        .adaptive-table .cell-blue {{
+        /* Условное форматирование для темной темы - ПОСЛЕ striped для приоритета! */
+        .adaptive-table td.cell-blue,
+        .adaptive-table.striped tbody tr td.cell-blue {{
             background-color: rgba(0, 0, 255, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table .cell-red {{
+        .adaptive-table td.cell-red,
+        .adaptive-table.striped tbody tr td.cell-red {{
             background-color: rgba(255, 0, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table .cell-green {{
+        .adaptive-table td.cell-green,
+        .adaptive-table.striped tbody tr td.cell-green {{
             background-color: rgba(0, 255, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table .cell-yellow {{
+        .adaptive-table td.cell-yellow,
+        .adaptive-table.striped tbody tr td.cell-yellow {{
             background-color: rgba(255, 255, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table .cell-orange {{
+        .adaptive-table td.cell-orange,
+        .adaptive-table.striped tbody tr td.cell-orange {{
             background-color: rgba(255, 165, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table .cell-purple {{
+        .adaptive-table td.cell-purple,
+        .adaptive-table.striped tbody tr td.cell-purple {{
             background-color: rgba(128, 0, 128, 0.4) !important;
             font-weight: bold;
         }}
@@ -944,12 +950,12 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             color: #000000 !important;
         }}
         
-        /* Чередующиеся строки для темной темы (БЕЗ !important - условное форматирование приоритетнее) */
+        /* Чередующиеся строки для темной темы (идет ПЕРЕД условным форматированием) */
         .adaptive-table.striped tbody tr:nth-child(even) {{
             background-color: rgba(173, 216, 230, 0.2);
         }}
         
-        .adaptive-table.striped tbody tr:nth-child(even) td:not([class*="cell-"]) {{
+        .adaptive-table.striped tbody tr:nth-child(even) td {{
             background-color: rgba(173, 216, 230, 0.2);
         }}
         
@@ -1021,33 +1027,39 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         font-weight: bold;
     }}
     
-    /* Условное форматирование ячеек */
-    .adaptive-table .cell-blue {{
+    /* Условное форматирование ячеек - ПОСЛЕ striped для приоритета! */
+    .adaptive-table td.cell-blue,
+    .adaptive-table.striped tbody tr td.cell-blue {{
         background-color: rgba(0, 0, 255, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table .cell-red {{
+    .adaptive-table td.cell-red,
+    .adaptive-table.striped tbody tr td.cell-red {{
         background-color: rgba(255, 0, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table .cell-green {{
+    .adaptive-table td.cell-green,
+    .adaptive-table.striped tbody tr td.cell-green {{
         background-color: rgba(0, 255, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table .cell-yellow {{
+    .adaptive-table td.cell-yellow,
+    .adaptive-table.striped tbody tr td.cell-yellow {{
         background-color: rgba(255, 255, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table .cell-orange {{
+    .adaptive-table td.cell-orange,
+    .adaptive-table.striped tbody tr td.cell-orange {{
         background-color: rgba(255, 165, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table .cell-purple {{
+    .adaptive-table td.cell-purple,
+    .adaptive-table.striped tbody tr td.cell-purple {{
         background-color: rgba(128, 0, 128, 0.3) !important;
         font-weight: bold;
     }}
@@ -1097,12 +1109,12 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         color: #000000 !important;
     }}
     
-    /* Поддержка чередующихся строк (БЕЗ !important - условное форматирование приоритетнее) */
+    /* Поддержка чередующихся строк (идет ПЕРЕД условным форматированием) */
     .adaptive-table.striped tbody tr:nth-child(even) {{
         background-color: rgba(173, 216, 230, 0.3);
     }}
     
-    .adaptive-table.striped tbody tr:nth-child(even) td:not([class*="cell-"]) {{
+    .adaptive-table.striped tbody tr:nth-child(even) td {{
         background-color: rgba(173, 216, 230, 0.3);
     }}
     
