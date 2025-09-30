@@ -525,7 +525,16 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     
     # Определяем классы для таблицы (с уникальным ID!)
     table_classes = unique_id
-    if style_meta.get("striped", False):
+    
+    # Поддержка чередующихся строк
+    striped = style_meta.get("striped", False)
+    row_alternating_color = style_meta.get("row_alternating_color")
+    
+    # Если есть row_alternating_color, активируем striped
+    if row_alternating_color and isinstance(row_alternating_color, list) and len(row_alternating_color) >= 2:
+        striped = True
+    
+    if striped:
         table_classes += " striped"
     
     table_html = pdf.to_html(index=False, classes=table_classes, escape=False)
@@ -628,9 +637,20 @@ def _render_table_style_block(meta: dict):
             # Проверяем cell_rules и row_rules на корректность
             cell_rules = table_style.get("cell_rules", [])
             row_rules = table_style.get("row_rules", [])
+            column_rules = table_style.get("column_rules", [])
+            row_alternating_color = table_style.get("row_alternating_color")
             
-            if cell_rules or row_rules:
+            if cell_rules or row_rules or column_rules or row_alternating_color:
                 st.markdown("**Проверка правил форматирования:**")
+                
+                # Предупреждение о неправильных ключах
+                if column_rules:
+                    st.warning("⚠️ Обнаружен устаревший ключ 'column_rules'. Используйте 'cell_rules' вместо 'column_rules'.")
+                    st.info("Пример правильного формата: {\"cell_rules\": [{\"value\": \"max\", \"color\": \"red\", \"column\": \"Общая выручка\"}]}")
+                
+                if row_alternating_color:
+                    st.warning("⚠️ Обнаружен устаревший ключ 'row_alternating_color'. Используйте 'striped': true для чередующихся строк.")
+                    st.info("Пример правильного формата: {\"striped\": true}")
                 
                 # Проверяем cell_rules
                 for i, rule in enumerate(cell_rules):
@@ -1233,6 +1253,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
     # Получаем правила форматирования из метаданных
     cell_rules = style_meta.get("cell_rules", [])
     row_rules = style_meta.get("row_rules", [])
+    column_rules = style_meta.get("column_rules", [])  # Поддержка неправильного ключа
     
     # Объединяем все правила, добавляя row=true для row_rules
     all_rules = []
@@ -1248,6 +1269,22 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
             rule_copy = rule.copy()
             rule_copy["row"] = True  # Принудительно устанавливаем row=true для row_rules
             all_rules.append(rule_copy)
+    
+    # Добавляем column_rules (неправильный ключ) - конвертируем в cell_rules
+    for rule in column_rules:
+        if isinstance(rule, dict):
+            # Конвертируем column_rules в cell_rules формат
+            converted_rule = {}
+            if "column" in rule:
+                converted_rule["column"] = rule["column"]
+            if "max_value_color" in rule:
+                converted_rule["value"] = "max"
+                converted_rule["color"] = rule["max_value_color"]
+            elif "min_value_color" in rule:
+                converted_rule["value"] = "min"
+                converted_rule["color"] = rule["min_value_color"]
+            if converted_rule:
+                all_rules.append(converted_rule)
     
     if not all_rules:
         return table_html

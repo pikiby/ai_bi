@@ -267,6 +267,8 @@ RULES_TABLE = r"""
          - ВЫДЕЛЕНИЕ СТРОКИ С МИНИМУМОМ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ ЧЕРЕЗ ROW_RULES: table_style = {"row_rules": [{"value": "Киров", "color": "green", "column": "Город"}]}
          - КОМБИНИРОВАНИЕ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}], "row_rules": [{"value": "Киров", "color": "green", "column": "Город"}]}
+         - МАКСИМУМ В ЯЧЕЙКЕ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
+         - МИНИМУМ В ЯЧЕЙКЕ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -299,4 +301,8 @@ RULES_TABLE = r"""
          - Для конкретных значений: {"value": "2", "color": "green", "row": true}
          - ROW_RULES автоматически выделяют всю строку (не нужно указывать "row": true)
          - Можно комбинировать: {"cell_rules": [...], "row_rules": [...]}
+         - ЗАПРЕЩЕНО: "column_rules", "max_value_color", "row_alternating_color" - используй только "cell_rules", "row_rules", "striped"
+         - ПРАВИЛЬНО: {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
+         - НЕПРАВИЛЬНО: {"column_rules": [{"column": "Общая выручка", "max_value_color": "red"}]}
+         - ЧЕРЕДУЮЩИЕСЯ СТРОКИ: {"striped": true} (НЕ "row_alternating_color": ["white", "lightgray"])
 """
