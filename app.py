@@ -162,7 +162,7 @@ def _reload_prompts():
         ),
         "table": _get(
             "RULES_TABLE",
-            "Режим TABLE. Верни ровно один блок ```table_code``` с кодом, создающим переменную table_style."
+            "Режим TABLE. Верни ровно один блок ```table_code``` с кодом, создающим переменную styled_df (pandas Styler)."
         ),
     }
     return p_map, warn
@@ -338,62 +338,6 @@ def _last_result_hint() -> str | None:
     return "; ".join(base)
 
 
-def _infer_mode_prehook(user_text: str) -> tuple[str | None, str | None]:
-    # Прехук временно отключён: решением режима управляет только LLM-роутер.
-    return None, None
-    # --- архивная логика ниже оставлена для будущего включения ---
-    text = (user_text or "").strip()
-    if not text:
-        return None, None
-
-    text_low = text.lower()
-    has_df = st.session_state.get("last_df") is not None
-    results = st.session_state.get("results", [])
-    has_table = any(r.get("kind") == "table" for r in results)
-    has_chart = any(r.get("kind") == "chart" for r in results)
-    last_sql = (st.session_state.get("last_sql_meta") or {}).get("sql")
-
-    def _has(pattern: str) -> bool:
-        return bool(re.search(pattern, text_low, re.IGNORECASE))
-
-    # Явные ключевые слова каталога
-    if _has(r"каталог|все\s+ресурс|все\s+таблиц|все\s+дашборд|какие\s+есть\s+(таблиц|ресурс)"):
-        return "catalog", "Ключевые слова каталога — выбираю режим catalog."
-
-    # Запрос на описание структуры/DDL
-    if _has(r"структур|описани|ddl|schema|схем|какие\s+поля|что\s+в\s+таблице"):
-        return "rag", "Вопрос про структуру данных — включаю режим rag."
-
-    # Повтор запроса
-    if _has(r"повтор(и|ить|ите)") or _has(r"перезапусти|запусти\s+снова|ещё\s+раз"):
-        if last_sql:
-            return "sql", "Пользователь просит повторить запрос — запускаю режим sql."
-        if has_chart or has_df:
-            return "plotly", "Запрос на повторное изменение визуализации — выбираю режим plotly."
-
-    style_words = r"цвет|фон|залив|выравн|ширин|границ|border|bold|шрифт|font|подсвет|градиент"
-    table_words = r"таблиц|строк|ячейк|столбц|header|tbody|колонк"
-    if has_table and _has(style_words) and _has(table_words):
-        return "table", "Обнаружены стилистические правки для таблицы — использую режим table."
-
-    chart_words = r"график|диаграм|chart|plot|визуал|круг|pie|heatmap|bar|line|scatter|гистограм"
-    color_words = r"цвет|окрас|подсвет|выдел|тон|shade|палитр|pink|blue|red|green|розов|синев|оранж"
-    if has_df or has_chart:
-        if _has(chart_words):
-            return "plotly", "Данные уже получены, запрос на визуализацию — включаю режим plotly."
-        if has_chart and _has(color_words) and not _has(table_words):
-            return "plotly", "Запрос на изменение параметров графика — выбираю режим plotly."
-
-    # Новая визуализация без данных — нужно сначала получить таблицу
-    if not (has_df or has_chart) and _has(chart_words):
-        return "sql", "Сначала нужно получить данные для графика — переключаюсь в режим sql."
-
-    data_words = r"сделай|получи|построй|сформируй|дай|нужна|выведи|покажи|рассчитай|сколько|топ|динамик|количеств|выручк|пользовател|активн|отчёт|report"
-    if _has(data_words) and _has(r"таблиц|данн|топ|отчёт|метрик|значени|строк"):
-        return "sql", "Запрос на новую таблицу или метрику — выбираю режим sql."
-
-    return None, None
-
 
 # КРИТИЧЕСКИ ВАЖНАЯ ФУНКЦИЯ: Главная функция отрисовки результатов (рефакторинг)
 # ПРИЧИНА РЕФАКТОРИНГА: Оригинальная функция была слишком большой (200+ строк) и нарушала принцип единственной ответственности
@@ -513,450 +457,46 @@ def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql
     return "Результаты запроса"
 
 
-# НОВАЯ ФУНКЦИЯ: Генерация готового HTML для таблицы (аналог создания fig для графиков)
-# ЦЕЛЬ: Заморозить стили таблицы в HTML при создании, как графики замораживают стили в Figure
-def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
-    """
-    Создает готовый HTML+CSS для таблицы со всеми стилями.
-    Этот HTML сохраняется в meta и больше не изменяется (как fig у графиков).
-    КРИТИЧНО: Каждая таблица получает УНИКАЛЬНЫЙ CSS-класс для изоляции стилей!
-    """
-    import uuid
-    
-    # КЛЮЧЕВОЕ: генерируем уникальный ID для изоляции CSS этой таблицы
-    unique_id = f"table_{uuid.uuid4().hex[:8]}"
-    
-    # Сливаем со стандартными стилями
-    merged = {**STANDARD_TABLE_STYLES, **style_meta}
-    css = _build_css_styles(merged, unique_id)  # Передаем unique_id в CSS
-    
-    # Определяем классы для таблицы (с уникальным ID!)
-    table_classes = unique_id
-    
-    # Поддержка чередующихся строк
-    striped = style_meta.get("striped", False)
-    row_alternating_color = style_meta.get("row_alternating_color")
-    striped_rows = style_meta.get("striped_rows")
-    
-    # Если есть row_alternating_color, активируем striped
-    if row_alternating_color and isinstance(row_alternating_color, list) and len(row_alternating_color) >= 2:
-        striped = True
-    
-    # Если есть striped_rows, активируем striped
-    if striped_rows and isinstance(striped_rows, dict):
-        striped = True
-    
-    if striped:
-        table_classes += " striped"
-    
-    table_html = pdf.to_html(index=False, classes=table_classes, escape=False)
-    
-    # Применяем условное форматирование ячеек
-    table_html = _apply_cell_formatting(table_html, pdf, style_meta)
-    
-    # Возвращаем полный HTML с CSS (готовый к отрисовке)
-    # CSS теперь привязан к уникальному классу этой таблицы!
-    return f"<style>{css}</style>\n<div class='{unique_id}-container'>{table_html}</div>"
-
 
 # Отрисовка содержимого таблицы с учетом стилей
 def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
+    """Единый пайплайн: DataFrame → Styler/HTML → Streamlit.
+
+    Приоритет:
+    1) Если ассистент прислал готовый HTML в meta["rendered_html"], рендерим его сразу.
+    2) Иначе применяем базовые стили через Pandas Styler и рендерим.
     """
-    НОВАЯ ЛОГИКА: Использует Streamlit + Pandas Styler вместо HTML+CSS
-    """
-    # Сохраняем DataFrame для AI-генерации
     _save_table_dataframe(pdf, meta)
 
-    # Получаем конфигурацию стилей
-    style_config = meta.get("styler_config", {})
-    
-    # Если нет конфигурации, создаем базовую
-    if not style_config:
-        style_config = _create_default_styler_config()
-    
-    # Нормализуем конфиг: поддержка col_rules и автофикс устаревших ключей
-    try:
-        style_config = normalize_table_style_with_auto_fix(style_config)
-    except Exception:
-        pass
-    
-    # Создаем стилизованную таблицу
-    styled_df = _create_styled_dataframe(pdf, style_config)
-    
-    # Отображаем в Streamlit через HTML (styler не поддерживается в st.dataframe)
-    # st.info("🔍 DEBUG: Отображаю таблицу через HTML")
-    # st.info(f"🔍 DEBUG: Тип styled_df: {type(styled_df)}")
-    # st.info(f"🔍 DEBUG: style_config: {style_config}")
-    
-    # Конвертируем styler в HTML
-    html = styled_df.to_html(escape=False, table_id="styled-table")
-    # st.info(f"🔍 DEBUG: HTML длина: {len(html)} символов")
-    # st.info(f"🔍 DEBUG: HTML содержит 'background-color': {'background-color' in html}")
-    st.markdown(html, unsafe_allow_html=True)
+    ready_html = (meta.get("rendered_html") or "").strip()
+    if ready_html:
+        st.markdown(ready_html, unsafe_allow_html=True)
+        return
 
-def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
-    """
-    Создает стилизованный DataFrame с помощью Pandas Styler
-    """
-    styler = pdf.style
-    
-    # Применяем базовые стили
-    styler = _apply_styler_base_styles(styler, style_config)
-    
-    # Применяем условное форматирование
-    styler = _apply_styler_conditional_formatting(styler, pdf, style_config)
-    
-    # Применяем чередование строк
-    styler = _apply_styler_striping(styler, style_config)
-    
-    return styler
-
-def _apply_styler_base_styles(styler, style_config: dict):
-    """Применяет базовые стили к таблице"""
-    
-    # Стили заголовков
-    header_bg = style_config.get("header_fill_color", "#f4f4f4")
-    header_color = style_config.get("header_font_color", "black")
-    
-    styler = styler.set_table_styles([
-        {"selector": "thead th", "props": [
-            ("background-color", header_bg),
-            ("color", header_color),
-            ("font-weight", "bold")
-        ]}
-    ])
-    
-    # Стили ячеек
-    cell_bg = style_config.get("cells_fill_color", "white")
-    cell_color = style_config.get("font_color", "black")
-    
-    styler = styler.set_table_styles([
-        {"selector": "tbody td", "props": [
-            ("background-color", cell_bg),
-            ("color", cell_color)
-        ]}
-    ])
-    
-    return styler
-
-def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config: dict):
-    """Применяет условное форматирование (сокращённая реализация без изменения логики)."""
-
-    def _apply_cell_rule(st, column, val, color):
-        if val == "max":
-            return st.apply(lambda x: [f"background-color: {color}; color: white" if x[column] == x[column].max() else "" for _ in x], subset=[column])
-        if val == "min":
-            return st.apply(lambda x: [f"background-color: {color}; color: white" if x[column] == x[column].min() else "" for _ in x], subset=[column])
-        if isinstance(val, (int, float)):
-            return st.apply(lambda x: [f"background-color: {color}; color: white" if x[column] == val else "" for _ in x], subset=[column])
-        if isinstance(val, str):
-            if val.startswith(">="):
-                thr = float(val[2:])
-                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') >= thr else "" for _ in x], subset=[column])
-            if val.startswith("<="):
-                thr = float(val[2:])
-                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') <= thr else "" for _ in x], subset=[column])
-            if val.startswith(">"):
-                thr = float(val[1:])
-                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') > thr else "" for _ in x], subset=[column])
-            if val.startswith("<"):
-                thr = float(val[1:])
-                return st.apply(lambda x: [f"background-color: {color}; color: white" if pd.to_numeric(x[column], errors='coerce') < thr else "" for _ in x], subset=[column])
-            # строковые метки через CSS
-            matching_rows = pdf[pdf[column] == val].index.tolist()
-            if matching_rows:
-                col_idx = list(pdf.columns).index(column)
-                styles_to_add = [{
-                    "selector": f"tbody tr:nth-child({row_idx + 1}) td:nth-child({col_idx + 1})",
-                    "props": [("background-color", color), ("color", "white")]
-                } for row_idx in matching_rows]
-                existing = st.table_styles or []
-                return st.set_table_styles(existing + styles_to_add)
-        return st
-
-    def _add_row_css_for_indices(st, row_indices, color, text_only=False):
-        if not row_indices:
-            return st
-        props = [("color", color)] if text_only else [("background-color", color), ("color", "white")]
-        styles_to_add = [{
-            "selector": f"tbody tr:nth-child({row_idx + 1}) td",
-            "props": props
-        } for row_idx in row_indices]
-        existing = st.table_styles or []
-        return st.set_table_styles(existing + styles_to_add)
-
-    def _apply_row_condition(st, column, value, cond_col, cond_val, color):
-        def row_lambda(x):
-            def pass_cond():
-                if isinstance(cond_val, str) and cond_val.startswith(">"):
-                    return pd.to_numeric(x[cond_col], errors='coerce') > float(cond_val[1:])
-                if isinstance(cond_val, str) and cond_val.startswith("<"):
-                    return pd.to_numeric(x[cond_col], errors='coerce') < float(cond_val[1:])
-                if isinstance(cond_val, (int, float)):
-                    return pd.to_numeric(x[cond_col], errors='coerce') > cond_val
-                return False
-            return [f"background-color: {color}; color: white" if (x[column] == value and pass_cond()) else "" for _ in x]
-        return st.apply(row_lambda, axis=1)
-    
-    # Обработка cell_rules (выделение ячеек)
-    for rule in style_config.get("cell_rules", []):
-        column = rule.get("column")
-        value = rule.get("value")
-        color = rule.get("color", "red")
-        if column and column in pdf.columns:
-            styler = _apply_cell_rule(styler, column, value, color)
-    
-    # Обработка row_rules (выделение строк)
-    row_rules = style_config.get("row_rules", [])
-    # st.info(f"🔍 DEBUG: Обрабатываю {len(row_rules)} row_rules")
-    
-    for rule in row_rules:
-        column = rule.get("column")
-        value = rule.get("value")
-        color = rule.get("color", "red")
-        condition_column = rule.get("condition_column")
-        condition_value = rule.get("condition_value")
-        if column and column in pdf.columns:
-            if condition_column and condition_column in pdf.columns and condition_value is not None:
-                styler = _apply_row_condition(styler, column, value, condition_column, condition_value, color)
-            else:
-                matching_rows = pdf[pdf[column] == value].index.tolist()
-                styler = _add_row_css_for_indices(styler, matching_rows, color, text_only=True)
-                    # st.info(f"🔍 DEBUG: Применил стили через set_table_styles")
-                # else:
-                #     st.info(f"🔍 DEBUG: Строки с '{value}' не найдены")
-    
-    # Обработка специальных случаев
-    if style_config.get("highlight_first_row", False):
-        # Выделить первую строку данных (не заголовок)
-        styler = styler.apply(
-            lambda x: [f"background-color: {style_config.get('first_row_color', 'red')}; color: white" 
-                      if x.name == 0 else "" 
-                      for _ in x], 
-            axis=1
-        )
-    
-    # Обработка column_rules (выделение столбцов)
-    column_rules = style_config.get("column_rules", [])
-    # st.info(f"🔍 DEBUG: Обрабатываю {len(column_rules)} column_rules")
-    
-    for i, rule in enumerate(column_rules):
-        column = rule.get("column")
-        color = rule.get("color", "red")
-        if column and column in pdf.columns:
-            col_index = list(pdf.columns).index(column)
-            styles_to_add = [{
-                "selector": f"tbody td:nth-child({col_index + 1})",
-                "props": [("background-color", color), ("color", "white")]
-            }]
-            existing_styles = styler.table_styles
-            styler = styler.set_table_styles(existing_styles + styles_to_add)
-            # st.info(f"🔍 DEBUG: Применил стили для столбца")
-        # else:
-        #     st.warning(f"🔍 DEBUG: Столбец '{column}' не найден")
-    
-    # Обработка специальных запросов через set_table_styles
-    special_rules = style_config.get("special_rules", [])
-    # st.info(f"🔍 DEBUG: Обрабатываю {len(special_rules)} special_rules")
-    
-    for i, rule in enumerate(special_rules):
-        rule_type = rule.get("type")
-        color = rule.get("color", "red")
-        # st.info(f"🔍 DEBUG: special_rules[{i}]: type='{rule_type}', color='{color}'")
-        
-        if rule_type == "first_n_rows":
-            # Первые N строк
-            n = rule.get("count", 1)
-            # st.info(f"🔍 DEBUG: Выделяю первые {n} строк")
-            styles_to_add = []
-            for row_idx in range(n):
-                styles_to_add.append({
-                    "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
-                    "props": [
-                        ("background-color", color),
-                        ("color", "white")
-                    ]
-                })
-            
-            # Добавляем к существующим стилям
-            existing_styles = styler.table_styles
-            styler = styler.set_table_styles(existing_styles + styles_to_add)
-        elif rule_type == "last_n_rows":
-            # Последние N строк
-            n = rule.get("count", 1)
-            total_rows = len(pdf)
-            # st.info(f"🔍 DEBUG: Выделяю последние {n} строк из {total_rows}")
-            styles_to_add = []
-            for i in range(n):
-                row_idx = total_rows - n + i
-                styles_to_add.append({
-                    "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
-                    "props": [
-                        ("background-color", color),
-                        ("color", "white")
-                    ]
-                })
-            
-            # Добавляем к существующим стилям
-            existing_styles = styler.table_styles
-            styler = styler.set_table_styles(existing_styles + styles_to_add)
-        elif rule_type == "specific_row":
-            # Конкретная строка (0-based)
-            row_index = rule.get("row_index", 0)
-            # st.info(f"🔍 DEBUG: Выделяю строку {row_index}")
-            styler = _add_row_css_for_indices(styler, [row_index], color, text_only=False)
-        elif rule_type == "by_value":
-            # Выделение строки по значению в колонке
-            column = rule.get("column")
-            value = rule.get("value")
-            # st.info(f"🔍 DEBUG: Выделяю строки с '{value}' в колонке '{column}'")
-            
-            if column and column in pdf.columns:
-                matching_rows = pdf[pdf[column] == value].index.tolist()
-                # st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
-                
-                styler = _add_row_css_for_indices(styler, matching_rows, color, text_only=False)
-            # else:
-            #     st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
-        elif rule_type == "specific_rows":
-            # Множественные конкретные строки
-            rows = rule.get("rows", [])
-            # st.info(f"🔍 DEBUG: Выделяю строки: {rows}")
-            
-            if rows:
-                styler = _add_row_css_for_indices(styler, rows, color, text_only=False)
-        elif rule_type == "column_value_condition":
-            # Условное форматирование по значению в колонке
-            column = rule.get("column")
-            operator = rule.get("operator", ">")
-            value = rule.get("value")
-            # st.info(f"🔍 DEBUG: Условие {column} {operator} {value}")
-            
-            if column and column in pdf.columns and value is not None:
-                # Находим строки, соответствующие условию
-                if operator == ">":
-                    matching_rows = pdf[pdf[column] > value].index.tolist()
-                elif operator == "<":
-                    matching_rows = pdf[pdf[column] < value].index.tolist()
-                elif operator == ">=":
-                    matching_rows = pdf[pdf[column] >= value].index.tolist()
-                elif operator == "<=":
-                    matching_rows = pdf[pdf[column] <= value].index.tolist()
-                elif operator == "==":
-                    matching_rows = pdf[pdf[column] == value].index.tolist()
-                else:
-                    matching_rows = []
-                
-                styler = _add_row_css_for_indices(styler, matching_rows, color, text_only=False)
-        elif rule_type == "first_n_cols":
-            # Первые N столбцов
-            n = rule.get("count", 1)
-            cols = pdf.columns[:n]
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          for _ in x], 
-                subset=cols
-            )
-        elif rule_type == "last_n_cols":
-            # Последние N столбцов
-            n = rule.get("count", 1)
-            cols = pdf.columns[-n:]
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          for _ in x], 
-                subset=cols
-            )
-        elif rule_type == "specific_col":
-            # Конкретный столбец
-            col_name = rule.get("column")
-            if col_name and col_name in pdf.columns:
-                if rule.get("transparent"):
-                    styler = styler.set_properties(subset=[col_name], **{"background-color": "transparent"})
-                else:
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" for _ in x],
-                        subset=[col_name]
-                    )
-        elif rule_type == "columns":
-            # Индексы столбцов (0-based): columns: [1,3]
-            indices = rule.get("columns", []) or []
-            for idx in indices:
-                if isinstance(idx, int) and 0 <= idx < len(pdf.columns):
-                    col_name = pdf.columns[idx]
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" for _ in x],
-                        subset=[col_name]
-                    )
-        elif rule_type in ("rightmost_col", "last_col", "right_col"):
-            # Правый (последний) столбец
-            if len(pdf.columns) > 0:
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" for _ in x],
-                    subset=[pdf.columns[-1]]
-                )
-        elif rule_type in ("leftmost_col", "first_col", "left_col"):
-            # Левый (первый) столбец
-            if len(pdf.columns) > 0:
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" for _ in x],
-                    subset=[pdf.columns[0]]
-                )
-        elif rule_type == "nth_col":
-            # N-й столбец (1-based): n: 2
-            n = rule.get("n")
-            if isinstance(n, int) and 1 <= n <= len(pdf.columns):
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" for _ in x],
-                    subset=[pdf.columns[n-1]]
-                )
-        elif rule_type == "col_transparent":
-            # Сделать фон столбцов прозрачным: columns: [1, 2]
-            indices = rule.get("columns", []) or []
-            for idx in indices:
-                if isinstance(idx, int) and 0 <= idx < len(pdf.columns):
-                    col_name = pdf.columns[idx]
-                    styler = styler.set_properties(subset=[col_name], **{"background-color": "transparent"})
-    
-    # Базовая прозрачность фона таблицы (не ломает условные стили)
-    try:
-        existing_styles = styler.table_styles or []
-    except Exception:
-        existing_styles = []
-
-    transparent_styles = [
-        {"selector": "table", "props": [("background-color", "transparent")]},
-        {"selector": "thead th", "props": [("background-color", "transparent")]},
-        {"selector": "tbody td", "props": [("background-color", "transparent")]},
-    ]
-
-    styler = styler.set_table_styles(existing_styles + transparent_styles, overwrite=False)
-
-    return styler
-
-def _apply_styler_striping(styler, style_config: dict):
-    """Применяет чередование строк"""
-    
-    if style_config.get("striped", False):
-        even_color = style_config.get("even_row_color", "#f9f9f9")
-        odd_color = style_config.get("odd_row_color", "white")
-        
-        styler = styler.set_table_styles([
-            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", even_color)]},
-            {"selector": "tbody tr:nth-child(odd)", "props": [("background-color", odd_color)]}
-        ])
-    
-    return styler
-
-def _create_default_styler_config():
-    """Создает конфигурацию стилей по умолчанию"""
-    return {
+    defaults = {
         "header_fill_color": "#f4f4f4",
         "header_font_color": "black",
         "cells_fill_color": "transparent",
         "font_color": "black",
-        "striped": False,
-        "cell_rules": []
     }
+    user_cfg = meta.get("styler_config") or {}
+    cfg = {**defaults, **user_cfg}
+
+    styler = pdf.style
+    styler = styler.set_table_styles([
+        {"selector": "thead th", "props": [
+            ("background-color", cfg.get("header_fill_color")),
+            ("color", cfg.get("header_font_color")),
+            ("font-weight", "bold"),
+        ]},
+        {"selector": "tbody td", "props": [
+            ("background-color", cfg.get("cells_fill_color")),
+            ("color", cfg.get("font_color")),
+        ]},
+    ])
+
+    html = styler.to_html(escape=False, table_id="styled-table")
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
@@ -1904,281 +1444,6 @@ def normalize_table_style_with_auto_fix(style_dict: dict, llm_client=None, model
     normalized_style = _extend_with_col_rules(normalized_style)
     return normalized_style
 
-
-def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict) -> str:
-    """
-    Применяет условное форматирование к HTML таблице.
-    Поддерживает выделение конкретных значений по содержимому и целых строк.
-    """
-    import re
-    import pandas as pd
-    
-    # Получаем правила форматирования из метаданных
-    cell_rules = style_meta.get("cell_rules", [])
-    row_rules = style_meta.get("row_rules", [])
-    column_rules = style_meta.get("column_rules", [])  # Поддержка неправильного ключа
-    
-    # Объединяем все правила, добавляя row=true для row_rules
-    all_rules = []
-    
-    # Добавляем cell_rules, но конвертируем те, что имеют row=true в row_rules
-    for rule in cell_rules:
-        if isinstance(rule, dict):
-            if rule.get("row", False):
-                # Конвертируем cell_rules с row=true в row_rules
-                rule_copy = rule.copy()
-                rule_copy["row"] = True
-                all_rules.append(rule_copy)
-            else:
-                # Обычные cell_rules без row=true
-                all_rules.append(rule)
-    
-    # Добавляем row_rules с row=true
-    for rule in row_rules:
-        if isinstance(rule, dict):
-            rule_copy = rule.copy()
-            rule_copy["row"] = True  # Принудительно устанавливаем row=true для row_rules
-            all_rules.append(rule_copy)
-    
-    # Добавляем column_rules (неправильный ключ) - конвертируем в cell_rules
-    for rule in column_rules:
-        if isinstance(rule, dict):
-            # Конвертируем column_rules в cell_rules формат
-            converted_rule = {}
-            if "column" in rule:
-                converted_rule["column"] = rule["column"]
-            if "max_value_color" in rule:
-                converted_rule["value"] = "max"
-                converted_rule["color"] = rule["max_value_color"]
-            elif "min_value_color" in rule:
-                converted_rule["value"] = "min"
-                converted_rule["color"] = rule["min_value_color"]
-            if converted_rule:
-                all_rules.append(converted_rule)
-    
-    if not all_rules:
-        return table_html
-    
-    # Применяем каждое правило
-    for rule in all_rules:
-        if not isinstance(rule, dict):
-            continue
-            
-        # Поддержка альтернативных ключей для обратной совместимости
-        value = rule.get("value") or rule.get("rule")
-        color = rule.get("color")
-        text_color = rule.get("text_color")
-        column = rule.get("column") or rule.get("column_id")
-        is_row_rule = rule.get("row", False)  # Новый параметр для выделения строк
-        
-        if not value or not color:
-            continue
-            
-        # Определяем CSS классы
-        color_class = f"cell-{color.lower()}"
-        text_class = f"text-{text_color.lower()}" if text_color else ""
-        
-        # Объединяем классы
-        all_classes = f"{color_class} {text_class}".strip()
-        
-        # Специальная обработка для "max" и "min"
-        if isinstance(value, str) and value.lower() in ["max", "maximum"]:
-            # Если колонка не указана, ищем во всех числовых колонках
-            if not column or column not in pdf.columns:
-                # Находим первую числовую колонку
-                numeric_cols = pdf.select_dtypes(include=[np.number]).columns
-                if len(numeric_cols) > 0:
-                    column = numeric_cols[0]  # Берем первую числовую колонку
-                else:
-                    continue  # Нет числовых колонок
-            
-            if column and column in pdf.columns:
-                # Находим максимальное значение в колонке
-                try:
-                    # Пытаемся преобразовать в числовой формат
-                    numeric_col = pd.to_numeric(pdf[column], errors='coerce')
-                    if not numeric_col.isna().all():
-                        max_value = numeric_col.max()
-                        if not pd.isna(max_value):
-                            # Если нужно выделить всю строку - заменяем value на найденное значение
-                            if is_row_rule:
-                                value = max_value  # Подменяем value для обработки ниже
-                            else:
-                                # Выделяем только ячейку с максимумом
-                                max_str = str(max_value)
-                                pattern = rf'<td[^>]*>([^<]*{re.escape(max_str)}[^<]*)</td>'
-                                def replace_cell(match):
-                                    cell_content = match.group(1)
-                                    if max_str in cell_content:
-                                        return f'<td class="{all_classes}">{cell_content}</td>'
-                                    return match.group(0)
-                                table_html = re.sub(pattern, replace_cell, table_html)
-                                continue
-                except Exception:
-                    pass
-        elif isinstance(value, str) and value.lower() in ["min", "minimum"]:
-            # Если колонка не указана, ищем во всех числовых колонках
-            if not column or column not in pdf.columns:
-                # Находим первую числовую колонку
-                numeric_cols = pdf.select_dtypes(include=[np.number]).columns
-                if len(numeric_cols) > 0:
-                    column = numeric_cols[0]  # Берем первую числовую колонку
-                else:
-                    continue  # Нет числовых колонок
-            
-            if column and column in pdf.columns:
-                # Находим минимальное значение в колонке
-                try:
-                    numeric_col = pd.to_numeric(pdf[column], errors='coerce')
-                    if not numeric_col.isna().all():
-                        min_value = numeric_col.min()
-                        if not pd.isna(min_value):
-                            # Если нужно выделить всю строку - заменяем value на найденное значение
-                            if is_row_rule:
-                                value = min_value  # Подменяем value для обработки ниже
-                            else:
-                                # Выделяем только ячейку с минимумом
-                                min_str = str(min_value)
-                                pattern = rf'<td[^>]*>([^<]*{re.escape(min_str)}[^<]*)</td>'
-                                def replace_cell(match):
-                                    cell_content = match.group(1)
-                                    if min_str in cell_content:
-                                        return f'<td class="{all_classes}">{cell_content}</td>'
-                                    return match.group(0)
-                                table_html = re.sub(pattern, replace_cell, table_html)
-                                continue
-                except Exception:
-                    pass
-        
-        # Обработка правил для целых строк
-        if is_row_rule:
-            # Находим индексы строк, где найдено значение
-            matching_rows = []
-            
-            # Проверяем, является ли value индексом строки (число)
-            try:
-                row_index = int(value)
-                # Если это число - используем как индекс строки напрямую
-                if 0 <= row_index < len(pdf):
-                    matching_rows.append(row_index)
-            except (ValueError, TypeError):
-                # Если не число - ищем по значению
-                if column and column in pdf.columns:
-                    # Ищем в конкретной колонке
-                    for idx, val in enumerate(pdf[column]):
-                        if str(value).lower() in str(val).lower():
-                            matching_rows.append(idx)
-                else:
-                    # Ищем во всех колонках
-                    for idx, row in pdf.iterrows():
-                        if any(str(value).lower() in str(cell).lower() for cell in row):
-                            matching_rows.append(idx)
-            
-            # Применяем классы ко всем ячейкам в найденных строках
-            if matching_rows:
-                # Разбиваем HTML на строки таблицы
-                rows_pattern = r'(<tr[^>]*>)(.*?)(</tr>)'
-                rows = list(re.finditer(rows_pattern, table_html, re.DOTALL))
-                
-                # Пропускаем заголовок (первую строку)
-                for row_idx in matching_rows:
-                    # +1 потому что первая строка — заголовок
-                    if row_idx + 1 < len(rows):
-                        row_match = rows[row_idx + 1]
-                        row_open = row_match.group(1)
-                        row_content = row_match.group(2)
-                        row_close = row_match.group(3)
-                        
-                        # Применяем классы ко всем <td> в строке
-                        def add_class_to_td(match):
-                            attrs = match.group(1)
-                            # Проверяем, есть ли уже атрибут class
-                            if 'class=' in attrs:
-                                # Добавляем к существующему классу
-                                return re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', match.group(0))
-                            else:
-                                # Создаем новый атрибут class
-                                return f'<td{attrs} class="{all_classes}">'
-                        
-                        row_content_new = re.sub(
-                            r'<td([^>]*)>',
-                            add_class_to_td,
-                            row_content
-                        )
-                        
-                        # Заменяем строку
-                        old_row = row_match.group(0)
-                        new_row = row_open + row_content_new + row_close
-                        table_html = table_html.replace(old_row, new_row, 1)
-        else:
-            # Обычная обработка для конкретных ячеек
-            if column and column in pdf.columns:
-                # Форматируем конкретную колонку
-                pattern = rf'<td([^>]*)>([^<]*{re.escape(str(value))}[^<]*)</td>'
-                def replace_cell(match):
-                    attrs = match.group(1)
-                    cell_content = match.group(2)
-                    if str(value) in cell_content:
-                        # Добавляем класс к существующим
-                        if 'class=' in attrs:
-                            new_attrs = re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', attrs)
-                            return f'<td{new_attrs}>{cell_content}</td>'
-                        else:
-                            return f'<td{attrs} class="{all_classes}">{cell_content}</td>'
-                    return match.group(0)
-                table_html = re.sub(pattern, replace_cell, table_html)
-            else:
-                # Форматируем все ячейки с этим значением
-                pattern = rf'<td([^>]*)>([^<]*{re.escape(str(value))}[^<]*)</td>'
-                def replace_cell(match):
-                    attrs = match.group(1)
-                    cell_content = match.group(2)
-                    if str(value) in cell_content:
-                        # Добавляем класс к существующим
-                        if 'class=' in attrs:
-                            new_attrs = re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', attrs)
-                            return f'<td{new_attrs}>{cell_content}</td>'
-                        else:
-                            return f'<td{attrs} class="{all_classes}">{cell_content}</td>'
-                    return match.group(0)
-                table_html = re.sub(pattern, replace_cell, table_html)
-    
-    return table_html
-
-
-# СТАРАЯ ФУНКЦИЯ (НЕ РАБОТАЕТ В STREAMLIT) - ЗАМЕНЕНА НА HTML ПОДХОД
-def _build_styled_df_OLD(pdf: pd.DataFrame, style_meta: dict):
-    """
-    ❌ УСТАРЕЛО: pandas Styler не работает в Streamlit с CSS селекторами.
-    Заменено на _generate_adaptive_html_table().
-    """
-    # Эта функция больше не используется
-    return pdf
-
-def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
-    """Создаёт Plotly-таблицу с темным стилем (контрастная шапка и строки)."""
-
-    values = [pdf[c].tolist() for c in pdf.columns] if not pdf.empty else [[] for _ in pdf.columns]
-    fig = go.Figure(
-        data=[
-            go.Table(
-                header=dict(
-                    values=[str(c) for c in pdf.columns],
-                    fill_color="#111827",
-                    font=dict(color="#f9fafb", size=13),
-                    align="left",
-                ),
-                cells=dict(
-                    values=values,
-                    fill_color="#1f2933",
-                    font=dict(color="#f9fafb"),
-                    align="left",
-                ),
-            )
-        ]
-    )
-    fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(pdf)))
-    return fig
 
 
 def _history_zip_bytes() -> bytes:
@@ -3142,10 +2407,23 @@ if user_input:
 
     elif mode == "table":
         # Режим TABLE: генерация стилей для таблиц
+        # Передаём модели список доступных колонок и их типы (аналогично ветке plotly)
+        cols_hint_msg = []
+        try:
+            if st.session_state.get("last_df") is not None:
+                _pdf = st.session_state["last_df"].to_pandas()
+                cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
+                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                )
+                cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+        except Exception:
+            cols_hint_msg = []
+
         hint_exec = _last_result_hint()
         exec_msgs = (
             ([{"role": "system", "content": hint_exec}] if hint_exec else [])
             + [{"role": "system", "content": prompts_map["table"]}]
+            + cols_hint_msg
             + st.session_state["messages"]
         )
 
@@ -3351,6 +2629,7 @@ if user_input:
                         
                         def has_col(name: str) -> bool:
                             return isinstance(name, str) and name in df.columns
+                        COLS = list(df.columns)
                         
                         safe_builtins = {
                             "__builtins__": {
@@ -3370,6 +2649,7 @@ if user_input:
                             "pd": pd,
                             "col": col,
                             "has_col": has_col,
+                            "COLS": COLS,
                             "true": True,  # Поддержка JSON-стиля
                             "false": False,
                             "null": None,
@@ -3377,32 +2657,62 @@ if user_input:
                         local_vars = {}
                         exec(table_code, safe_builtins, local_vars)
                         
-                        # Получаем styler_config из выполненного кода
-                        styler_config = local_vars.get("styler_config")
-                        if isinstance(styler_config, dict):
-                            # НОВАЯ СИСТЕМА: используем Pandas Styler напрямую
-                            st.info("✅ Применяю стили с помощью Pandas Styler...")
-                            # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
+                        # 1) Готовый HTML от ассистента
+                        styled_html = local_vars.get("styled_html")
+                        if isinstance(styled_html, str) and styled_html.strip():
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
                                 if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
                                     import copy
                                     old_meta = it.get("meta") or {}
                                     old_df = it.get("df_pl")
-                                    
-                                    # Создаём новую мету с новыми стилями (deepcopy для независимости)
                                     new_meta = copy.deepcopy(old_meta)
-                                    new_meta["styler_config"] = styler_config
-                                    
-                                    # Создаём НОВЫЙ результат (новая таблица с новым HTML)
+                                    new_meta["rendered_html"] = styled_html
                                     _push_result("table", df_pl=old_df, meta=new_meta)
                                     applied = True
                                     created_table = True
-                                    # Перезагружаем страницу для отображения новой таблицы
                                     st.rerun()
                                     break
-                            if not applied:
-                                st.session_state["next_table_style"] = styler_config
+                        # 2) Styler от ассистента → HTML
+                        if not created_table:
+                            styled_df_obj = local_vars.get("styled_df")
+                            try:
+                                if styled_df_obj is not None and hasattr(styled_df_obj, "to_html"):
+                                    html_out = styled_df_obj.to_html(escape=False, table_id="styled-table")
+                                    applied = False
+                                    for it in reversed(st.session_state.get("results", [])):
+                                        if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                                            import copy
+                                            old_meta = it.get("meta") or {}
+                                            old_df = it.get("df_pl")
+                                            new_meta = copy.deepcopy(old_meta)
+                                            new_meta["rendered_html"] = html_out
+                                            _push_result("table", df_pl=old_df, meta=new_meta)
+                                            applied = True
+                                            created_table = True
+                                            st.rerun()
+                                            break
+                            except Exception:
+                                pass
+                        # 3) Старый путь: styler_config
+                        if not created_table:
+                            styler_config = local_vars.get("styler_config")
+                            if isinstance(styler_config, dict):
+                                applied = False
+                                for it in reversed(st.session_state.get("results", [])):
+                                    if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
+                                        import copy
+                                        old_meta = it.get("meta") or {}
+                                        old_df = it.get("df_pl")
+                                        new_meta = copy.deepcopy(old_meta)
+                                        new_meta["styler_config"] = styler_config
+                                        _push_result("table", df_pl=old_df, meta=new_meta)
+                                        applied = True
+                                        created_table = True
+                                        st.rerun()
+                                        break
+                                if not applied:
+                                    st.session_state["next_table_style"] = styler_config
                     except Exception as e:
                         st.error(f"Ошибка выполнения table_code: {e}")
 

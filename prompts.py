@@ -212,142 +212,26 @@ RULES_PLOTLY = r"""
 - НЕ создавай новые SQL-запросы и НЕ упоминай SQL в ответе!
 """
 
-
+# Минимальный и актуальный TABLE-промпт (переопределяет устаревшие версии выше, если были)
 RULES_TABLE = r"""
 РЕЖИМ TABLE
 
-КРИТИЧЕСКИ ВАЖНО: Этот режим используется ТОЛЬКО для стилизации существующих таблиц!
-- Если пользователь просит изменить цвета/стили/выделение таблицы → используй этот режим
-- НЕ создавай новые SQL-запросы в этом режиме!
+Цель: изменить внешний вид уже созданной таблицы по df.
 
-Тебе доступны объекты: df (pandas.DataFrame), st (streamlit), pd (pandas).
-Требования безопасности:
-- НЕЛЬЗЯ: import/exec/eval/open/subprocess/socket/os.* / sys.* / Path( / requests / httpx / двойные подчёркивания __.
-- НЕЛЬЗЯ читать/писать файлы, делать сетевые вызовы, модифицировать df.
-- МОЖНО только читать df и создавать styler_config для таблиц.
-
-Верни РОВНО ОДИН блок (без import/from):
+Верни РОВНО ОДИН блок:
 ```table_code
-<чистый исполняемый код БЕЗ комментариев и пояснений, создающий переменную styler_config>
+<чистый исполняемый код БЕЗ комментариев и пояснений>
 ```
 
-Правила для кода:
-- Используй только df, st, pd. Никаких других имён пространств.
-- НЕ пиши import или from вообще — окружение уже содержит нужные объекты.
-- Не добавляй комментарии (# …).
-- Не меняй df (никаких присваиваний/удалений/созданий колонок).
-- Создавай переменную styler_config = {...}
-- Никакого дополнительного вывода вне блока, только код.
+Требования:
+- Доступно: df (pandas.DataFrame), pd (pandas), col(...), has_col(...), COLS (список имён колонок).
+- НЕЛЬЗЯ: import/exec/eval/open/subprocess/socket/os.* / sys.* / Path( / requests / httpx / любые побочные эффекты.
+- НЕЛЬЗЯ читать/писать файлы и модифицировать df. Никаких print/streamlit-вызовов.
 
-ПРАВИЛА ДЛЯ СТИЛИЗАЦИИ ТАБЛИЦ:
-- Если просят выделить максимум → используй "value": "max"
-- Если просят выделить минимум → используй "value": "min"  
-- Если просят выделить значения больше N → используй "value": ">N"
-- Если просят выделить строку с текстом → используй row_rules с указанием колонки
-- Если просят чередование строк → используй "striped": true
-- Если просят выделить первую строку → используй special_rules с "type": "first_n_rows"
-- Если просят выделить последнюю строку → используй special_rules с "type": "last_n_rows"
-- Если просят выделить конкретную строку по номеру → используй special_rules с "type": "specific_row"
-- Если просят выделить несколько конкретных строк → используй special_rules с "type": "specific_rows"
-- Если просят выделить значения больше/меньше N → используй special_rules с "type": "column_value_condition"
-- Если просят выделить максимальные/минимальные значения → используй cell_rules с "value": "max"/"min"
-- Если просят выделить строку по тексту → используй row_rules с "column" и "value"
-- Если просят выделить столбец → используй col_rules (см. канон ниже)
-- Если просят изменить цвет ЯЧЕЙКИ → используй cell_rules
-- Если просят изменить цвет СТРОКИ → используй row_rules
-- ВСЕГДА указывай "column" в row_rules для поиска по колонке
-- НЕ используй "row": 0 в row_rules - это неправильно!
-- НЕ создавай новые SQL-запросы и НЕ упоминай SQL в ответе!
+Результат кода:
+- Создай переменную styled_df (pandas Styler) с уже применёнными стилями. Мы сами вызовем to_html().
 
-КАНОНИЧЕСКИЙ col_rules ДЛЯ СТОЛБЦОВ:
-- Всегда используй ключ col_rules — список правил. Каждое правило:
-  {
-    "by_name": ["Имя1", "Имя2"]  |  "by_index": [0,2]  |  "nth": [2,5]  |  "relative": {"left":1, "right":1},
-    "effect": {"bg": "green", "fg": "white", "transparent": false}
-  }
-- Индексация: by_index — 0-based; nth — 1-based; relative.left/right — первый/последний N столбцов.
-- Примеры:
-  - второй столбец зелёным → col_rules: [{"nth":[2], "effect":{"bg":"green"}}]
-  - правый столбец зелёным → col_rules: [{"relative":{"right":1}, "effect":{"bg":"green"}}]
-  - столбец "Город" прозрачным → col_rules: [{"by_name":["Город"], "effect":{"transparent": true}}]
-  - первый и третий столбцы зелёными → col_rules: [{"nth":[1,3], "effect":{"bg":"green"}}]
-
-ПРИМЕРЫ ПРАВИЛЬНОГО ФОРМАТА:
-1. Красная таблица:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "red",
-    "font_color": "white"
-}
-
-2. Чередование строк:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "striped": True
-}
-
-3. Выделение максимума в колонке "Выручка":
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "cell_rules": [{"column": "Выручка", "value": "max", "color": "red"}]
-}
-
-4. Выделение строки с конкретным текстом:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "row_rules": [{"column": "название_колонки", "value": "искомый_текст", "color": "red"}]
-}
-
-5. Выделение первой строки:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "special_rules": [{"type": "first_n_rows", "count": 1, "color": "red"}]
-}
-
-6. Выделение первой строки (альтернативный способ):
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "special_rules": [{"type": "specific_row", "row_index": 0, "color": "red"}]
-}
-
-7. Выделение последней строки:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "special_rules": [{"type": "last_n_rows", "count": 1, "color": "red"}]
-}
-
-8. Выделение конкретной строки по номеру:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "special_rules": [{"type": "specific_row", "row_index": 5, "color": "red"}]
-}
-
-9. Выделение нескольких конкретных строк:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "special_rules": [{"type": "specific_rows", "rows": [3, 9], "color": "red"}]
-}
-
-10. Выделение значений больше 10000:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "special_rules": [{"type": "column_value_condition", "column": "Общая выручка", "operator": ">", "value": 10000, "color": "red"}]
-}
-
-11. Выделение максимальных значений:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "cell_rules": [{"column": "Общая выручка", "value": "max", "color": "black"}]
-}
-
+Работа с колонками:
+- Используй helper col("точное имя", "вариант1", ...), чтобы выбрать существующее имя.
+- Не пиши имена колонок строками вне col(...). Смотри доступные имена в COLS.
 """
