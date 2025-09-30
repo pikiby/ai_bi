@@ -504,26 +504,14 @@ def _get_title(meta: dict, pdf: pd.DataFrame = None, fallback_source: str = "sql
     return "Результаты запроса"
 
 
-# Отрисовка содержимого таблицы с учетом стилей
-def _render_table_content(pdf: pd.DataFrame, meta: dict):
+# НОВАЯ ФУНКЦИЯ: Генерация готового HTML для таблицы (аналог создания fig для графиков)
+# ЦЕЛЬ: Заморозить стили таблицы в HTML при создании, как графики замораживают стили в Figure
+def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     """
-    КОМПАКТНАЯ СИСТЕМА: всегда используем HTML-таблицу с прокруткой.
+    Создает готовый HTML+CSS для таблицы со всеми стилями.
+    Этот HTML сохраняется в meta и больше не изменяется (как fig у графиков).
     """
-    # Сохраняем DataFrame для AI-генерации (ключ может понадобиться в других местах)
-    _save_table_dataframe(pdf, meta)
-
-    # 1) Берём стили из meta или из отложенного состояния (one-shot)
-    style_meta = (meta.get("table_style") or {})
-    if not style_meta and st.session_state.get("next_table_style"):
-        style_meta = st.session_state["next_table_style"]
-        meta["table_style"] = style_meta
-        try:
-            del st.session_state["next_table_style"]
-        except Exception:
-            pass
-
-    # 2) Всегда рисуем HTML-таблицу с CSS (включая прокрутку)
-    # Сливаем со стандартными стилями (стиль пользователя перекрывает дефолт)
+    # Сливаем со стандартными стилями
     merged = {**STANDARD_TABLE_STYLES, **style_meta}
     css = _build_css_styles(merged)
     
@@ -537,7 +525,30 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
     # Применяем условное форматирование ячеек
     table_html = _apply_cell_formatting(table_html, pdf, style_meta)
     
-    st.markdown(f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>", unsafe_allow_html=True)
+    # Возвращаем полный HTML с CSS (готовый к отрисовке)
+    return f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>"
+
+
+# Отрисовка содержимого таблицы с учетом стилей
+def _render_table_content(pdf: pd.DataFrame, meta: dict):
+    """
+    НОВАЯ ЛОГИКА (аналог _render_chart): 
+    Если есть готовый HTML в meta - просто показываем его (как fig у графиков).
+    Иначе генерируем (для обратной совместимости).
+    """
+    # Сохраняем DataFrame для AI-генерации
+    _save_table_dataframe(pdf, meta)
+
+    # КЛЮЧЕВОЕ ОТЛИЧИЕ: если есть готовый HTML - используем его (как fig)
+    rendered_html = meta.get("rendered_html")
+    if rendered_html:
+        st.markdown(rendered_html, unsafe_allow_html=True)
+        return
+    
+    # Fallback для старых таблиц без rendered_html (обратная совместимость)
+    style_meta = (meta.get("table_style") or {})
+    html = _generate_table_html(pdf, style_meta)
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
@@ -2412,8 +2423,13 @@ if user_input:
 
                 st.session_state["last_df"] = df_pl
                 if df_pl is not None:
-                    # Сохраняем таблицу. Не генерируем/не показываем дополнительный Plotly go.Table-график.
+                    # НОВАЯ ЛОГИКА (аналог графиков): генерируем готовый HTML сразу
                     meta_table = dict(meta_extra)
+                    pdf = df_pl.to_pandas()
+                    style_meta = meta_table.get("table_style") or {}
+                    # Генерируем готовый HTML со стилями (как создается fig для графиков)
+                    rendered_html = _generate_table_html(pdf, style_meta)
+                    meta_table["rendered_html"] = rendered_html  # Сохраняем готовый HTML
                     _push_result("table", df_pl=df_pl, meta=meta_table)
                     _render_result(st.session_state["results"][-1])
                     created_table = True
@@ -2493,19 +2509,24 @@ if user_input:
                         # Получаем table_style из выполненного кода
                         table_style = local_vars.get("table_style")
                         if isinstance(table_style, dict):
-                            # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
+                            # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
                                 if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                    # Копируем данные старой таблицы
+                                    import copy
                                     old_meta = it.get("meta") or {}
                                     old_df = it.get("df_pl")
                                     
-                                    # Создаём новую мету с новыми стилями
-                                    new_meta = dict(old_meta)
+                                    # Создаём новую мету с новыми стилями (deepcopy для независимости)
+                                    new_meta = copy.deepcopy(old_meta)
                                     new_meta["table_style"] = table_style
                                     
-                                    # Создаём НОВЫЙ результат (новая таблица)
+                                    # КЛЮЧЕВОЕ: генерируем НОВЫЙ HTML с новыми стилями (как новый fig)
+                                    pdf = old_df.to_pandas()
+                                    rendered_html = _generate_table_html(pdf, table_style)
+                                    new_meta["rendered_html"] = rendered_html
+                                    
+                                    # Создаём НОВЫЙ результат (новая таблица с новым HTML)
                                     _push_result("table", df_pl=old_df, meta=new_meta)
                                     applied = True
                                     created_table = True
@@ -2530,11 +2551,11 @@ if user_input:
                     table_style = ast.literal_eval(dict_match.group(0))
                     
                     if isinstance(table_style, dict):
-                        # СОЗДАЁМ НОВУЮ таблицу с новыми стилями вместо изменения старой
+                        # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
                         applied = False
                         for it in reversed(st.session_state.get("results", [])):
                             if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                # Копируем данные старой таблицы
+                                import copy
                                 old_meta = it.get("meta") or {}
                                 old_df = it.get("df_pl")
                                 
@@ -2543,11 +2564,16 @@ if user_input:
                                 merged_style = dict(existing_style)
                                 merged_style.update(table_style)
                                 
-                                # Создаём новую мету с объединёнными стилями
-                                new_meta = dict(old_meta)
+                                # Создаём новую мету с объединёнными стилями (deepcopy для независимости)
+                                new_meta = copy.deepcopy(old_meta)
                                 new_meta["table_style"] = merged_style
                                 
-                                # Создаём НОВЫЙ результат (новая таблица)
+                                # КЛЮЧЕВОЕ: генерируем НОВЫЙ HTML с новыми стилями (как новый fig)
+                                pdf = old_df.to_pandas()
+                                rendered_html = _generate_table_html(pdf, merged_style)
+                                new_meta["rendered_html"] = rendered_html
+                                
+                                # Создаём НОВЫЙ результат (новая таблица с новым HTML)
                                 _push_result("table", df_pl=old_df, meta=new_meta)
                                 applied = True
                                 created_table = True
