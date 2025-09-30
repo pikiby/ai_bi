@@ -855,6 +855,19 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             background-color: transparent;
         }}
         
+        /* Чередующиеся строки для темной темы */
+        .adaptive-table.striped tbody tr:nth-child(even) {{
+            background-color: rgba(173, 216, 230, 0.2) !important;
+        }}
+        
+        .adaptive-table.striped tbody tr:nth-child(even) td {{
+            background-color: rgba(173, 216, 230, 0.2) !important;
+        }}
+        
+        .adaptive-table.striped tbody tr:nth-child(odd) {{
+            background-color: transparent !important;
+        }}
+        
         /* Подсветка для темной темы */
         .adaptive-table .highlight-max {{
             background-color: rgba(255, 0, 0, 0.4) !important;
@@ -943,19 +956,6 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         .adaptive-table tr:hover th {{
             color: #000000 !important;
         }}
-        
-        /* Чередующиеся строки для темной темы (В КОНЦЕ для приоритета!) */
-        .adaptive-table.striped tbody tr:nth-child(even) {{
-            background-color: rgba(173, 216, 230, 0.2) !important;
-        }}
-        
-        .adaptive-table.striped tbody tr:nth-child(even) td {{
-            background-color: rgba(173, 216, 230, 0.2) !important;
-        }}
-        
-        .adaptive-table.striped tbody tr:nth-child(odd) {{
-            background-color: transparent !important;
-        }}
     }}
     
     .adaptive-table {{
@@ -1006,6 +1006,19 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
     
     .adaptive-table tr:nth-child(even) {{
         background-color: transparent;
+    }}
+    
+    /* Поддержка чередующихся строк */
+    .adaptive-table.striped tbody tr:nth-child(even) {{
+        background-color: rgba(173, 216, 230, 0.3) !important;
+    }}
+    
+    .adaptive-table.striped tbody tr:nth-child(even) td {{
+        background-color: rgba(173, 216, 230, 0.3) !important;
+    }}
+    
+    .adaptive-table.striped tbody tr:nth-child(odd) {{
+        background-color: transparent !important;
     }}
     
     /* Подсветка максимальных значений */
@@ -1095,19 +1108,6 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
     
     .adaptive-table tr:hover th {{
         color: #000000 !important;
-    }}
-    
-    /* Поддержка чередующихся строк (В КОНЦЕ для приоритета!) */
-    .adaptive-table.striped tbody tr:nth-child(even) {{
-        background-color: rgba(173, 216, 230, 0.3) !important;
-    }}
-    
-    .adaptive-table.striped tbody tr:nth-child(even) td {{
-        background-color: rgba(173, 216, 230, 0.3) !important;
-    }}
-    
-    .adaptive-table.striped tbody tr:nth-child(odd) {{
-        background-color: transparent !important;
     }}
     
     /* Стилизованная прокрутка */
