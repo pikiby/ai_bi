@@ -579,6 +579,8 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     
     # Отображаем в Streamlit
     st.info("🔍 DEBUG: Отображаю таблицу с Pandas Styler")
+    st.info(f"🔍 DEBUG: Тип styled_df: {type(styled_df)}")
+    st.info(f"🔍 DEBUG: style_config: {style_config}")
     st.dataframe(styled_df, use_container_width=True)
 
 def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
