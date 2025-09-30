@@ -529,9 +529,14 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     # Поддержка чередующихся строк
     striped = style_meta.get("striped", False)
     row_alternating_color = style_meta.get("row_alternating_color")
+    striped_rows = style_meta.get("striped_rows")
     
     # Если есть row_alternating_color, активируем striped
     if row_alternating_color and isinstance(row_alternating_color, list) and len(row_alternating_color) >= 2:
+        striped = True
+    
+    # Если есть striped_rows, активируем striped
+    if striped_rows and isinstance(striped_rows, dict):
         striped = True
     
     if striped:
@@ -639,8 +644,9 @@ def _render_table_style_block(meta: dict):
             row_rules = table_style.get("row_rules", [])
             column_rules = table_style.get("column_rules", [])
             row_alternating_color = table_style.get("row_alternating_color")
+            striped_rows = table_style.get("striped_rows")
             
-            if cell_rules or row_rules or column_rules or row_alternating_color:
+            if cell_rules or row_rules or column_rules or row_alternating_color or striped_rows:
                 st.markdown("**Проверка правил форматирования:**")
                 
                 # Предупреждение о неправильных ключах
@@ -650,6 +656,10 @@ def _render_table_style_block(meta: dict):
                 
                 if row_alternating_color:
                     st.warning("⚠️ Обнаружен устаревший ключ 'row_alternating_color'. Используйте 'striped': true для чередующихся строк.")
+                    st.info("Пример правильного формата: {\"striped\": true}")
+                
+                if striped_rows:
+                    st.warning("⚠️ Обнаружен устаревший ключ 'striped_rows'. Используйте 'striped': true для чередующихся строк.")
                     st.info("Пример правильного формата: {\"striped\": true}")
                 
                 # Проверяем cell_rules

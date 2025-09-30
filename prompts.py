@@ -301,8 +301,8 @@ RULES_TABLE = r"""
          - Для конкретных значений: {"value": "2", "color": "green", "row": true}
          - ROW_RULES автоматически выделяют всю строку (не нужно указывать "row": true)
          - Можно комбинировать: {"cell_rules": [...], "row_rules": [...]}
-         - ЗАПРЕЩЕНО: "column_rules", "max_value_color", "row_alternating_color" - используй только "cell_rules", "row_rules", "striped"
+         - ЗАПРЕЩЕНО: "column_rules", "max_value_color", "row_alternating_color", "striped_rows" - используй только "cell_rules", "row_rules", "striped"
          - ПРАВИЛЬНО: {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
          - НЕПРАВИЛЬНО: {"column_rules": [{"column": "Общая выручка", "max_value_color": "red"}]}
-         - ЧЕРЕДУЮЩИЕСЯ СТРОКИ: {"striped": true} (НЕ "row_alternating_color": ["white", "lightgray"])
+         - ЧЕРЕДУЮЩИЕСЯ СТРОКИ: {"striped": true} (НЕ "row_alternating_color" или "striped_rows")
 """
