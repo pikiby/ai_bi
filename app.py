@@ -720,7 +720,9 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
         st.info(f"🔍 DEBUG: column in pdf.columns: {column in pdf.columns if column else False}")
         
         if column and column in pdf.columns:
+            st.info(f"🔍 DEBUG: Внутри обработки row_rules")
             if condition_column and condition_column in pdf.columns and condition_value is not None:
+                st.info(f"🔍 DEBUG: Сложное условие")
                 # Сложное условие: выделить строки где column=value И condition_column>condition_value
                 if isinstance(condition_value, str) and condition_value.startswith(">"):
                     threshold = float(condition_value[1:])
@@ -753,12 +755,14 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     )
             else:
                 # Простое условие: выделить всю строку, где найдено значение
+                st.info(f"🔍 DEBUG: Простое условие - ищу '{value}' в колонке '{column}'")
                 styler = styler.apply(
                     lambda x: [f"background-color: {color}; color: white" 
                               if x[column] == value else "" 
                               for _ in x], 
                     axis=1  # Применить к строкам
                 )
+                st.info(f"🔍 DEBUG: Применил стили для простого условия")
     
     # Обработка специальных случаев
     if style_config.get("highlight_first_row", False):
