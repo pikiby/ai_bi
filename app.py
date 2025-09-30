@@ -584,6 +584,8 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     
     # Конвертируем styler в HTML
     html = styled_df.to_html(escape=False, table_id="styled-table")
+    st.info(f"🔍 DEBUG: HTML длина: {len(html)} символов")
+    st.info(f"🔍 DEBUG: HTML содержит 'background-color': {'background-color' in html}")
     st.markdown(html, unsafe_allow_html=True)
 
 def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
