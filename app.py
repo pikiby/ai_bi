@@ -706,13 +706,18 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
     
     # Обработка row_rules (выделение строк)
     row_rules = style_config.get("row_rules", [])
+    st.info(f"🔍 DEBUG: Обрабатываю {len(row_rules)} row_rules")
     
-    for rule in row_rules:
+    for i, rule in enumerate(row_rules):
         column = rule.get("column")
         value = rule.get("value")
         color = rule.get("color", "red")
         condition_column = rule.get("condition_column")  # Дополнительное условие
         condition_value = rule.get("condition_value")     # Значение для условия
+        
+        st.info(f"🔍 DEBUG: row_rules[{i}]: column='{column}', value='{value}', color='{color}'")
+        st.info(f"🔍 DEBUG: Доступные колонки: {list(pdf.columns)}")
+        st.info(f"🔍 DEBUG: column in pdf.columns: {column in pdf.columns if column else False}")
         
         if column and column in pdf.columns:
             if condition_column and condition_column in pdf.columns and condition_value is not None:
