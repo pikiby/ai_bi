@@ -911,6 +911,25 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     styler = styler.set_table_styles(existing_styles + styles_to_add)
             # else:
             #     st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
+        elif rule_type == "specific_rows":
+            # Множественные конкретные строки
+            rows = rule.get("rows", [])
+            # st.info(f"🔍 DEBUG: Выделяю строки: {rows}")
+            
+            if rows:
+                styles_to_add = []
+                for row_idx in rows:
+                    styles_to_add.append({
+                        "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
+                        "props": [
+                            ("background-color", color),
+                            ("color", "white")
+                        ]
+                    })
+                
+                # Добавляем к существующим стилям
+                existing_styles = styler.table_styles
+                styler = styler.set_table_styles(existing_styles + styles_to_add)
         elif rule_type == "first_n_cols":
             # Первые N столбцов
             n = rule.get("count", 1)

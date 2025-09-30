@@ -248,6 +248,7 @@ RULES_TABLE = r"""
 - Если просят выделить первую строку → используй special_rules с "type": "first_n_rows"
 - Если просят выделить последнюю строку → используй special_rules с "type": "last_n_rows"
 - Если просят выделить конкретную строку по номеру → используй special_rules с "type": "specific_row"
+- Если просят выделить несколько конкретных строк → используй special_rules с "type": "specific_rows"
 - Если просят выделить строку по тексту → используй row_rules с "column" и "value"
 - Если просят выделить столбец → используй column_rules с "column" и "color"
 - ВСЕГДА указывай "column" в row_rules для поиска по колонке
@@ -309,6 +310,13 @@ styler_config = {
     "header_fill_color": "#f4f4f4",
     "cells_fill_color": "white",
     "special_rules": [{"type": "specific_row", "row_index": 5, "color": "red"}]
+}
+
+9. Выделение нескольких конкретных строк:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "special_rules": [{"type": "specific_rows", "rows": [3, 9], "color": "red"}]
 }
 
 """
