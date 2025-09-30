@@ -405,10 +405,10 @@ def _infer_mode_prehook(user_text: str) -> tuple[str | None, str | None]:
 def _render_result(item: dict):
     """Главная функция отрисовки результатов - роутер к специализированным функциям"""
     kind = item.get("kind")
-    st.info(f"🔍 DEBUG: _render_result вызван с kind='{kind}'")
+    # st.info(f"🔍 DEBUG: _render_result вызван с kind='{kind}'")
     
     if kind == "table":
-        st.info("🔍 DEBUG: Вызываю _render_table")
+        # st.info("🔍 DEBUG: Вызываю _render_table")
         _render_table(item)
     elif kind == "chart":
         _render_chart(item)
@@ -439,7 +439,7 @@ def _render_table(item: dict):
     st.markdown(f"**Таблица {n}:** {title}")
     
     # НОВАЯ ЛОГИКА: Используем Streamlit + Pandas Styler
-    st.info("🔍 DEBUG: Вызываю _render_table_content_styler")
+    # st.info("🔍 DEBUG: Вызываю _render_table_content_styler")
     _render_table_content_styler(pdf, meta)
     _render_table_caption(meta, pdf)
     _render_sql_block(meta)
@@ -578,14 +578,14 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     styled_df = _create_styled_dataframe(pdf, style_config)
     
     # Отображаем в Streamlit через HTML (styler не поддерживается в st.dataframe)
-    st.info("🔍 DEBUG: Отображаю таблицу через HTML")
-    st.info(f"🔍 DEBUG: Тип styled_df: {type(styled_df)}")
-    st.info(f"🔍 DEBUG: style_config: {style_config}")
+    # st.info("🔍 DEBUG: Отображаю таблицу через HTML")
+    # st.info(f"🔍 DEBUG: Тип styled_df: {type(styled_df)}")
+    # st.info(f"🔍 DEBUG: style_config: {style_config}")
     
     # Конвертируем styler в HTML
     html = styled_df.to_html(escape=False, table_id="styled-table")
-    st.info(f"🔍 DEBUG: HTML длина: {len(html)} символов")
-    st.info(f"🔍 DEBUG: HTML содержит 'background-color': {'background-color' in html}")
+    # st.info(f"🔍 DEBUG: HTML длина: {len(html)} символов")
+    # st.info(f"🔍 DEBUG: HTML содержит 'background-color': {'background-color' in html}")
     st.markdown(html, unsafe_allow_html=True)
 
 def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
@@ -708,7 +708,7 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
     
     # Обработка row_rules (выделение строк)
     row_rules = style_config.get("row_rules", [])
-    st.info(f"🔍 DEBUG: Обрабатываю {len(row_rules)} row_rules")
+    # st.info(f"🔍 DEBUG: Обрабатываю {len(row_rules)} row_rules")
     
     for i, rule in enumerate(row_rules):
         column = rule.get("column")
@@ -717,12 +717,12 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
         condition_column = rule.get("condition_column")  # Дополнительное условие
         condition_value = rule.get("condition_value")     # Значение для условия
         
-        st.info(f"🔍 DEBUG: row_rules[{i}]: column='{column}', value='{value}', color='{color}'")
-        st.info(f"🔍 DEBUG: Доступные колонки: {list(pdf.columns)}")
-        st.info(f"🔍 DEBUG: column in pdf.columns: {column in pdf.columns if column else False}")
+        # st.info(f"🔍 DEBUG: row_rules[{i}]: column='{column}', value='{value}', color='{color}'")
+        # st.info(f"🔍 DEBUG: Доступные колонки: {list(pdf.columns)}")
+        # st.info(f"🔍 DEBUG: column in pdf.columns: {column in pdf.columns if column else False}")
         
         if column and column in pdf.columns:
-            st.info(f"🔍 DEBUG: Внутри обработки row_rules")
+            # st.info(f"🔍 DEBUG: Внутри обработки row_rules")
             if condition_column and condition_column in pdf.columns and condition_value is not None:
                 st.info(f"🔍 DEBUG: Сложное условие")
                 # Сложное условие: выделить строки где column=value И condition_column>condition_value
@@ -757,12 +757,12 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     )
             else:
                 # Простое условие: выделить всю строку, где найдено значение
-                st.info(f"🔍 DEBUG: Простое условие - ищу '{value}' в колонке '{column}'")
+                # st.info(f"🔍 DEBUG: Простое условие - ищу '{value}' в колонке '{column}'")
                 
                 # НОВЫЙ ПОДХОД: используем set_table_styles вместо apply
                 # Находим индексы строк с нужным значением
                 matching_rows = pdf[pdf[column] == value].index.tolist()
-                st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
+                # st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
                 
                 if matching_rows:
                     # Создаем CSS селекторы для найденных строк
@@ -779,9 +779,9 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     # Получаем существующие стили и добавляем новые
                     existing_styles = styler.table_styles
                     styler = styler.set_table_styles(existing_styles + styles_to_add)
-                    st.info(f"🔍 DEBUG: Применил стили через set_table_styles")
-                else:
-                    st.info(f"🔍 DEBUG: Строки с '{value}' не найдены")
+                    # st.info(f"🔍 DEBUG: Применил стили через set_table_styles")
+                # else:
+                #     st.info(f"🔍 DEBUG: Строки с '{value}' не найдены")
     
     # Обработка специальных случаев
     if style_config.get("highlight_first_row", False):
@@ -793,19 +793,51 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             axis=1
         )
     
+    # Обработка column_rules (выделение столбцов)
+    column_rules = style_config.get("column_rules", [])
+    # st.info(f"🔍 DEBUG: Обрабатываю {len(column_rules)} column_rules")
+    
+    for i, rule in enumerate(column_rules):
+        column = rule.get("column")
+        color = rule.get("color", "red")
+        # st.info(f"🔍 DEBUG: column_rules[{i}]: column='{column}', color='{color}'")
+        
+        if column and column in pdf.columns:
+            # st.info(f"🔍 DEBUG: Выделяю столбец '{column}' цветом '{color}'")
+            
+            # Находим индекс столбца
+            col_index = list(pdf.columns).index(column)
+            # st.info(f"🔍 DEBUG: Индекс столбца: {col_index}")
+            
+            # Создаем стили для всего столбца
+            styles_to_add = [{
+                "selector": f"tbody td:nth-child({col_index + 1})", 
+                "props": [
+                    ("background-color", color),
+                    ("color", "white")
+                ]
+            }]
+            
+            # Добавляем к существующим стилям
+            existing_styles = styler.table_styles
+            styler = styler.set_table_styles(existing_styles + styles_to_add)
+            # st.info(f"🔍 DEBUG: Применил стили для столбца")
+        # else:
+        #     st.warning(f"🔍 DEBUG: Столбец '{column}' не найден")
+    
     # Обработка специальных запросов через set_table_styles
     special_rules = style_config.get("special_rules", [])
-    st.info(f"🔍 DEBUG: Обрабатываю {len(special_rules)} special_rules")
+    # st.info(f"🔍 DEBUG: Обрабатываю {len(special_rules)} special_rules")
     
     for i, rule in enumerate(special_rules):
         rule_type = rule.get("type")
         color = rule.get("color", "red")
-        st.info(f"🔍 DEBUG: special_rules[{i}]: type='{rule_type}', color='{color}'")
+        # st.info(f"🔍 DEBUG: special_rules[{i}]: type='{rule_type}', color='{color}'")
         
         if rule_type == "first_n_rows":
             # Первые N строк
             n = rule.get("count", 1)
-            st.info(f"🔍 DEBUG: Выделяю первые {n} строк")
+            # st.info(f"🔍 DEBUG: Выделяю первые {n} строк")
             styles_to_add = []
             for row_idx in range(n):
                 styles_to_add.append({
@@ -823,34 +855,45 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             # Последние N строк
             n = rule.get("count", 1)
             total_rows = len(pdf)
-            st.info(f"🔍 DEBUG: Выделяю последние {n} строк из {total_rows}")
+            # st.info(f"🔍 DEBUG: Выделяю последние {n} строк из {total_rows}")
+            styles_to_add = []
             for i in range(n):
                 row_idx = total_rows - n + i
-                styler = styler.set_table_styles([
-                    {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                styles_to_add.append({
+                    "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
+                    "props": [
                         ("background-color", color),
                         ("color", "white")
-                    ]}
-                ])
+                    ]
+                })
+            
+            # Добавляем к существующим стилям
+            existing_styles = styler.table_styles
+            styler = styler.set_table_styles(existing_styles + styles_to_add)
         elif rule_type == "specific_row":
             # Конкретная строка (0-based)
             row_index = rule.get("row_index", 0)
-            st.info(f"🔍 DEBUG: Выделяю строку {row_index}")
-            styler = styler.set_table_styles([
-                {"selector": f"tbody tr:nth-child({row_index + 1}) td", "props": [
+            # st.info(f"🔍 DEBUG: Выделяю строку {row_index}")
+            styles_to_add = [{
+                "selector": f"tbody tr:nth-child({row_index + 1}) td", 
+                "props": [
                     ("background-color", color),
                     ("color", "white")
-                ]}
-            ])
+                ]
+            }]
+            
+            # Добавляем к существующим стилям
+            existing_styles = styler.table_styles
+            styler = styler.set_table_styles(existing_styles + styles_to_add)
         elif rule_type == "by_value":
             # Выделение строки по значению в колонке
             column = rule.get("column")
             value = rule.get("value")
-            st.info(f"🔍 DEBUG: Выделяю строки с '{value}' в колонке '{column}'")
+            # st.info(f"🔍 DEBUG: Выделяю строки с '{value}' в колонке '{column}'")
             
             if column and column in pdf.columns:
                 matching_rows = pdf[pdf[column] == value].index.tolist()
-                st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
+                # st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
                 
                 if matching_rows:
                     styles_to_add = []
@@ -866,8 +909,8 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     # Добавляем к существующим стилям
                     existing_styles = styler.table_styles
                     styler = styler.set_table_styles(existing_styles + styles_to_add)
-            else:
-                st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
+            # else:
+            #     st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
         elif rule_type == "first_n_cols":
             # Первые N столбцов
             n = rule.get("count", 1)
