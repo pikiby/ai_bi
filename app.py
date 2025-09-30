@@ -787,41 +787,68 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             axis=1
         )
     
-    # Обработка специальных запросов через apply/applymap
+    # Обработка специальных запросов через set_table_styles
     special_rules = style_config.get("special_rules", [])
+    st.info(f"🔍 DEBUG: Обрабатываю {len(special_rules)} special_rules")
     
-    for rule in special_rules:
+    for i, rule in enumerate(special_rules):
         rule_type = rule.get("type")
         color = rule.get("color", "red")
+        st.info(f"🔍 DEBUG: special_rules[{i}]: type='{rule_type}', color='{color}'")
         
         if rule_type == "first_n_rows":
             # Первые N строк
             n = rule.get("count", 1)
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          if x.name < n else "" 
-                          for _ in x], 
-                axis=1
-            )
+            st.info(f"🔍 DEBUG: Выделяю первые {n} строк")
+            for row_idx in range(n):
+                styler = styler.set_table_styles([
+                    {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                        ("background-color", color),
+                        ("color", "white")
+                    ]}
+                ])
         elif rule_type == "last_n_rows":
             # Последние N строк
             n = rule.get("count", 1)
             total_rows = len(pdf)
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          if x.name >= total_rows - n else "" 
-                          for _ in x], 
-                axis=1
-            )
+            st.info(f"🔍 DEBUG: Выделяю последние {n} строк из {total_rows}")
+            for i in range(n):
+                row_idx = total_rows - n + i
+                styler = styler.set_table_styles([
+                    {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                        ("background-color", color),
+                        ("color", "white")
+                    ]}
+                ])
         elif rule_type == "specific_row":
             # Конкретная строка (0-based)
             row_index = rule.get("row_index", 0)
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          if x.name == row_index else "" 
-                          for _ in x], 
-                axis=1
-            )
+            st.info(f"🔍 DEBUG: Выделяю строку {row_index}")
+            styler = styler.set_table_styles([
+                {"selector": f"tbody tr:nth-child({row_index + 1}) td", "props": [
+                    ("background-color", color),
+                    ("color", "white")
+                ]}
+            ])
+        elif rule_type == "by_value":
+            # Выделение строки по значению в колонке
+            column = rule.get("column")
+            value = rule.get("value")
+            st.info(f"🔍 DEBUG: Выделяю строки с '{value}' в колонке '{column}'")
+            
+            if column and column in pdf.columns:
+                matching_rows = pdf[pdf[column] == value].index.tolist()
+                st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
+                
+                for row_idx in matching_rows:
+                    styler = styler.set_table_styles([
+                        {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                            ("background-color", color),
+                            ("color", "white")
+                        ]}
+                    ])
+            else:
+                st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
         elif rule_type == "first_n_cols":
             # Первые N столбцов
             n = rule.get("count", 1)
