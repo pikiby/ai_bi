@@ -510,13 +510,19 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     """
     Создает готовый HTML+CSS для таблицы со всеми стилями.
     Этот HTML сохраняется в meta и больше не изменяется (как fig у графиков).
+    КРИТИЧНО: Каждая таблица получает УНИКАЛЬНЫЙ CSS-класс для изоляции стилей!
     """
+    import uuid
+    
+    # КЛЮЧЕВОЕ: генерируем уникальный ID для изоляции CSS этой таблицы
+    unique_id = f"table_{uuid.uuid4().hex[:8]}"
+    
     # Сливаем со стандартными стилями
     merged = {**STANDARD_TABLE_STYLES, **style_meta}
-    css = _build_css_styles(merged)
+    css = _build_css_styles(merged, unique_id)  # Передаем unique_id в CSS
     
-    # Определяем классы для таблицы
-    table_classes = "adaptive-table"
+    # Определяем классы для таблицы (с уникальным ID!)
+    table_classes = f"adaptive-table {unique_id}"
     if style_meta.get("striped", False):
         table_classes += " striped"
     
@@ -526,7 +532,8 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     table_html = _apply_cell_formatting(table_html, pdf, style_meta)
     
     # Возвращаем полный HTML с CSS (готовый к отрисовке)
-    return f"<style>{css}</style>\n<div class='adaptive-table-container'>{table_html}</div>"
+    # CSS теперь привязан к уникальному классу этой таблицы!
+    return f"<style>{css}</style>\n<div class='adaptive-table-container {unique_id}-container'>{table_html}</div>"
 
 
 # Отрисовка содержимого таблицы с учетом стилей
@@ -546,6 +553,7 @@ def _render_table_content(pdf: pd.DataFrame, meta: dict):
         return
     
     # Fallback для старых таблиц без rendered_html (обратная совместимость)
+    # Генерируем HTML с уникальным CSS для изоляции стилей
     style_meta = (meta.get("table_style") or {})
     html = _generate_table_html(pdf, style_meta)
     st.markdown(html, unsafe_allow_html=True)
@@ -738,13 +746,17 @@ st.dataframe(df, use_container_width=True)
     return template
 
 
-def _build_css_styles(style_meta: dict) -> str:
+def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> str:
     """
     Создает CSS стили на основе метаданных стиля.
     Использует только поддерживаемые Streamlit CSS свойства.
     Включает стилизованную прокрутку для таблиц.
     Поддерживает адаптацию к темной теме.
     Автоматически подбирает контрастные цвета текста.
+    
+    Args:
+        style_meta: Словарь с метаданными стилей
+        unique_id: Уникальный ID для изоляции CSS этой таблицы
     """
     header_bg = style_meta.get("header_fill_color", "rgb(240, 240, 240)")
     # Принудительно делаем заголовки непрозрачными
@@ -1128,6 +1140,10 @@ def _build_css_styles(style_meta: dict) -> str:
         scrollbar-color: #888 #f1f1f1;
     }}
     """
+    
+    # КРИТИЧНО: Заменяем глобальные классы на уникальные для изоляции CSS
+    css = css.replace(".adaptive-table-container", f".{unique_id}-container")
+    css = css.replace(".adaptive-table", f".{unique_id}")
     
     return css
 
