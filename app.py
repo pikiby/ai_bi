@@ -522,7 +522,7 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     css = _build_css_styles(merged, unique_id)  # Передаем unique_id в CSS
     
     # Определяем классы для таблицы (с уникальным ID!)
-    table_classes = f"adaptive-table {unique_id}"
+    table_classes = unique_id
     if style_meta.get("striped", False):
         table_classes += " striped"
     
@@ -533,7 +533,7 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     
     # Возвращаем полный HTML с CSS (готовый к отрисовке)
     # CSS теперь привязан к уникальному классу этой таблицы!
-    return f"<style>{css}</style>\n<div class='adaptive-table-container {unique_id}-container'>{table_html}</div>"
+    return f"<style>{css}</style>\n<div class='{unique_id}-container'>{table_html}</div>"
 
 
 # Отрисовка содержимого таблицы с учетом стилей
