@@ -3007,6 +3007,7 @@ if user_input:
             final_reply = response.choices[0].message.content
         except Exception as e:
             st.error(f"Ошибка TABLE: {e}")
+            st.exception(e)  # Показываем полный traceback
             final_reply = ""
 
     elif mode == "plotly":
@@ -3135,17 +3136,15 @@ if user_input:
                     pdf = df_pl.to_pandas()
                     
                     # Применяем next_table_style если есть, затем очищаем его
-                    style_meta = meta_table.get("table_style") or {}
+                    styler_config = meta_table.get("styler_config") or {}
                     if st.session_state.get("next_table_style"):
-                        style_meta = st.session_state["next_table_style"]
-                        meta_table["table_style"] = style_meta
+                        styler_config = st.session_state["next_table_style"]
+                        meta_table["styler_config"] = styler_config
                         st.session_state["next_table_style"] = None  # Очищаем после применения
                     
-                    # Генерируем готовый HTML со стилями (как создается fig для графиков)
-                    rendered_html = _generate_table_html(pdf, style_meta)
-                    meta_table["rendered_html"] = rendered_html  # Сохраняем готовый HTML
+                    # НОВАЯ СИСТЕМА: сохраняем styler_config для Pandas Styler
+                    # HTML будет генерироваться в _render_table_content_styler()
                     _push_result("table", df_pl=df_pl, meta=meta_table)
-                    _render_result(st.session_state["results"][-1])
                     created_table = True
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
@@ -3225,21 +3224,11 @@ if user_input:
                         local_vars = {}
                         exec(table_code, safe_builtins, local_vars)
                         
-                        # Получаем table_style из выполненного кода
-                        table_style = local_vars.get("table_style")
-                        if isinstance(table_style, dict):
-                            # ИСПОЛЬЗУЕМ НОВУЮ СИСТЕМУ АВТОИСПРАВЛЕНИЯ
-                            has_errors, errors = _is_style_error(table_style)
-                            
-                            if has_errors:
-                                st.warning(f"⚠️ Обнаружены ошибки в стилях: {', '.join(errors[:3])}{'...' if len(errors) > 3 else ''}. Исправляю автоматически...")
-                                
-                                # Используем новую функцию автоисправления
-                                table_style = normalize_table_style_with_auto_fix(
-                                    table_style, 
-                                    llm_client=None,  # Пока без LLM для простоты
-                                    model_name=model_name
-                                )
+                        # Получаем styler_config из выполненного кода
+                        styler_config = local_vars.get("styler_config")
+                        if isinstance(styler_config, dict):
+                            # НОВАЯ СИСТЕМА: используем Pandas Styler напрямую
+                            st.info("✅ Применяю стили с помощью Pandas Styler...")
                             # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
@@ -3250,12 +3239,7 @@ if user_input:
                                     
                                     # Создаём новую мету с новыми стилями (deepcopy для независимости)
                                     new_meta = copy.deepcopy(old_meta)
-                                    new_meta["table_style"] = table_style
-                                    
-                                    # КЛЮЧЕВОЕ: генерируем НОВЫЙ HTML с новыми стилями (как новый fig)
-                                    pdf = old_df.to_pandas()
-                                    rendered_html = _generate_table_html(pdf, table_style)
-                                    new_meta["rendered_html"] = rendered_html
+                                    new_meta["styler_config"] = styler_config
                                     
                                     # Создаём НОВЫЙ результат (новая таблица с новым HTML)
                                     _push_result("table", df_pl=old_df, meta=new_meta)
@@ -3265,7 +3249,7 @@ if user_input:
                                     st.rerun()
                                     break
                             if not applied:
-                                st.session_state["next_table_style"] = table_style
+                                st.session_state["next_table_style"] = styler_config
                     except Exception as e:
                         st.error(f"Ошибка выполнения table_code: {e}")
 
