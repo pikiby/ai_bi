@@ -758,13 +758,24 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             else:
                 # Простое условие: выделить всю строку, где найдено значение
                 st.info(f"🔍 DEBUG: Простое условие - ищу '{value}' в колонке '{column}'")
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == value else "" 
-                              for _ in x], 
-                    axis=1  # Применить к строкам
-                )
-                st.info(f"🔍 DEBUG: Применил стили для простого условия")
+                
+                # НОВЫЙ ПОДХОД: используем set_table_styles вместо apply
+                # Находим индексы строк с нужным значением
+                matching_rows = pdf[pdf[column] == value].index.tolist()
+                st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
+                
+                if matching_rows:
+                    # Создаем CSS селекторы для найденных строк
+                    for row_idx in matching_rows:
+                        styler = styler.set_table_styles([
+                            {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                                ("background-color", color),
+                                ("color", "white")
+                            ]}
+                        ])
+                    st.info(f"🔍 DEBUG: Применил стили через set_table_styles")
+                else:
+                    st.info(f"🔍 DEBUG: Строки с '{value}' не найдены")
     
     # Обработка специальных случаев
     if style_config.get("highlight_first_row", False):
