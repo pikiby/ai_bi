@@ -102,9 +102,6 @@ CREATE MATERIALIZED VIEW db1.t_ai_global_report_mv
         t_dec.partner_uuid AS partner_uuid,
         t_dec.city_uuid AS city_uuid,
         eipdp.city AS city,
-        eipdp.country AS country,
-        eipdp.region AS region,
-        cdp.company_name AS company_name,
         cdp.partner_lk AS partner_lk,
         -- Все метрики из объединяемых таблиц
     FROM t_dec
@@ -125,9 +122,6 @@ CREATE MATERIALIZED VIEW db1.t_ai_global_report_mv
 | `partner_uuid`                | String  | UUID партнера                             |
 | `city_uuid`                   | String  | UUID города                               |
 | `city`                        | String  | Город                                     |
-| `country`                     | String  | Страна                                    |
-| `region`                      | String  | Регион                                    |
-| `company_name`                | String  | Название компании                          |
 | `partner_lk`                  | String  | Личный кабинет партнёра                   |
 
 ### Метрики подписок

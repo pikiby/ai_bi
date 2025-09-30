@@ -36,11 +36,11 @@ WITH last_date AS (
   WHERE total_active_users > 0
 )
 SELECT
-  company_name,
+  partner_lk,
   sum(paying_users) AS paying
 FROM t_ai_global_report
 INNER JOIN last_date USING (report_date)
-GROUP BY  company_name
+GROUP BY partner_lk
 ORDER BY paying DESC
 LIMIT 20;
 ```
