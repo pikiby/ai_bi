@@ -2099,7 +2099,16 @@ if st.session_state["messages"]:
         with st.chat_message(m["role"]):
             # Не показываем пустые сообщения (защита от случайных пустых записей)
             if m["content"]:
-                st.markdown(m["content"])
+                # Очищаем служебные блоки перед выводом в истории
+                if m["role"] == "assistant":
+                    cleaned_content = _strip_llm_blocks(m["content"])
+                    # Заменяем блоки стилей таблицы на читаемые фразы
+                    cleaned_content = re.sub(r"```table_code[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned_content, flags=re.IGNORECASE)
+                    cleaned_content = re.sub(r"```table_style[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned_content, flags=re.IGNORECASE).strip()
+                    if cleaned_content:
+                        st.markdown(cleaned_content)
+                else:
+                    st.markdown(m["content"])
             if m["role"] == "assistant":
                 # >>> все результаты, привязанные к этому ответу
                 for item in st.session_state["results"]:
