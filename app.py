@@ -1191,7 +1191,7 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         all_classes = f"{color_class} {text_class}".strip()
         
         # Специальная обработка для "max" и "min"
-        if value.lower() in ["max", "maximum"] and column and column in pdf.columns:
+        if isinstance(value, str) and value.lower() in ["max", "maximum"] and column and column in pdf.columns:
             # Находим максимальное значение в колонке
             try:
                 # Пытаемся преобразовать в числовой формат
@@ -1214,8 +1214,8 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
                             table_html = re.sub(pattern, replace_cell, table_html)
                             continue
             except Exception:
-                pass
-        elif value.lower() in ["min", "minimum"] and column and column in pdf.columns:
+                    pass
+        elif isinstance(value, str) and value.lower() in ["min", "minimum"] and column and column in pdf.columns:
             # Находим минимальное значение в колонке
             try:
                 numeric_col = pd.to_numeric(pdf[column], errors='coerce')
@@ -1243,16 +1243,25 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         if is_row_rule:
             # Находим индексы строк, где найдено значение
             matching_rows = []
-            if column and column in pdf.columns:
-                # Ищем в конкретной колонке
-                for idx, val in enumerate(pdf[column]):
-                    if str(value).lower() in str(val).lower():
-                        matching_rows.append(idx)
-            else:
-                # Ищем во всех колонках
-                for idx, row in pdf.iterrows():
-                    if any(str(value).lower() in str(cell).lower() for cell in row):
-                        matching_rows.append(idx)
+            
+            # Проверяем, является ли value индексом строки (число)
+            try:
+                row_index = int(value)
+                # Если это число - используем как индекс строки напрямую
+                if 0 <= row_index < len(pdf):
+                    matching_rows.append(row_index)
+            except (ValueError, TypeError):
+                # Если не число - ищем по значению
+                if column and column in pdf.columns:
+                    # Ищем в конкретной колонке
+                    for idx, val in enumerate(pdf[column]):
+                        if str(value).lower() in str(val).lower():
+                            matching_rows.append(idx)
+                else:
+                    # Ищем во всех колонках
+                    for idx, row in pdf.iterrows():
+                        if any(str(value).lower() in str(cell).lower() for cell in row):
+                            matching_rows.append(idx)
             
             # Применяем классы ко всем ячейкам в найденных строках
             if matching_rows:
