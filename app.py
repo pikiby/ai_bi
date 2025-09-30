@@ -478,7 +478,8 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
         "header_fill_color": "#f4f4f4",
         "header_font_color": "black",
         "cells_fill_color": "transparent",
-        "font_color": "black",
+        # Наследуем цвет текста от темы (чтобы тёмная/светлая работали автоматически)
+        "font_color": "inherit",
     }
     user_cfg = meta.get("styler_config") or {}
     cfg = {**defaults, **user_cfg}
@@ -497,7 +498,49 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     ])
 
     html = styler.to_html(escape=False, table_id="styled-table")
-    st.markdown(html, unsafe_allow_html=True)
+
+    # Красивый контейнер: скролл по необходимости, скругления, адаптация к тёмной теме
+    container_css = """
+    <style>
+    .styler-box { max-height: 520px; overflow: auto; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 2px rgba(0,0,0,.06); background: transparent; }
+    .styler-box::-webkit-scrollbar { width: 10px; height: 10px; }
+    .styler-box::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25); border-radius: 8px; }
+    .styler-box::-webkit-scrollbar-track { background: transparent; }
+    .styler-box { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.25) transparent; }
+    .styler-box table { color: #111111; background: transparent; }
+    @media (prefers-color-scheme: dark) { .styler-box table { color: #f5f5f7; } }
+    .styler-box table { border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; }
+    .styler-box thead th:first-child { border-top-left-radius: 10px; }
+    .styler-box thead th:last-child  { border-top-right-radius: 10px; }
+    .styler-box tbody tr:last-child td:first-child { border-bottom-left-radius: 10px; }
+    .styler-box tbody tr:last-child td:last-child  { border-bottom-right-radius: 10px; }
+    </style>
+    """
+
+    import uuid as _uuid
+    uid = _uuid.uuid4().hex[:8]
+
+    # Кнопка полноэкранного режима
+    col_left, col_right = st.columns([1, 6])
+    with col_left:
+        if st.button("Во весь экран", key=f"full_{uid}"):
+            # Рендер в модальном окне с увеличенным контейнером
+            with st.modal("Таблица — полноэкранный режим", key=f"modal_{uid}", max_width=None):
+                modal_css = """
+                <style>
+                .styler-box-full { max-height: 85vh; overflow: auto; border-radius: 12px; border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 2px 6px rgba(0,0,0,.12); background: transparent; }
+                .styler-box-full::-webkit-scrollbar { width: 12px; height: 12px; }
+                .styler-box-full::-webkit-scrollbar-thumb { background: rgba(0,0,0,.35); border-radius: 10px; }
+                .styler-box-full { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.35) transparent; }
+                .styler-box-full table { color: #111111; background: transparent; }
+                @media (prefers-color-scheme: dark) { .styler-box-full table { color: #f5f5f7; } }
+                .styler-box-full table { border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; }
+                </style>
+                """
+                st.markdown(modal_css + f"<div class='styler-box-full'>{html}</div>", unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown(container_css + f"<div class='styler-box'>{html}</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
