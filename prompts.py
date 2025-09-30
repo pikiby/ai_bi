@@ -251,14 +251,12 @@ RULES_TABLE = r"""
 - Если просят выделить несколько конкретных строк → используй special_rules с "type": "specific_rows"
 - Если просят выделить значения больше/меньше N → используй special_rules с "type": "column_value_condition"
 - Если просят выделить максимальные/минимальные значения → используй cell_rules с "value": "max"/"min"
-- Если просят изменить цвет текста → используй "header_font_color" и "font_color"
 - Если просят выделить строку по тексту → используй row_rules с "column" и "value"
 - Если просят выделить столбец → используй column_rules с "column" и "color"
 - Если просят изменить цвет ЯЧЕЙКИ → используй cell_rules
 - Если просят изменить цвет СТРОКИ → используй row_rules
 - ВСЕГДА указывай "column" в row_rules для поиска по колонке
 - НЕ используй "row": 0 в row_rules - это неправильно!
-- НЕ используй "text_color" - используй "header_font_color" и "font_color"!
 - НЕ создавай новые SQL-запросы и НЕ упоминай SQL в ответе!
 
 ПРИМЕРЫ ПРАВИЛЬНОГО ФОРМАТА:
@@ -337,14 +335,6 @@ styler_config = {
     "header_fill_color": "#f4f4f4",
     "cells_fill_color": "white",
     "cell_rules": [{"column": "Общая выручка", "value": "max", "color": "black"}]
-}
-
-12. Изменение цвета текста:
-styler_config = {
-    "header_fill_color": "#f4f4f4",
-    "cells_fill_color": "white",
-    "header_font_color": "black",
-    "font_color": "black"
 }
 
 """
