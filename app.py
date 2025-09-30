@@ -422,9 +422,6 @@ def _render_result(item: dict):
 # ИСПОЛЬЗУЕТ: _get_title(), _render_table_content(), _render_table_caption(), _render_sql_block(), _render_download_buttons()
 # ОБРАБОТКА ОШИБОК: Graceful degradation при некорректных данных, безопасная обработка отсутствующих метаданных
 def _render_table(item: dict):
-    """
-    НОВАЯ ЛОГИКА: Использует Streamlit + Pandas Styler вместо HTML+CSS
-    """
     df_pl = item.get("df_pl")
     if not isinstance(df_pl, pl.DataFrame):
         return
@@ -436,11 +433,10 @@ def _render_table(item: dict):
     title = _get_title(meta, pdf, "sql")
     st.markdown(f"**Таблица {n}:** {title}")
     
-    # НОВАЯ ЛОГИКА: Используем Streamlit + Pandas Styler
-    _render_table_content_styler(pdf, meta)
+    _render_table_content(pdf, meta)
     _render_table_caption(meta, pdf)
     _render_sql_block(meta)
-    _render_table_style_block_styler(meta)
+    _render_table_style_block(meta)
     _render_download_buttons(pdf, item, "table")
 
 
@@ -557,294 +553,26 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
 
 
 # Отрисовка содержимого таблицы с учетом стилей
-def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
+def _render_table_content(pdf: pd.DataFrame, meta: dict):
     """
-    НОВАЯ ЛОГИКА: Использует Streamlit + Pandas Styler вместо HTML+CSS
+    НОВАЯ ЛОГИКА (аналог _render_chart): 
+    Если есть готовый HTML в meta - просто показываем его (как fig у графиков).
+    Иначе генерируем (для обратной совместимости).
     """
     # Сохраняем DataFrame для AI-генерации
     _save_table_dataframe(pdf, meta)
 
-    # Получаем конфигурацию стилей
-    style_config = meta.get("styler_config", {})
+    # КЛЮЧЕВОЕ ОТЛИЧИЕ: если есть готовый HTML - используем его (как fig)
+    rendered_html = meta.get("rendered_html")
+    if rendered_html:
+        st.markdown(rendered_html, unsafe_allow_html=True)
+        return
     
-    # Если нет конфигурации, создаем базовую
-    if not style_config:
-        style_config = _create_default_styler_config()
-    
-    # Создаем стилизованную таблицу
-    styled_df = _create_styled_dataframe(pdf, style_config)
-    
-    # Отображаем в Streamlit
-    st.dataframe(styled_df, use_container_width=True)
-
-def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
-    """
-    Создает стилизованный DataFrame с помощью Pandas Styler
-    """
-    styler = pdf.style
-    
-    # Применяем базовые стили
-    styler = _apply_styler_base_styles(styler, style_config)
-    
-    # Применяем условное форматирование
-    styler = _apply_styler_conditional_formatting(styler, pdf, style_config)
-    
-    # Применяем чередование строк
-    styler = _apply_styler_striping(styler, style_config)
-    
-    return styler
-
-def _apply_styler_base_styles(styler, style_config: dict):
-    """Применяет базовые стили к таблице"""
-    
-    # Стили заголовков
-    header_bg = style_config.get("header_fill_color", "#f4f4f4")
-    header_color = style_config.get("header_font_color", "black")
-    
-    styler = styler.set_table_styles([
-        {"selector": "thead th", "props": [
-            ("background-color", header_bg),
-            ("color", header_color),
-            ("font-weight", "bold")
-        ]}
-    ])
-    
-    # Стили ячеек
-    cell_bg = style_config.get("cells_fill_color", "white")
-    cell_color = style_config.get("font_color", "black")
-    
-    styler = styler.set_table_styles([
-        {"selector": "tbody td", "props": [
-            ("background-color", cell_bg),
-            ("color", cell_color)
-        ]}
-    ])
-    
-    return styler
-
-def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config: dict):
-    """Применяет условное форматирование"""
-    
-    # Обработка cell_rules (выделение ячеек)
-    cell_rules = style_config.get("cell_rules", [])
-    
-    for rule in cell_rules:
-        column = rule.get("column")
-        value = rule.get("value")
-        color = rule.get("color", "red")
-        
-        if column and column in pdf.columns:
-            if value == "max":
-                # Выделить максимальные значения
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == x[column].max() else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif value == "min":
-                # Выделить минимальные значения
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == x[column].min() else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, (int, float)):
-                # Выделить конкретные значения
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == value else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith(">"):
-                # Выделить значения больше указанного числа
-                threshold = float(value[1:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') > threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith("<"):
-                # Выделить значения меньше указанного числа
-                threshold = float(value[1:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') < threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith(">="):
-                # Выделить значения больше или равные указанному числу
-                threshold = float(value[2:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') >= threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-            elif isinstance(value, str) and value.startswith("<="):
-                # Выделить значения меньше или равные указанному числу
-                threshold = float(value[2:])
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if pd.to_numeric(x[column], errors='coerce') <= threshold else "" 
-                              for _ in x], 
-                    subset=[column]
-                )
-    
-    # Обработка row_rules (выделение строк)
-    row_rules = style_config.get("row_rules", [])
-    
-    for rule in row_rules:
-        column = rule.get("column")
-        value = rule.get("value")
-        color = rule.get("color", "red")
-        condition_column = rule.get("condition_column")  # Дополнительное условие
-        condition_value = rule.get("condition_value")     # Значение для условия
-        
-        if column and column in pdf.columns:
-            if condition_column and condition_column in pdf.columns and condition_value is not None:
-                # Сложное условие: выделить строки где column=value И condition_column>condition_value
-                if isinstance(condition_value, str) and condition_value.startswith(">"):
-                    threshold = float(condition_value[1:])
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" 
-                                  if (x[column] == value and 
-                                      pd.to_numeric(x[condition_column], errors='coerce') > threshold) 
-                                  else "" 
-                                  for _ in x], 
-                        axis=1
-                    )
-                elif isinstance(condition_value, str) and condition_value.startswith("<"):
-                    threshold = float(condition_value[1:])
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" 
-                                  if (x[column] == value and 
-                                      pd.to_numeric(x[condition_column], errors='coerce') < threshold) 
-                                  else "" 
-                                  for _ in x], 
-                        axis=1
-                    )
-                elif isinstance(condition_value, (int, float)):
-                    styler = styler.apply(
-                        lambda x: [f"background-color: {color}; color: white" 
-                                  if (x[column] == value and 
-                                      pd.to_numeric(x[condition_column], errors='coerce') > condition_value) 
-                                  else "" 
-                                  for _ in x], 
-                        axis=1
-                    )
-            else:
-                # Простое условие: выделить всю строку, где найдено значение
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x[column] == value else "" 
-                              for _ in x], 
-                    axis=1  # Применить к строкам
-                )
-    
-    # Обработка специальных случаев
-    if style_config.get("highlight_first_row", False):
-        # Выделить первую строку данных (не заголовок)
-        styler = styler.apply(
-            lambda x: [f"background-color: {style_config.get('first_row_color', 'red')}; color: white" 
-                      if x.name == 0 else "" 
-                      for _ in x], 
-            axis=1
-        )
-    
-    # Обработка специальных запросов через apply/applymap
-    special_rules = style_config.get("special_rules", [])
-    
-    for rule in special_rules:
-        rule_type = rule.get("type")
-        color = rule.get("color", "red")
-        
-        if rule_type == "first_n_rows":
-            # Первые N строк
-            n = rule.get("count", 1)
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          if x.name < n else "" 
-                          for _ in x], 
-                axis=1
-            )
-        elif rule_type == "last_n_rows":
-            # Последние N строк
-            n = rule.get("count", 1)
-            total_rows = len(pdf)
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          if x.name >= total_rows - n else "" 
-                          for _ in x], 
-                axis=1
-            )
-        elif rule_type == "specific_row":
-            # Конкретная строка (0-based)
-            row_index = rule.get("row_index", 0)
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          if x.name == row_index else "" 
-                          for _ in x], 
-                axis=1
-            )
-        elif rule_type == "first_n_cols":
-            # Первые N столбцов
-            n = rule.get("count", 1)
-            cols = pdf.columns[:n]
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          for _ in x], 
-                subset=cols
-            )
-        elif rule_type == "last_n_cols":
-            # Последние N столбцов
-            n = rule.get("count", 1)
-            cols = pdf.columns[-n:]
-            styler = styler.apply(
-                lambda x: [f"background-color: {color}; color: white" 
-                          for _ in x], 
-                subset=cols
-            )
-        elif rule_type == "specific_col":
-            # Конкретный столбец
-            col_name = rule.get("column")
-            if col_name and col_name in pdf.columns:
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              for _ in x], 
-                    subset=[col_name]
-                )
-    
-    return styler
-
-def _apply_styler_striping(styler, style_config: dict):
-    """Применяет чередование строк"""
-    
-    if style_config.get("striped", False):
-        even_color = style_config.get("even_row_color", "#f9f9f9")
-        odd_color = style_config.get("odd_row_color", "white")
-        
-        styler = styler.set_table_styles([
-            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", even_color)]},
-            {"selector": "tbody tr:nth-child(odd)", "props": [("background-color", odd_color)]}
-        ])
-    
-    return styler
-
-def _create_default_styler_config():
-    """Создает конфигурацию стилей по умолчанию"""
-    return {
-        "header_fill_color": "#f4f4f4",
-        "header_font_color": "black",
-        "cells_fill_color": "white",
-        "font_color": "black",
-        "striped": False,
-        "cell_rules": []
-    }
+    # Fallback для старых таблиц без rendered_html (обратная совместимость)
+    # Генерируем HTML с уникальным CSS для изоляции стилей
+    style_meta = (meta.get("table_style") or {})
+    html = _generate_table_html(pdf, style_meta)
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
@@ -895,32 +623,31 @@ def _render_sql_block(meta: dict):
 
 
 # Отрисовка блока стилей таблицы
-def _render_table_style_block_styler(meta: dict):
-    """НОВАЯ ЛОГИКА: Отрисовка блока со стилями Pandas Styler"""
-    styler_config = meta.get("styler_config", {})
+def _render_table_style_block(meta: dict):
+    """Отрисовка свернутого блока со стилями таблицы"""
+    table_style = meta.get("table_style", {})
     
-    if not styler_config:
+    if not table_style:
         return
     
-    with st.expander("Показать стили таблицы (Pandas Styler)", expanded=False):
-        st.markdown("**Стили таблицы (Pandas Styler)**")
+    with st.expander("Показать стили таблицы", expanded=False):
+        st.markdown("**Стили таблицы**")
         
         # Проверяем валидность JSON и показываем ошибки
         try:
             import json
-            json_str = json.dumps(styler_config, ensure_ascii=False, indent=2)
-            st.json(styler_config)
+            json_str = json.dumps(table_style, ensure_ascii=False, indent=2)
+            st.json(table_style)
             
             # Проверяем cell_rules и row_rules на корректность
-            cell_rules = styler_config.get("cell_rules", [])
-            row_rules = styler_config.get("row_rules", [])
-            special_rules = styler_config.get("special_rules", [])
-            column_rules = styler_config.get("column_rules", [])
-            row_alternating_color = styler_config.get("row_alternating_color")
-            striped_rows = styler_config.get("striped_rows")
-            cells_fill_color = styler_config.get("cells_fill_color")
+            cell_rules = table_style.get("cell_rules", [])
+            row_rules = table_style.get("row_rules", [])
+            column_rules = table_style.get("column_rules", [])
+            row_alternating_color = table_style.get("row_alternating_color")
+            striped_rows = table_style.get("striped_rows")
+            cells_fill_color = table_style.get("cells_fill_color")
             
-            if cell_rules or row_rules or special_rules or column_rules or row_alternating_color or striped_rows or isinstance(cells_fill_color, list):
+            if cell_rules or row_rules or column_rules or row_alternating_color or striped_rows or isinstance(cells_fill_color, list):
                 st.markdown("**Проверка правил форматирования:**")
                 
                 # Предупреждение о неправильных ключах
@@ -973,40 +700,10 @@ def _render_table_style_block_styler(meta: dict):
                         st.warning(f"row_rules {i+1}: рекомендуется указать 'column' для поиска")
                     
                     st.info(f"row_rules {i+1}: будет выделена вся строка с '{rule.get('value')}' в колонке '{rule.get('column')}'")
-                
-                # Проверяем special_rules
-                for i, rule in enumerate(special_rules):
-                    if not isinstance(rule, dict):
-                        st.error(f"special_rules {i+1}: должно быть словарем")
-                        continue
-                    
-                    rule_type = rule.get("type")
-                    color = rule.get("color", "red")
-                    
-                    if rule_type == "first_n_rows":
-                        count = rule.get("count", 1)
-                        st.info(f"special_rules {i+1}: будут выделены первые {count} строк цветом {color}")
-                    elif rule_type == "last_n_rows":
-                        count = rule.get("count", 1)
-                        st.info(f"special_rules {i+1}: будут выделены последние {count} строк цветом {color}")
-                    elif rule_type == "specific_row":
-                        row_index = rule.get("row_index", 0)
-                        st.info(f"special_rules {i+1}: будет выделена строка {row_index + 1} (индекс {row_index}) цветом {color}")
-                    elif rule_type == "first_n_cols":
-                        count = rule.get("count", 1)
-                        st.info(f"special_rules {i+1}: будут выделены первые {count} столбцов цветом {color}")
-                    elif rule_type == "last_n_cols":
-                        count = rule.get("count", 1)
-                        st.info(f"special_rules {i+1}: будут выделены последние {count} столбцов цветом {color}")
-                    elif rule_type == "specific_col":
-                        column = rule.get("column", "")
-                        st.info(f"special_rules {i+1}: будет выделен столбец '{column}' цветом {color}")
-                    else:
-                        st.warning(f"special_rules {i+1}: неизвестный тип '{rule_type}'")
                         
         except Exception as e:
             st.error(f"Ошибка в JSON стилей: {e}")
-            st.json(styler_config)
+            st.json(table_style)
 
 
 # Отрисовка кода Plotly
@@ -1113,9 +810,10 @@ def _save_table_dataframe(pdf: pd.DataFrame, meta: dict) -> str:
     return table_key
 
 
-def _generate_table_code_styler(table_key: str, user_request: str) -> str:
+def _generate_table_code(table_key: str, user_request: str) -> str:
     """
-    НОВАЯ ЛОГИКА: AI генерирует код таблицы с Pandas Styler
+    AI генерирует код таблицы на основе стандартного шаблона.
+    Минимум логики - только генерация кода.
     """
     # Получаем данные
     table_data = st.session_state.get(f"table_data_{table_key}")
@@ -1124,57 +822,26 @@ def _generate_table_code_styler(table_key: str, user_request: str) -> str:
     
     df = table_data["df"]
     
-    # НОВЫЙ ШАБЛОН с Pandas Styler
+    # СТАНДАРТНЫЙ ШАБЛОН с базовыми стилями
     template = f"""
-# Streamlit + Pandas Styler таблица
+# Стандартный шаблон таблицы
 import pandas as pd
 import streamlit as st
 
 # Данные таблицы
 data = {df.to_dict('records')}
+
+# Создание DataFrame
 df = pd.DataFrame(data)
 
-# БАЗОВАЯ КОНФИГУРАЦИЯ СТИЛЕЙ
-styler_config = {{
-    "header_fill_color": "#f4f4f4",
-    "header_font_color": "black", 
-    "cells_fill_color": "white",
-    "font_color": "black",
-    "striped": False,
-    "cell_rules": []
-}}
+# СТАНДАРТНЫЕ СТИЛИ ТАБЛИЦЫ
+standard_styles = {STANDARD_TABLE_STYLES}
 
 # ОТСЮДА AI ДОБАВЛЯЕТ КОД НА ОСНОВЕ ЗАПРОСА: {user_request}
-# AI анализирует запрос и добавляет нужные изменения к styler_config
-
-# Создание стилизованной таблицы
-styler = df.style
-
-# Применение базовых стилей
-styler = styler.set_table_styles([
-    {{"selector": "thead th", "props": [
-        ("background-color", styler_config["header_fill_color"]),
-        ("color", styler_config["header_font_color"]),
-        ("font-weight", "bold")
-    ]}}
-])
-
-# Применение стилей ячеек
-styler = styler.set_table_styles([
-    {{"selector": "tbody td", "props": [
-        ("background-color", styler_config["cells_fill_color"]),
-        ("color", styler_config["font_color"])
-    ]}}
-])
-
-# AI ДОБАВЛЯЕТ УСЛОВНОЕ ФОРМАТИРОВАНИЕ ЗДЕСЬ
-# Пример: styler = styler.apply(lambda x: [...], subset=[column])
-
-# AI ДОБАВЛЯЕТ ЧЕРЕДОВАНИЕ СТРОК ЗДЕСЬ
-# Пример: styler = styler.set_table_styles([...])
+# AI анализирует запрос и добавляет нужные изменения к standard_styles
 
 # Вывод таблицы
-st.dataframe(styler, use_container_width=True)
+st.dataframe(df, use_container_width=True)
 """
     
     return template
