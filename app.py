@@ -706,13 +706,22 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                     subset=[column]
                 )
             elif isinstance(value, str) and not (value.startswith(">") or value.startswith("<")):
-                # Обработка строковых значений
-                styler = styler.apply(
-                    lambda x: [f"background-color: {color}; color: white" 
-                              if x == value else "" 
-                              for x in x], 
-                    subset=[column]
-                )
+                # Обработка строковых значений через set_table_styles
+                matching_rows = pdf[pdf[column] == value].index.tolist()
+                if matching_rows:
+                    styles_to_add = []
+                    for row_idx in matching_rows:
+                        col_idx = list(pdf.columns).index(column)
+                        styles_to_add.append({
+                            "selector": f"tbody tr:nth-child({row_idx + 1}) td:nth-child({col_idx + 1})", 
+                            "props": [
+                                ("background-color", color),
+                                ("color", "white")
+                            ]
+                        })
+                    
+                    existing_styles = styler.table_styles
+                    styler = styler.set_table_styles(existing_styles + styles_to_add)
     
     # Обработка row_rules (выделение строк)
     row_rules = style_config.get("row_rules", [])
