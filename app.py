@@ -771,8 +771,7 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                         styles_to_add.append({
                             "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
                             "props": [
-                                ("background-color", color),
-                                ("color", "white")
+                                ("color", color)
                             ]
                         })
                     
