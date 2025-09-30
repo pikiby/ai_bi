@@ -1191,16 +1191,20 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
                 if not numeric_col.isna().all():
                     max_value = numeric_col.max()
                     if not pd.isna(max_value):
-                        # Форматируем максимальное значение
-                        max_str = str(max_value)
-                        pattern = rf'<td[^>]*>([^<]*{re.escape(max_str)}[^<]*)</td>'
-                        def replace_cell(match):
-                            cell_content = match.group(1)
-                            if max_str in cell_content:
-                                return f'<td class="{all_classes}">{cell_content}</td>'
-                            return match.group(0)
-                        table_html = re.sub(pattern, replace_cell, table_html)
-                        continue
+                        # Если нужно выделить всю строку - заменяем value на найденное значение
+                        if is_row_rule:
+                            value = max_value  # Подменяем value для обработки ниже
+                        else:
+                            # Выделяем только ячейку с максимумом
+                            max_str = str(max_value)
+                            pattern = rf'<td[^>]*>([^<]*{re.escape(max_str)}[^<]*)</td>'
+                            def replace_cell(match):
+                                cell_content = match.group(1)
+                                if max_str in cell_content:
+                                    return f'<td class="{all_classes}">{cell_content}</td>'
+                                return match.group(0)
+                            table_html = re.sub(pattern, replace_cell, table_html)
+                            continue
             except Exception:
                 pass
         elif value.lower() in ["min", "minimum"] and column and column in pdf.columns:
@@ -1210,15 +1214,20 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
                 if not numeric_col.isna().all():
                     min_value = numeric_col.min()
                     if not pd.isna(min_value):
-                        min_str = str(min_value)
-                        pattern = rf'<td[^>]*>([^<]*{re.escape(min_str)}[^<]*)</td>'
-                        def replace_cell(match):
-                            cell_content = match.group(1)
-                            if min_str in cell_content:
-                                return f'<td class="{all_classes}">{cell_content}</td>'
-                            return match.group(0)
-                        table_html = re.sub(pattern, replace_cell, table_html)
-                        continue
+                        # Если нужно выделить всю строку - заменяем value на найденное значение
+                        if is_row_rule:
+                            value = min_value  # Подменяем value для обработки ниже
+                        else:
+                            # Выделяем только ячейку с минимумом
+                            min_str = str(min_value)
+                            pattern = rf'<td[^>]*>([^<]*{re.escape(min_str)}[^<]*)</td>'
+                            def replace_cell(match):
+                                cell_content = match.group(1)
+                                if min_str in cell_content:
+                                    return f'<td class="{all_classes}">{cell_content}</td>'
+                                return match.group(0)
+                            table_html = re.sub(pattern, replace_cell, table_html)
+                            continue
             except Exception:
                 pass
         
@@ -2358,8 +2367,9 @@ if user_input:
     with st.chat_message("assistant"):
         # Не показываем служебные блоки title/explain/sql/table_style — они рендерятся отдельно
         cleaned = _strip_llm_blocks(final_reply)
-        # Убираем блок table_style из вывода в чат
-        cleaned = re.sub(r"```table_style[\s\S]*?```", "", cleaned, flags=re.IGNORECASE).strip()
+        # Заменяем блоки стилей таблицы на читаемые фразы
+        cleaned = re.sub(r"```table_code[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"```table_style[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned, flags=re.IGNORECASE).strip()
         if cleaned:
             st.markdown(cleaned)
         created_chart = False

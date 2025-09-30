@@ -32,11 +32,11 @@ WITH last_date AS (
   WHERE total_active_users > 0
 )
 SELECT
-  partner_lk,
+  company_name,
   sum(units_on_platform) AS units
 FROM t_ai_global_report
 INNER JOIN last_date USING (report_date)
-GROUP BY partner_lk
+GROUP BY company_name
 ORDER BY units DESC
 LIMIT 20;
 ```

@@ -247,6 +247,8 @@ RULES_TABLE = r"""
 - Не добавляй комментарии (# …).
 - Не меняй df (никаких присваиваний/удалений/созданий колонок).
 - Создавай переменную table_style = {"header_fill_color": "...", "cells_fill_color": "...", "align": "..."}
+- КРИТИЧНО: НЕ используй условные выражения (if/else) в cells_fill_color!
+- Для условного форматирования ВСЕГДА используй "cell_rules": [...]
 - Никакого дополнительного вывода вне блока, только код.
 
          Примеры стилей (ВСЕГДА используй полупрозрачные цвета):
@@ -260,11 +262,12 @@ RULES_TABLE = r"""
          - Выделение конкретных значений: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "blue"}, {"value": "Москва", "color": "red"}]}
          - Выделение в конкретной колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "100", "color": "green", "column": "amount"}]}
          - Изменение цвета текста: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "red", "text_color": "white"}]}
-         - Выделение максимума в колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
-         - Выделение минимума в колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
-         - Выделение целой строки: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "red", "row": True}]}
-         - Выделение строки по колонке: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "Краснодар", "color": "blue", "column": "Город", "row": True}]}
-         - Выделение строки с max: table_style = {"header_fill_color": "rgba(240, 240, 240, 0.8)", "cells_fill_color": "transparent", "cell_rules": [{"value": "max", "color": "red", "column": "Выручка", "row": True}]}
+         - Выделение максимума в колонке: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
+         - Выделение минимума в колонке: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
+         - Выделение целой строки: table_style = {"cell_rules": [{"value": "Краснодар", "color": "red", "row": True}]}
+         - Выделение строки по колонке: table_style = {"cell_rules": [{"value": "Краснодар", "color": "blue", "column": "Город", "row": True}]}
+         - ВЫДЕЛЕНИЕ СТРОКИ С МАКСИМУМОМ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка", "row": True}]}
+         - ВЫДЕЛЕНИЕ СТРОКИ С МИНИМУМОМ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество", "row": True}]}
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
