@@ -437,6 +437,7 @@ def _render_table(item: dict):
     st.markdown(f"**Таблица {n}:** {title}")
     
     # НОВАЯ ЛОГИКА: Используем Streamlit + Pandas Styler
+    st.info("🔍 DEBUG: Вызываю _render_table_content_styler")
     _render_table_content_styler(pdf, meta)
     _render_table_caption(meta, pdf)
     _render_sql_block(meta)
@@ -575,6 +576,7 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     styled_df = _create_styled_dataframe(pdf, style_config)
     
     # Отображаем в Streamlit
+    st.info("🔍 DEBUG: Отображаю таблицу с Pandas Styler")
     st.dataframe(styled_df, use_container_width=True)
 
 def _create_styled_dataframe(pdf: pd.DataFrame, style_config: dict):
@@ -1115,7 +1117,7 @@ def _save_table_dataframe(pdf: pd.DataFrame, meta: dict) -> str:
 
 def _generate_table_code_styler(table_key: str, user_request: str) -> str:
     """
-    НОВАЯ ЛОГИКА: AI генерирует код таблицы с Pandas Styler
+    НОВАЯ ЛОГИКА: AI генерирует ТОЛЬКО styler_config для Pandas Styler
     """
     # Получаем данные
     table_data = st.session_state.get(f"table_data_{table_key}")
@@ -1124,57 +1126,20 @@ def _generate_table_code_styler(table_key: str, user_request: str) -> str:
     
     df = table_data["df"]
     
-    # НОВЫЙ ШАБЛОН с Pandas Styler
+    # ШАБЛОН ТОЛЬКО ДЛЯ styler_config
     template = f"""
-# Streamlit + Pandas Styler таблица
-import pandas as pd
-import streamlit as st
-
-# Данные таблицы
-data = {df.to_dict('records')}
-df = pd.DataFrame(data)
-
-# БАЗОВАЯ КОНФИГУРАЦИЯ СТИЛЕЙ
 styler_config = {{
     "header_fill_color": "#f4f4f4",
     "header_font_color": "black", 
     "cells_fill_color": "white",
     "font_color": "black",
     "striped": False,
-    "cell_rules": []
+    "cell_rules": [],
+    "row_rules": []
 }}
 
-# ОТСЮДА AI ДОБАВЛЯЕТ КОД НА ОСНОВЕ ЗАПРОСА: {user_request}
-# AI анализирует запрос и добавляет нужные изменения к styler_config
-
-# Создание стилизованной таблицы
-styler = df.style
-
-# Применение базовых стилей
-styler = styler.set_table_styles([
-    {{"selector": "thead th", "props": [
-        ("background-color", styler_config["header_fill_color"]),
-        ("color", styler_config["header_font_color"]),
-        ("font-weight", "bold")
-    ]}}
-])
-
-# Применение стилей ячеек
-styler = styler.set_table_styles([
-    {{"selector": "tbody td", "props": [
-        ("background-color", styler_config["cells_fill_color"]),
-        ("color", styler_config["font_color"])
-    ]}}
-])
-
-# AI ДОБАВЛЯЕТ УСЛОВНОЕ ФОРМАТИРОВАНИЕ ЗДЕСЬ
-# Пример: styler = styler.apply(lambda x: [...], subset=[column])
-
-# AI ДОБАВЛЯЕТ ЧЕРЕДОВАНИЕ СТРОК ЗДЕСЬ
-# Пример: styler = styler.set_table_styles([...])
-
-# Вывод таблицы
-st.dataframe(styler, use_container_width=True)
+# AI анализирует запрос: {user_request}
+# AI добавляет нужные изменения к styler_config на основе запроса
 """
     
     return template
