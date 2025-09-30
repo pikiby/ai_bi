@@ -2498,7 +2498,9 @@ if user_input:
                 else:
                     try:
                         # Песочница для выполнения table_code
-                        df = st.session_state["last_df"]
+                        # ВАЖНО: Конвертируем Polars в pandas для совместимости с iloc и другими методами
+                        df_polars = st.session_state["last_df"]
+                        df = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
                         
                         def col(*names):
                             """Вернёт первое подходящее имя колонки из перечисленных."""
@@ -2523,7 +2525,7 @@ if user_input:
                                 "float": float,
                                 "bool": bool
                             },
-                            "df": st.session_state["last_df"],
+                            "df": df,  # pandas DataFrame для совместимости
                             "st": st,
                             "pd": pd,
                             "col": col,

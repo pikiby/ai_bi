@@ -231,6 +231,10 @@ RULES_TABLE = r"""
 Тебе доступны объекты: df (pandas.DataFrame), st (streamlit), pd (pandas).
 Задача: создать стили для новой версии таблицы на основе запроса пользователя.
 
+ВАЖНО: df - это ПОЛНОЦЕННЫЙ pandas DataFrame!
+- Можно использовать: df.iloc, df.loc, df.max(), df.min(), df.columns и ВСЕ методы pandas
+- Можно использовать pd.to_numeric(), pd.DataFrame() и другие функции pandas
+
 Требования безопасности:
 - НЕЛЬЗЯ: import/exec/eval/open/subprocess/socket/os.* / sys.* / Path( / requests / httpx / двойные подчёркивания __.
 - НЕЛЬЗЯ читать/писать файлы, делать сетевые вызовы, модифицировать df.
