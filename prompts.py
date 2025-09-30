@@ -247,4 +247,26 @@ RULES_TABLE = r"""
 - Если просят чередование строк → используй "striped": true
 - НЕ создавай новые SQL-запросы и НЕ упоминай SQL в ответе!
 
+ПРИМЕРЫ ПРАВИЛЬНОГО ФОРМАТА:
+1. Красная таблица:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "red",
+    "font_color": "white"
+}
+
+2. Чередование строк:
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "striped": True
+}
+
+3. Выделение максимума в колонке "Выручка":
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "cell_rules": [{"column": "Выручка", "value": "max", "color": "red"}]
+}
+
 """
