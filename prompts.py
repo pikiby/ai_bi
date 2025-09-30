@@ -261,6 +261,7 @@ RULES_TABLE = r"""
          - Выделение максимума в колонке: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка"}]}
          - Выделение минимума в колонке: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество"}]}
          - Выделение целой строки: table_style = {"cell_rules": [{"value": "Краснодар", "color": "red", "row": True}]}
+         - Выделение строки по индексу: table_style = {"cell_rules": [{"value": "0", "color": "red", "row": True}]}  # Первая строка (индекс 0)
          - Выделение строки по колонке: table_style = {"cell_rules": [{"value": "Краснодар", "color": "blue", "column": "Город", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ С МАКСИМУМОМ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ С МИНИМУМОМ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество", "row": True}]}
@@ -277,7 +278,8 @@ RULES_TABLE = r"""
          - ВЫДЕЛЕНИЕ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки"}
          - ЦВЕТ ТЕКСТА: {"value": "значение", "color": "red", "text_color": "white/black/red/blue/green/yellow/orange/purple"}
          - МАКСИМУМ/МИНИМУМ: {"value": "max/min", "color": "red", "column": "название_колонки"} - автоматически найдет максимальное/минимальное значение
-         - ВЫДЕЛЕНИЕ СТРОКИ: {"value": "значение", "color": "blue", "row": True} - выделит всю строку, где найдено значение
+         - ВЫДЕЛЕНИЕ СТРОКИ ПО ЗНАЧЕНИЮ: {"value": "значение", "color": "blue", "row": True} - выделит всю строку, где найдено значение
+         - ВЫДЕЛЕНИЕ СТРОКИ ПО ИНДЕКСУ: {"value": "0", "color": "red", "row": True} - выделит первую строку (индекс начинается с 0)
          - ВЫДЕЛЕНИЕ СТРОКИ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки", "row": True}
          - СТРОКА С MAX/MIN: {"value": "max/min", "color": "red", "column": "название_колонки", "row": True} - выделит всю строку с максимальным/минимальным значением
          - ДОСТУПНЫЕ ФУНКЦИИ: len, range, min, max, dict, list, str, int, float, bool, col, has_col
