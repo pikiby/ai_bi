@@ -2505,8 +2505,7 @@ if user_input:
                                     new_meta = dict(old_meta)
                                     new_meta["table_style"] = table_style
                                     
-                                    # Удаляем старую версию таблицы и создаём новую с обновленными стилями
-                                    st.session_state["results"].remove(it)
+                                    # Создаём НОВЫЙ результат (новая таблица)
                                     _push_result("table", df_pl=old_df, meta=new_meta)
                                     applied = True
                                     created_table = True
@@ -2548,8 +2547,7 @@ if user_input:
                                 new_meta = dict(old_meta)
                                 new_meta["table_style"] = merged_style
                                 
-                                # Удаляем старую версию таблицы и создаём новую с обновленными стилями
-                                st.session_state["results"].remove(it)
+                                # Создаём НОВЫЙ результат (новая таблица)
                                 _push_result("table", df_pl=old_df, meta=new_meta)
                                 applied = True
                                 created_table = True
