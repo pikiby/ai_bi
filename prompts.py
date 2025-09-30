@@ -265,6 +265,8 @@ RULES_TABLE = r"""
          - Выделение строки по колонке: table_style = {"cell_rules": [{"value": "Краснодар", "color": "blue", "column": "Город", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ С МАКСИМУМОМ: table_style = {"cell_rules": [{"value": "max", "color": "red", "column": "Общая выручка", "row": True}]}
          - ВЫДЕЛЕНИЕ СТРОКИ С МИНИМУМОМ: table_style = {"cell_rules": [{"value": "min", "color": "green", "column": "Количество", "row": True}]}
+         - STRIPED + УСЛОВНОЕ ФОРМАТИРОВАНИЕ: table_style = {"striped": True, "cell_rules": [{"value": "0", "color": "red", "row": True}]}  # Чередование + красная первая строка
+         - STRIPED + ВЫДЕЛЕНИЕ МАКСИМУМА: table_style = {"striped": True, "cell_rules": [{"value": "max", "color": "red", "column": "Сумма", "row": True}]}  # Чередование + выделение строки с максимумом
          
          ВАЖНО: 
          - Всегда используй rgba() для цветов с прозрачностью (0.5-0.9)
@@ -273,6 +275,7 @@ RULES_TABLE = r"""
          - ВЫРАВНИВАНИЕ: первый столбец всегда по левому краю, остальные по правому
          - Параметр "align" влияет только на общее выравнивание, но CSS переопределяет его
          - ЧЕРЕДУЮЩИЕСЯ СТРОКИ: используй "striped": True для полосатых таблиц
+         - КРИТИЧНО для striped: ВСЕГДА используй "cells_fill_color": "transparent" при "striped": True, иначе чередование не будет видно!
          - ПОДСВЕТКА ЗНАЧЕНИЙ: "highlight_max": True для максимумов, "highlight_min": True для минимумов
          - УСЛОВНОЕ ФОРМАТИРОВАНИЕ: "cell_rules": [{"value": "значение", "color": "blue/red/green/yellow/orange/purple"}]
          - ВЫДЕЛЕНИЕ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки"}
@@ -282,6 +285,7 @@ RULES_TABLE = r"""
          - ВЫДЕЛЕНИЕ СТРОКИ ПО ИНДЕКСУ: {"value": "0", "color": "red", "row": True} - выделит первую строку (индекс начинается с 0)
          - ВЫДЕЛЕНИЕ СТРОКИ ПО КОЛОНКЕ: {"value": "значение", "color": "blue", "column": "название_колонки", "row": True}
          - СТРОКА С MAX/MIN: {"value": "max/min", "color": "red", "column": "название_колонки", "row": True} - выделит всю строку с максимальным/минимальным значением
+         - СОВМЕСТНОЕ ИСПОЛЬЗОВАНИЕ: "striped": True можно комбинировать с "cell_rules" - условное форматирование перекроет striped для выделенных ячеек/строк
          - ДОСТУПНЫЕ ФУНКЦИИ: len, range, min, max, dict, list, str, int, float, bool, col, has_col
          - РАБОТА С КОЛОНКАМИ: используй col("название") для поиска колонок, has_col("название") для проверки
          - ДОСТУПНЫЕ ЦВЕТА ФОНА: blue, red, green, yellow, orange, purple

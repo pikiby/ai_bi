@@ -926,45 +926,51 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             background-color: transparent;
         }}
         
-        /* Условное форматирование для темной темы - максимальная специфичность для перекрытия striped! */
-        .adaptive-table tbody tr td.cell-blue,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-blue,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-blue {{
+        /* Условное форматирование для темной темы - УЛЬТРА-ВЫСОКАЯ специфичность */
+        table.adaptive-table tbody tr td.cell-blue,
+        table.adaptive-table.dataframe tbody tr td.cell-blue,
+        table.adaptive-table.striped tbody tr:nth-child(even) td.cell-blue,
+        table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-blue {{
             background-color: rgba(0, 0, 255, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-red,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-red,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-red {{
+        table.adaptive-table tbody tr td.cell-red,
+        table.adaptive-table.dataframe tbody tr td.cell-red,
+        table.adaptive-table.striped tbody tr:nth-child(even) td.cell-red,
+        table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-red {{
             background-color: rgba(255, 0, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-green,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-green,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-green {{
+        table.adaptive-table tbody tr td.cell-green,
+        table.adaptive-table.dataframe tbody tr td.cell-green,
+        table.adaptive-table.striped tbody tr:nth-child(even) td.cell-green,
+        table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-green {{
             background-color: rgba(0, 255, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-yellow,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-yellow,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-yellow {{
+        table.adaptive-table tbody tr td.cell-yellow,
+        table.adaptive-table.dataframe tbody tr td.cell-yellow,
+        table.adaptive-table.striped tbody tr:nth-child(even) td.cell-yellow,
+        table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-yellow {{
             background-color: rgba(255, 255, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-orange,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-orange,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-orange {{
+        table.adaptive-table tbody tr td.cell-orange,
+        table.adaptive-table.dataframe tbody tr td.cell-orange,
+        table.adaptive-table.striped tbody tr:nth-child(even) td.cell-orange,
+        table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-orange {{
             background-color: rgba(255, 165, 0, 0.4) !important;
             font-weight: bold;
         }}
         
-        .adaptive-table tbody tr td.cell-purple,
-        .adaptive-table.striped tbody tr:nth-child(even) td.cell-purple,
-        .adaptive-table.striped tbody tr:nth-child(odd) td.cell-purple {{
+        table.adaptive-table tbody tr td.cell-purple,
+        table.adaptive-table.dataframe tbody tr td.cell-purple,
+        table.adaptive-table.striped tbody tr:nth-child(even) td.cell-purple,
+        table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-purple {{
             background-color: rgba(128, 0, 128, 0.4) !important;
             font-weight: bold;
         }}
@@ -1091,45 +1097,51 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         background-color: transparent;
     }}
     
-    /* Условное форматирование ячеек - максимальная специфичность для перекрытия striped! */
-    .adaptive-table tbody tr td.cell-blue,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-blue,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-blue {{
+    /* Условное форматирование - УЛЬТРА-ВЫСОКАЯ специфичность (включая .dataframe от pandas) */
+    table.adaptive-table tbody tr td.cell-blue,
+    table.adaptive-table.dataframe tbody tr td.cell-blue,
+    table.adaptive-table.striped tbody tr:nth-child(even) td.cell-blue,
+    table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-blue {{
         background-color: rgba(0, 0, 255, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-red,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-red,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-red {{
+    table.adaptive-table tbody tr td.cell-red,
+    table.adaptive-table.dataframe tbody tr td.cell-red,
+    table.adaptive-table.striped tbody tr:nth-child(even) td.cell-red,
+    table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-red {{
         background-color: rgba(255, 0, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-green,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-green,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-green {{
+    table.adaptive-table tbody tr td.cell-green,
+    table.adaptive-table.dataframe tbody tr td.cell-green,
+    table.adaptive-table.striped tbody tr:nth-child(even) td.cell-green,
+    table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-green {{
         background-color: rgba(0, 255, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-yellow,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-yellow,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-yellow {{
+    table.adaptive-table tbody tr td.cell-yellow,
+    table.adaptive-table.dataframe tbody tr td.cell-yellow,
+    table.adaptive-table.striped tbody tr:nth-child(even) td.cell-yellow,
+    table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-yellow {{
         background-color: rgba(255, 255, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-orange,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-orange,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-orange {{
+    table.adaptive-table tbody tr td.cell-orange,
+    table.adaptive-table.dataframe tbody tr td.cell-orange,
+    table.adaptive-table.striped tbody tr:nth-child(even) td.cell-orange,
+    table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-orange {{
         background-color: rgba(255, 165, 0, 0.3) !important;
         font-weight: bold;
     }}
     
-    .adaptive-table tbody tr td.cell-purple,
-    .adaptive-table.striped tbody tr:nth-child(even) td.cell-purple,
-    .adaptive-table.striped tbody tr:nth-child(odd) td.cell-purple {{
+    table.adaptive-table tbody tr td.cell-purple,
+    table.adaptive-table.dataframe tbody tr td.cell-purple,
+    table.adaptive-table.striped tbody tr:nth-child(even) td.cell-purple,
+    table.adaptive-table.striped tbody tr:nth-child(odd) td.cell-purple {{
         background-color: rgba(128, 0, 128, 0.3) !important;
         font-weight: bold;
     }}
