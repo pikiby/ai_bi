@@ -248,7 +248,10 @@ RULES_TABLE = r"""
 - Если просят выделить первую строку → используй special_rules с "type": "first_n_rows"
 - Если просят выделить последнюю строку → используй special_rules с "type": "last_n_rows"
 - Если просят выделить конкретную строку по номеру → используй special_rules с "type": "specific_row"
+- Если просят выделить строку по тексту → используй row_rules с "column" и "value"
+- Если просят выделить столбец → используй column_rules с "column" и "color"
 - ВСЕГДА указывай "column" в row_rules для поиска по колонке
+- НЕ используй "row": 0 в row_rules - это неправильно!
 - НЕ создавай новые SQL-запросы и НЕ упоминай SQL в ответе!
 
 ПРИМЕРЫ ПРАВИЛЬНОГО ФОРМАТА:
@@ -294,14 +297,14 @@ styler_config = {
     "special_rules": [{"type": "specific_row", "row_index": 0, "color": "red"}]
 }
 
-6. Выделение последней строки:
+7. Выделение последней строки:
 styler_config = {
     "header_fill_color": "#f4f4f4",
     "cells_fill_color": "white",
     "special_rules": [{"type": "last_n_rows", "count": 1, "color": "red"}]
 }
 
-7. Выделение конкретной строки по номеру:
+8. Выделение конкретной строки по номеру:
 styler_config = {
     "header_fill_color": "#f4f4f4",
     "cells_fill_color": "white",
