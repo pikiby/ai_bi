@@ -2604,7 +2604,14 @@ if user_input:
                     # НОВАЯ ЛОГИКА (аналог графиков): генерируем готовый HTML сразу
                     meta_table = dict(meta_extra)
                     pdf = df_pl.to_pandas()
+                    
+                    # Применяем next_table_style если есть, затем очищаем его
                     style_meta = meta_table.get("table_style") or {}
+                    if st.session_state.get("next_table_style"):
+                        style_meta = st.session_state["next_table_style"]
+                        meta_table["table_style"] = style_meta
+                        st.session_state["next_table_style"] = None  # Очищаем после применения
+                    
                     # Генерируем готовый HTML со стилями (как создается fig для графиков)
                     rendered_html = _generate_table_html(pdf, style_meta)
                     meta_table["rendered_html"] = rendered_html  # Сохраняем готовый HTML
