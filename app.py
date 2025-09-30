@@ -880,37 +880,31 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         /* Условное форматирование для темной темы */
         .adaptive-table .cell-blue {{
             background-color: rgba(0, 0, 255, 0.4) !important;
-            color: #ffffff !important;
             font-weight: bold;
         }}
         
         .adaptive-table .cell-red {{
             background-color: rgba(255, 0, 0, 0.4) !important;
-            color: #ffffff !important;
             font-weight: bold;
         }}
         
         .adaptive-table .cell-green {{
             background-color: rgba(0, 255, 0, 0.4) !important;
-            color: #000000 !important;
             font-weight: bold;
         }}
         
         .adaptive-table .cell-yellow {{
             background-color: rgba(255, 255, 0, 0.4) !important;
-            color: #000000 !important;
             font-weight: bold;
         }}
         
         .adaptive-table .cell-orange {{
             background-color: rgba(255, 165, 0, 0.4) !important;
-            color: #000000 !important;
             font-weight: bold;
         }}
         
         .adaptive-table .cell-purple {{
             background-color: rgba(128, 0, 128, 0.4) !important;
-            color: #ffffff !important;
             font-weight: bold;
         }}
         
@@ -1035,37 +1029,31 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
     /* Условное форматирование ячеек */
     .adaptive-table .cell-blue {{
         background-color: rgba(0, 0, 255, 0.3) !important;
-        color: #000000 !important;
         font-weight: bold;
     }}
     
     .adaptive-table .cell-red {{
         background-color: rgba(255, 0, 0, 0.3) !important;
-        color: #000000 !important;
         font-weight: bold;
     }}
     
     .adaptive-table .cell-green {{
         background-color: rgba(0, 255, 0, 0.3) !important;
-        color: #000000 !important;
         font-weight: bold;
     }}
     
     .adaptive-table .cell-yellow {{
         background-color: rgba(255, 255, 0, 0.3) !important;
-        color: #000000 !important;
         font-weight: bold;
     }}
     
     .adaptive-table .cell-orange {{
         background-color: rgba(255, 165, 0, 0.3) !important;
-        color: #000000 !important;
         font-weight: bold;
     }}
     
     .adaptive-table .cell-purple {{
         background-color: rgba(128, 0, 128, 0.3) !important;
-        color: #ffffff !important;
         font-weight: bold;
     }}
     
