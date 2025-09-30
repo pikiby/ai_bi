@@ -1695,32 +1695,6 @@ def _build_plotly_table(pdf: pd.DataFrame) -> go.Figure:
     fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(pdf)))
     return fig
 
-def _default_plotly_table_code(df: pd.DataFrame) -> str:
-    """Генерирует базовый темный Plotly-код с явным перечислением колонок."""
-    columns = [str(c) for c in df.columns]
-    header_vals = ", ".join(repr(col) for col in columns)
-    cell_vals = ",\n        ".join(f"df[{repr(col)}]" for col in columns)
-
-    code = (
-        "fig = go.Figure(data=[go.Table(\n"
-        "    header=dict(\n"
-        f"        values=[{header_vals}],\n"
-        "        fill_color=\"#111827\",\n"
-        "        font=dict(color=\"#f9fafb\", size=13),\n"
-        "        align=\"left\"\n"
-        "    ),\n"
-        "    cells=dict(\n"
-        "        values=[\n"
-        f"        {cell_vals}\n"
-        "        ],\n"
-        "        fill_color=\"#1f2933\",\n"
-        "        font=dict(color=\"#f9fafb\"),\n"
-        "        align=\"left\"\n"
-        "    )\n"
-        ")])\n"
-        "fig.update_layout(margin=dict(l=0, r=0, t=12, b=0), height=min(560, 80 + 24 * len(df)))\n"
-    )
-    return code
 
 def _history_zip_bytes() -> bytes:
     """Собрать ZIP с историей результатов (таблицы: csv+xlsx+sql, графики: html)."""
