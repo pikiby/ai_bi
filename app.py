@@ -766,13 +766,19 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                 
                 if matching_rows:
                     # Создаем CSS селекторы для найденных строк
+                    styles_to_add = []
                     for row_idx in matching_rows:
-                        styler = styler.set_table_styles([
-                            {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                        styles_to_add.append({
+                            "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
+                            "props": [
                                 ("background-color", color),
                                 ("color", "white")
-                            ]}
-                        ])
+                            ]
+                        })
+                    
+                    # Получаем существующие стили и добавляем новые
+                    existing_styles = styler.table_styles
+                    styler = styler.set_table_styles(existing_styles + styles_to_add)
                     st.info(f"🔍 DEBUG: Применил стили через set_table_styles")
                 else:
                     st.info(f"🔍 DEBUG: Строки с '{value}' не найдены")
@@ -800,13 +806,19 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
             # Первые N строк
             n = rule.get("count", 1)
             st.info(f"🔍 DEBUG: Выделяю первые {n} строк")
+            styles_to_add = []
             for row_idx in range(n):
-                styler = styler.set_table_styles([
-                    {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
+                styles_to_add.append({
+                    "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
+                    "props": [
                         ("background-color", color),
                         ("color", "white")
-                    ]}
-                ])
+                    ]
+                })
+            
+            # Добавляем к существующим стилям
+            existing_styles = styler.table_styles
+            styler = styler.set_table_styles(existing_styles + styles_to_add)
         elif rule_type == "last_n_rows":
             # Последние N строк
             n = rule.get("count", 1)
@@ -840,13 +852,20 @@ def _apply_styler_conditional_formatting(styler, pdf: pd.DataFrame, style_config
                 matching_rows = pdf[pdf[column] == value].index.tolist()
                 st.info(f"🔍 DEBUG: Найдено строк: {matching_rows}")
                 
-                for row_idx in matching_rows:
-                    styler = styler.set_table_styles([
-                        {"selector": f"tbody tr:nth-child({row_idx + 1}) td", "props": [
-                            ("background-color", color),
-                            ("color", "white")
-                        ]}
-                    ])
+                if matching_rows:
+                    styles_to_add = []
+                    for row_idx in matching_rows:
+                        styles_to_add.append({
+                            "selector": f"tbody tr:nth-child({row_idx + 1}) td", 
+                            "props": [
+                                ("background-color", color),
+                                ("color", "white")
+                            ]
+                        })
+                    
+                    # Добавляем к существующим стилям
+                    existing_styles = styler.table_styles
+                    styler = styler.set_table_styles(existing_styles + styles_to_add)
             else:
                 st.warning(f"🔍 DEBUG: Колонка '{column}' не найдена")
         elif rule_type == "first_n_cols":
