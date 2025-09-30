@@ -287,6 +287,13 @@ styler_config = {
     "special_rules": [{"type": "first_n_rows", "count": 1, "color": "red"}]
 }
 
+6. Выделение первой строки (альтернативный способ):
+styler_config = {
+    "header_fill_color": "#f4f4f4",
+    "cells_fill_color": "white",
+    "special_rules": [{"type": "specific_row", "row_index": 0, "color": "red"}]
+}
+
 6. Выделение последней строки:
 styler_config = {
     "header_fill_color": "#f4f4f4",
