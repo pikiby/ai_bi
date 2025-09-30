@@ -405,8 +405,10 @@ def _infer_mode_prehook(user_text: str) -> tuple[str | None, str | None]:
 def _render_result(item: dict):
     """Главная функция отрисовки результатов - роутер к специализированным функциям"""
     kind = item.get("kind")
+    st.info(f"🔍 DEBUG: _render_result вызван с kind='{kind}'")
     
     if kind == "table":
+        st.info("🔍 DEBUG: Вызываю _render_table")
         _render_table(item)
     elif kind == "chart":
         _render_chart(item)
@@ -3110,6 +3112,7 @@ if user_input:
                     # НОВАЯ СИСТЕМА: сохраняем styler_config для Pandas Styler
                     # HTML будет генерироваться в _render_table_content_styler()
                     _push_result("table", df_pl=df_pl, meta=meta_table)
+                    _render_result(st.session_state["results"][-1])
                     created_table = True
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
