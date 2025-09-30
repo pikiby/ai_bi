@@ -254,6 +254,8 @@ RULES_TABLE = r"""
 - Если просят изменить цвет текста → используй "header_font_color" и "font_color"
 - Если просят выделить строку по тексту → используй row_rules с "column" и "value"
 - Если просят выделить столбец → используй column_rules с "column" и "color"
+- Если просят изменить цвет ЯЧЕЙКИ → используй cell_rules
+- Если просят изменить цвет СТРОКИ → используй row_rules
 - ВСЕГДА указывай "column" в row_rules для поиска по колонке
 - НЕ используй "row": 0 в row_rules - это неправильно!
 - НЕ используй "text_color" - используй "header_font_color" и "font_color"!
