@@ -54,11 +54,11 @@ WITH month_bounds AS (
   SELECT toStartOfMonth(today()) AS m_start, 
          addMonths(toStartOfMonth(today()), 1) AS m_end)
 SELECT
-  company_name,
+  partner_lk,
   sum(IOS_PL + Android_PL) AS total_monthly_revenue
 FROM t_ai_global_report
 WHERE report_date >= m_start AND report_date < m_end
-GROUP BY company_name
+GROUP BY partner_lk
 ORDER BY total_monthly_revenue DESC
 LIMIT 15;
 ```
