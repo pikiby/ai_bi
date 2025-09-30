@@ -1334,6 +1334,15 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
                         row_content = row_match.group(2)
                         row_close = row_match.group(3)
                         
+                        # Применяем классы к самому <tr> (для надёжности селекторов) и ко всем <td> в строке
+                        def add_class_to_tr(open_tag: str) -> str:
+                            if 'class=' in open_tag:
+                                return re.sub(r'class="([^"]*)"', rf'class="\1 {all_classes}"', open_tag)
+                            # Вставляем перед закрывающим '>'
+                            return open_tag[:-1] + f' class="{all_classes}">'
+
+                        row_open = add_class_to_tr(row_open)
+
                         # Применяем классы ко всем <td> в строке
                         def add_class_to_td(match):
                             attrs = match.group(1)
@@ -2557,6 +2566,17 @@ if user_input:
                     meta_table = dict(meta_extra)
                     pdf = df_pl.to_pandas()
                     style_meta = meta_table.get("table_style") or {}
+
+                    # Применяем отложенные стили (если ранее пользователь просил стили,
+                    # которые не удалось применить к существующей таблице)
+                    queued_style = st.session_state.get("next_table_style")
+                    if queued_style:
+                        merged_style = dict(style_meta)
+                        merged_style.update(queued_style)
+                        style_meta = merged_style
+                        meta_table["table_style"] = style_meta
+                        # Сбрасываем очередь после применения, чтобы не протекало на следующие таблицы
+                        st.session_state["next_table_style"] = None
                     # Генерируем готовый HTML со стилями (как создается fig для графиков)
                     rendered_html = _generate_table_html(pdf, style_meta)
                     meta_table["rendered_html"] = rendered_html  # Сохраняем готовый HTML
