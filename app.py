@@ -868,6 +868,43 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             font-weight: bold;
         }}
         
+        /* Условное форматирование для темной темы - ПОСЛЕ striped для приоритета! */
+        .adaptive-table td.cell-blue,
+        .adaptive-table.striped tbody tr td.cell-blue {{
+            background-color: rgba(0, 0, 255, 0.4) !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table td.cell-red,
+        .adaptive-table.striped tbody tr td.cell-red {{
+            background-color: rgba(255, 0, 0, 0.4) !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table td.cell-green,
+        .adaptive-table.striped tbody tr td.cell-green {{
+            background-color: rgba(0, 255, 0, 0.4) !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table td.cell-yellow,
+        .adaptive-table.striped tbody tr td.cell-yellow {{
+            background-color: rgba(255, 255, 0, 0.4) !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table td.cell-orange,
+        .adaptive-table.striped tbody tr td.cell-orange {{
+            background-color: rgba(255, 165, 0, 0.4) !important;
+            font-weight: bold;
+        }}
+        
+        .adaptive-table td.cell-purple,
+        .adaptive-table.striped tbody tr td.cell-purple {{
+            background-color: rgba(128, 0, 128, 0.4) !important;
+            font-weight: bold;
+        }}
+        
         /* Специальные стили для текста в темной теме */
         .adaptive-table .text-white {{
             color: #ffffff !important;
@@ -913,7 +950,7 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
             color: #000000 !important;
         }}
         
-        /* Чередующиеся строки для темной темы (ПЕРЕД условным форматированием!) */
+        /* Чередующиеся строки для темной темы (идет ПЕРЕД условным форматированием) */
         .adaptive-table.striped tbody tr:nth-child(even) {{
             background-color: rgba(173, 216, 230, 0.2);
         }}
@@ -924,37 +961,6 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         
         .adaptive-table.striped tbody tr:nth-child(odd) {{
             background-color: transparent;
-        }}
-        
-        /* Условное форматирование для темной темы - ПОСЛЕ striped, высокая специфичность + !important */
-        .adaptive-table tbody tr td.cell-blue {{
-            background-color: rgba(0, 0, 255, 0.4) !important;
-            font-weight: bold;
-        }}
-        
-        .adaptive-table tbody tr td.cell-red {{
-            background-color: rgba(255, 0, 0, 0.4) !important;
-            font-weight: bold;
-        }}
-        
-        .adaptive-table tbody tr td.cell-green {{
-            background-color: rgba(0, 255, 0, 0.4) !important;
-            font-weight: bold;
-        }}
-        
-        .adaptive-table tbody tr td.cell-yellow {{
-            background-color: rgba(255, 255, 0, 0.4) !important;
-            font-weight: bold;
-        }}
-        
-        .adaptive-table tbody tr td.cell-orange {{
-            background-color: rgba(255, 165, 0, 0.4) !important;
-            font-weight: bold;
-        }}
-        
-        .adaptive-table tbody tr td.cell-purple {{
-            background-color: rgba(128, 0, 128, 0.4) !important;
-            font-weight: bold;
         }}
     }}
     
@@ -1021,6 +1027,43 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         font-weight: bold;
     }}
     
+    /* Условное форматирование ячеек - ПОСЛЕ striped для приоритета! */
+    .adaptive-table td.cell-blue,
+    .adaptive-table.striped tbody tr td.cell-blue {{
+        background-color: rgba(0, 0, 255, 0.3) !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table td.cell-red,
+    .adaptive-table.striped tbody tr td.cell-red {{
+        background-color: rgba(255, 0, 0, 0.3) !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table td.cell-green,
+    .adaptive-table.striped tbody tr td.cell-green {{
+        background-color: rgba(0, 255, 0, 0.3) !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table td.cell-yellow,
+    .adaptive-table.striped tbody tr td.cell-yellow {{
+        background-color: rgba(255, 255, 0, 0.3) !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table td.cell-orange,
+    .adaptive-table.striped tbody tr td.cell-orange {{
+        background-color: rgba(255, 165, 0, 0.3) !important;
+        font-weight: bold;
+    }}
+    
+    .adaptive-table td.cell-purple,
+    .adaptive-table.striped tbody tr td.cell-purple {{
+        background-color: rgba(128, 0, 128, 0.3) !important;
+        font-weight: bold;
+    }}
+    
     /* Специальные стили для текста */
     .adaptive-table .text-white {{
         color: #ffffff !important;
@@ -1066,7 +1109,7 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
         color: #000000 !important;
     }}
     
-    /* Поддержка чередующихся строк (ПЕРЕД условным форматированием!) */
+    /* Поддержка чередующихся строк (идет ПЕРЕД условным форматированием) */
     .adaptive-table.striped tbody tr:nth-child(even) {{
         background-color: rgba(173, 216, 230, 0.3);
     }}
@@ -1077,37 +1120,6 @@ def _build_css_styles(style_meta: dict, unique_id: str = "adaptive-table") -> st
     
     .adaptive-table.striped tbody tr:nth-child(odd) {{
         background-color: transparent;
-    }}
-    
-    /* Условное форматирование ячеек - ПОСЛЕ striped, высокая специфичность + !important */
-    .adaptive-table tbody tr td.cell-blue {{
-        background-color: rgba(0, 0, 255, 0.3) !important;
-        font-weight: bold;
-    }}
-    
-    .adaptive-table tbody tr td.cell-red {{
-        background-color: rgba(255, 0, 0, 0.3) !important;
-        font-weight: bold;
-    }}
-    
-    .adaptive-table tbody tr td.cell-green {{
-        background-color: rgba(0, 255, 0, 0.3) !important;
-        font-weight: bold;
-    }}
-    
-    .adaptive-table tbody tr td.cell-yellow {{
-        background-color: rgba(255, 255, 0, 0.3) !important;
-        font-weight: bold;
-    }}
-    
-    .adaptive-table tbody tr td.cell-orange {{
-        background-color: rgba(255, 165, 0, 0.3) !important;
-        font-weight: bold;
-    }}
-    
-    .adaptive-table tbody tr td.cell-purple {{
-        background-color: rgba(128, 0, 128, 0.3) !important;
-        font-weight: bold;
     }}
     
     /* Стилизованная прокрутка */
@@ -1231,25 +1243,16 @@ def _apply_cell_formatting(table_html: str, pdf: pd.DataFrame, style_meta: dict)
         if is_row_rule:
             # Находим индексы строк, где найдено значение
             matching_rows = []
-            
-            # Проверяем, является ли value индексом строки (число)
-            try:
-                row_index = int(value)
-                # Если это число - используем как индекс строки напрямую
-                if 0 <= row_index < len(pdf):
-                    matching_rows.append(row_index)
-            except (ValueError, TypeError):
-                # Если не число - ищем по значению
-                if column and column in pdf.columns:
-                    # Ищем в конкретной колонке
-                    for idx, val in enumerate(pdf[column]):
-                        if str(value).lower() in str(val).lower():
-                            matching_rows.append(idx)
-                else:
-                    # Ищем во всех колонках
-                    for idx, row in pdf.iterrows():
-                        if any(str(value).lower() in str(cell).lower() for cell in row):
-                            matching_rows.append(idx)
+            if column and column in pdf.columns:
+                # Ищем в конкретной колонке
+                for idx, val in enumerate(pdf[column]):
+                    if str(value).lower() in str(val).lower():
+                        matching_rows.append(idx)
+            else:
+                # Ищем во всех колонках
+                for idx, row in pdf.iterrows():
+                    if any(str(value).lower() in str(cell).lower() for cell in row):
+                        matching_rows.append(idx)
             
             # Применяем классы ко всем ячейкам в найденных строках
             if matching_rows:
