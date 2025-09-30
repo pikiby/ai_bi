@@ -436,6 +436,7 @@ def _render_table(item: dict):
     _render_table_content(pdf, meta)
     _render_table_caption(meta, pdf)
     _render_sql_block(meta)
+    _render_table_style_block(meta)
     _render_download_buttons(pdf, item, "table")
 
 
@@ -595,6 +596,7 @@ def _render_sql_block(meta: dict):
     if not used_sql and not orig_sql:
         return
     
+    # Блок с SQL (сверху)
     with st.expander("Показать SQL", expanded=False):
         if used_sql:
             st.markdown("**Использованный SQL**")
@@ -604,6 +606,19 @@ def _render_sql_block(meta: dict):
                 st.code(orig_sql, language="sql")
         elif orig_sql:
             st.code(orig_sql, language="sql")
+
+
+# Отрисовка блока стилей таблицы
+def _render_table_style_block(meta: dict):
+    """Отрисовка свернутого блока со стилями таблицы"""
+    table_style = meta.get("table_style", {})
+    
+    if not table_style:
+        return
+    
+    with st.expander("Показать стили таблицы", expanded=False):
+        st.markdown("**Стили таблицы**")
+        st.json(table_style)
 
 
 # Отрисовка кода Plotly
