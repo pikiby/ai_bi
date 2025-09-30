@@ -517,19 +517,25 @@ def _generate_table_html(pdf: pd.DataFrame, style_meta: dict) -> str:
     # КЛЮЧЕВОЕ: генерируем уникальный ID для изоляции CSS этой таблицы
     unique_id = f"table_{uuid.uuid4().hex[:8]}"
     
+    # Нормализация стилей: если включен striped, принудительно делаем фон ячеек прозрачным,
+    # чтобы чередование было видно даже если LLM указал иной цвет.
+    normalized_style = dict(style_meta or {})
+    if normalized_style.get("striped", False):
+        normalized_style["cells_fill_color"] = "transparent"
+    
     # Сливаем со стандартными стилями
-    merged = {**STANDARD_TABLE_STYLES, **style_meta}
+    merged = {**STANDARD_TABLE_STYLES, **normalized_style}
     css = _build_css_styles(merged, unique_id)  # Передаем unique_id в CSS
     
     # Определяем классы для таблицы (с уникальным ID!)
     table_classes = unique_id
-    if style_meta.get("striped", False):
+    if normalized_style.get("striped", False):
         table_classes += " striped"
     
     table_html = pdf.to_html(index=False, classes=table_classes, escape=False)
     
     # Применяем условное форматирование ячеек
-    table_html = _apply_cell_formatting(table_html, pdf, style_meta)
+    table_html = _apply_cell_formatting(table_html, pdf, normalized_style)
     
     # Возвращаем полный HTML с CSS (готовый к отрисовке)
     # CSS теперь привязан к уникальному классу этой таблицы!
