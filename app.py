@@ -2740,7 +2740,7 @@ if user_input:
                                     created_table = True
                                     st.rerun()
                                     break
-                        # 2) Styler от ассистента → HTML
+                        # 2) Styler от ассистента → HTML + сохранение styler для Excel
                         if not created_table:
                             styled_df_obj = local_vars.get("styled_df")
                             try:
@@ -2755,6 +2755,8 @@ if user_input:
                                             new_meta = copy.deepcopy(old_meta)
                                             new_meta["rendered_html"] = html_out
                                             new_meta["table_code"] = table_code
+                                            # ВАЖНО: сохраняем styler для Excel-экспорта
+                                            new_meta["_styler_obj"] = styled_df_obj
                                             _push_result("table", df_pl=old_df, meta=new_meta)
                                             applied = True
                                             created_table = True
