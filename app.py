@@ -880,59 +880,62 @@ def _normalize_styler_for_excel(styler):
     return styler
 
 def _convert_styler_colors_to_hex(styler):
-    """Конвертирует rgba/rgb цвета в hex для совместимости с Excel.
+    """Конвертирует rgba/rgb в hex НАПРЯМУЮ через monkey-patching to_excel.
     
-    openpyxl не понимает rgba() и rgb(), нужен только hex формат.
+    ПОДХОД: Перехватываем to_excel и заменяем цвета перед экспортом.
     """
     import re
     
-    def rgba_to_hex(match):
-        """rgba(173,216,230,0.5) -> #ADD8E6"""
+    def rgba_to_hex_replacer(match):
+        """Заменяет rgba(r,g,b,a) на #RRGGBB"""
         try:
             parts = match.group(1).split(',')
             r = int(parts[0].strip())
             g = int(parts[1].strip())
             b = int(parts[2].strip())
-            # Игнорируем альфа-канал (4-й параметр)
-            return f'#{r:02x}{g:02x}{b:02x}'
-        except:
-            return '#FFFFFF'  # Белый по умолчанию при ошибке
+            hex_color = f'#{r:02x}{g:02x}{b:02x}'
+            print(f"[DEBUG] Конвертация: {match.group(0)} -> {hex_color}")
+            return hex_color
+        except Exception as e:
+            print(f"[WARNING] Ошибка конвертации: {e}")
+            return '#FFFFFF'
     
-    # Получаем DataFrame для пересоздания styler
-    df = styler.data
+    # Сохраняем оригинальный метод to_excel
+    original_to_excel = styler.to_excel
     
-    # Получаем все стили
-    ctx = styler._compute()
-    
-    # Создаем новый styler
-    new_styler = df.style
-    
-    # Применяем те же table_styles (для заголовков)
-    if hasattr(styler, 'table_styles') and styler.table_styles:
-        new_styler = new_styler.set_table_styles(styler.table_styles)
-    
-    # Конвертируем стили ячеек
-    if hasattr(ctx, 'ctx') and ctx.ctx:
-        # Применяем стили построчно и поячейно
-        for row_idx, row_styles in enumerate(ctx.ctx):
-            for col_idx, cell_style in enumerate(row_styles):
-                if cell_style:
-                    # Конвертируем rgba/rgb в hex
-                    new_style = re.sub(
-                        r'rgba?\(([^)]+)\)',
-                        rgba_to_hex,
-                        cell_style
-                    )
-                    
-                    # Применяем стиль к конкретной ячейке
-                    if new_style and new_style != cell_style:
-                        # Есть изменения - применяем новый стиль
-                        new_styler = new_styler.apply(
-                            lambda x: [new_style if i == col_idx else '' for i in range(len(x))],
-                            subset=pd.IndexSlice[row_idx:row_idx, :]
+    def patched_to_excel(excel_writer, sheet_name='Sheet1', **kwargs):
+        """Обертка над to_excel с конвертацией цветов"""
+        
+        # Вычисляем стили (чтобы pandas их обработал)
+        ctx = styler._compute()
+        
+        # Конвертируем rgba/rgb в hex в контексте стилей
+        if hasattr(ctx, 'ctx') and ctx.ctx:
+            print(f"[DEBUG] Обработка {len(ctx.ctx)} строк стилей...")
+            converted_count = 0
+            
+            for row_idx, row_styles in enumerate(ctx.ctx):
+                for col_idx, cell_style in enumerate(row_styles):
+                    if cell_style and ('rgba(' in cell_style or 'rgb(' in cell_style):
+                        # Конвертируем все rgba/rgb в hex
+                        new_style = re.sub(
+                            r'rgba?\(([^)]+)\)',
+                            rgba_to_hex_replacer,
+                            cell_style
                         )
+                        # Модифицируем на месте
+                        ctx.ctx[row_idx][col_idx] = new_style
+                        converted_count += 1
+            
+            print(f"[DEBUG] Сконвертировано {converted_count} ячеек")
+        
+        # Вызываем оригинальный to_excel
+        return original_to_excel(excel_writer, sheet_name=sheet_name, **kwargs)
     
-    return new_styler
+    # Подменяем метод
+    styler.to_excel = patched_to_excel
+    
+    return styler
 
 def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None) -> bytes:
     """Экспорт DataFrame в Excel с опциональной поддержкой стилей через Styler.
