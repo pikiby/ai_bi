@@ -892,22 +892,30 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None
     if styler is not None and hasattr(styler, 'to_excel'):
         # Экспорт со стилями через Styler.to_excel()
         try:
-            # Нормализуем цвета для Excel (rgba -> hex)
-            # styler = _normalize_styler_for_excel(styler)  # Пока отключено - сложная логика
+            # DEBUG: Проверим какие стили применены
+            try:
+                ctx = styler._compute()
+                if hasattr(ctx, 'ctx') and ctx.ctx:
+                    sample_style = str(ctx.ctx)[:200]
+                    print(f"[DEBUG] Styler стили (первые 200 символов): {sample_style}")
+            except:
+                pass
             
             # ВАЖНО: Styler.to_excel() использует ExcelWriter внутри
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 styler.to_excel(writer, sheet_name=sheet_name, index=False)
             buf.seek(0)
+            print(f"[DEBUG] Excel экспорт со стилями успешен, размер: {len(buf.getvalue())} байт")
             return buf.getvalue()
         except Exception as e:
             # Fallback на обычный экспорт если что-то пошло не так
             import traceback
-            print(f"Ошибка экспорта стилей в Excel: {e}")
+            print(f"[ERROR] Ошибка экспорта стилей в Excel: {e}")
             traceback.print_exc()
             buf = io.BytesIO()  # Сброс буфера
     
     # Обычный экспорт без стилей
+    print("[DEBUG] Excel экспорт БЕЗ стилей (styler=None)")
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
         pdf.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
