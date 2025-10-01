@@ -515,19 +515,9 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
         css_part = html[:end]
         table_part = html[end:]
 
-    # Маска: только скролл и скругления — не трогаем типографику/отступы/цвета темы
-    container_css = """
-    <style>
-    .styler-box { max-height: 520px; overflow: auto; border-radius: 10px; }
-    .styler-box::-webkit-scrollbar { width: 10px; height: 10px; }
-    .styler-box::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25); border-radius: 8px; }
-    .styler-box::-webkit-scrollbar-track { background: transparent; }
-    .styler-box { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.25) transparent; }
-    </style>
-    """
-
-    # Рендер через markdown: наследуем тему/шрифты Streamlit
-    st.markdown(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", unsafe_allow_html=True)
+    # Рендер через markdown: наследуем тему/шрифты. Маска — inline (скролл + скругления), без <style>
+    mask_open = "<div style=\"max-height:520px; overflow:auto; border-radius:10px;\">"
+    st.markdown(css_part + mask_open + table_part + "</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
