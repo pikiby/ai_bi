@@ -503,6 +503,9 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
             ("color", cfg.get("font_color")),
         ]},
     ])
+    
+    # Сохраняем styler для Excel-экспорта
+    meta["_styler_obj"] = styler
 
     html = styler.to_html(escape=False, table_id="styled-table")
 
@@ -723,9 +726,13 @@ def _render_download_buttons(data, item: dict, data_type: str):
                 use_container_width=True,
             )
         with col_xlsx:
+            # Пытаемся получить styler для экспорта стилей в Excel
+            meta = item.get("meta", {})
+            styler_obj = meta.get("_styler_obj")
+            
             st.download_button(
                 "Скачать XLSX",
-                data=_df_to_xlsx_bytes(data, "Result"),
+                data=_df_to_xlsx_bytes(data, "Result", styler=styler_obj),
                 file_name=f"table_{ts}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"dl_xlsx_{ts}",
@@ -760,8 +767,26 @@ def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
-def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
+def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None) -> bytes:
+    """Экспорт DataFrame в Excel с опциональной поддержкой стилей через Styler.
+    
+    Args:
+        pdf: pandas DataFrame для экспорта
+        sheet_name: имя листа Excel
+        styler: опциональный pandas.Styler со стилями (если None, экспортируется без стилей)
+    """
     buf = io.BytesIO()
+    
+    if styler is not None and hasattr(styler, 'to_excel'):
+        # Экспорт со стилями через Styler.to_excel()
+        try:
+            styler.to_excel(buf, engine='openpyxl', index=False)
+            return buf.getvalue()
+        except Exception:
+            # Fallback на обычный экспорт если что-то пошло не так
+            pass
+    
+    # Обычный экспорт без стилей
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
         pdf.to_excel(writer, index=False, sheet_name=sheet_name)
     return buf.getvalue()
@@ -1484,7 +1509,12 @@ def _history_zip_bytes() -> bytes:
             if item["kind"] == "table" and isinstance(item.get("df_pl"), pl.DataFrame):
                 pdf = item["df_pl"].to_pandas()
                 zf.writestr(f"{base}.csv", _df_to_csv_bytes(pdf))
-                zf.writestr(f"{base}.xlsx", _df_to_xlsx_bytes(pdf, "Result"))
+                
+                # Экспорт XLSX со стилями (если есть)
+                meta = item.get("meta", {})
+                styler_obj = meta.get("_styler_obj")
+                zf.writestr(f"{base}.xlsx", _df_to_xlsx_bytes(pdf, "Result", styler=styler_obj))
+                
                 sql = (item.get("meta") or {}).get("sql")
                 if sql:
                     zf.writestr(f"{base}.sql.txt", sql.encode("utf-8"))
@@ -2772,39 +2802,10 @@ if user_input:
                     table_style = ast.literal_eval(dict_match.group(0))
                     
                     if isinstance(table_style, dict):
-                        # НОВАЯ ЛОГИКА: создаем новую таблицу с новым HTML (как новый fig для графиков)
-                        applied = False
-                        for it in reversed(st.session_state.get("results", [])):
-                            if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
-                                import copy
-                                old_meta = it.get("meta") or {}
-                                old_df = it.get("df_pl")
-                                
-                                # Merge стилей: берём старые стили и обновляем новыми
-                                existing_style = old_meta.get("table_style", {})
-                                merged_style = dict(existing_style)
-                                merged_style.update(table_style)
-                                
-                                # Создаём новую мету с объединёнными стилями (deepcopy для независимости)
-                                new_meta = copy.deepcopy(old_meta)
-                                new_meta["table_style"] = merged_style
-                                
-                                # КЛЮЧЕВОЕ: генерируем НОВЫЙ HTML с новыми стилями (как новый fig)
-                                pdf = old_df.to_pandas()
-                                rendered_html = _generate_table_html(pdf, merged_style)
-                                new_meta["rendered_html"] = rendered_html
-                                
-                                # Создаём НОВЫЙ результат (новая таблица с новым HTML)
-                                _push_result("table", df_pl=old_df, meta=new_meta)
-                                applied = True
-                                created_table = True
-                                # Перезагружаем страницу для отображения новой таблицы
-                                st.rerun()
-                                break
-                        
-                        if not applied:
-                            # Сохраняем для новых таблиц
-                            st.session_state["next_table_style"] = table_style
+                        # УСТАРЕВШИЙ КОД: этот блок больше не используется
+                        # Используется новая система через table_code и Styler
+                        # Сохраняем для новых таблиц (legacy support)
+                        st.session_state["next_table_style"] = table_style
             except Exception as e:
                 # Тихая обработка ошибок парсинга
                 pass
