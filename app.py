@@ -780,11 +780,18 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None
     if styler is not None and hasattr(styler, 'to_excel'):
         # Экспорт со стилями через Styler.to_excel()
         try:
-            styler.to_excel(buf, engine='openpyxl', index=False)
+            # ВАЖНО: Styler.to_excel() использует ExcelWriter внутри
+            # Нужно передать buf напрямую без контекстного менеджера
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                styler.to_excel(writer, sheet_name=sheet_name, index=False)
+            buf.seek(0)
             return buf.getvalue()
-        except Exception:
+        except Exception as e:
             # Fallback на обычный экспорт если что-то пошло не так
-            pass
+            import traceback
+            print(f"Ошибка экспорта стилей в Excel: {e}")
+            traceback.print_exc()
+            buf = io.BytesIO()  # Сброс буфера
     
     # Обычный экспорт без стилей
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
