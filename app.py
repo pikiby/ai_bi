@@ -499,6 +499,15 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
 
     html = styler.to_html(escape=False, table_id="styled-table")
 
+    # Встроенный CSS Styler может оказаться внутри контейнера и ломать разметку.
+    # Вынесем <style> отдельно: css_part (если есть) + сама таблица.
+    css_part, table_part = "", html
+    end_style = html.find("</style>")
+    if end_style != -1:
+        end = end_style + len("</style>")
+        css_part = html[:end]
+        table_part = html[end:]
+
     # Красивый контейнер: скролл по необходимости, скругления, адаптация к тёмной теме
     container_css = """
     <style>
@@ -509,16 +518,13 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     .styler-box { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.25) transparent; }
     .styler-box table { color: #111111; background: transparent; }
     @media (prefers-color-scheme: dark) { .styler-box table { color: #f5f5f7; } }
-    .styler-box table { border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; }
-    .styler-box thead th:first-child { border-top-left-radius: 10px; }
-    .styler-box thead th:last-child  { border-top-right-radius: 10px; }
-    .styler-box tbody tr:last-child td:first-child { border-bottom-left-radius: 10px; }
-    .styler-box tbody tr:last-child td:last-child  { border-bottom-right-radius: 10px; }
+    /* Скругления задаём контейнеру, чтобы не зависеть от border-collapse у таблицы */
+    .styler-box { border-radius: 10px; overflow: hidden; }
     </style>
     """
 
-    # Рендерим базовую таблицу и накладываем только "маску" оформления (контейнер)
-    st.markdown(container_css + f"<div class='styler-box'>{html}</div>", unsafe_allow_html=True)
+    # Рендер: сначала CSS Styler, затем наша маска-контейнер с самой таблицей
+    st.markdown(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
