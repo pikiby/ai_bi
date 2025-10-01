@@ -508,28 +508,19 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
         css_part = html[:end]
         table_part = html[end:]
 
-    # Красивый контейнер: скролл по необходимости, скругления, адаптация к тёмной теме
+    # Маска: только скролл и скругления — не трогаем типографику/отступы/цвета темы
     container_css = """
     <style>
-    .styler-box { max-height: 520px; overflow: auto; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 2px rgba(0,0,0,.06); background: transparent; }
+    .styler-box { max-height: 520px; overflow: auto; border-radius: 10px; }
     .styler-box::-webkit-scrollbar { width: 10px; height: 10px; }
     .styler-box::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25); border-radius: 8px; }
     .styler-box::-webkit-scrollbar-track { background: transparent; }
     .styler-box { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.25) transparent; }
-    .styler-box table { color: #111111; background: transparent; }
-    @media (prefers-color-scheme: dark) { .styler-box table { color: #f5f5f7; } }
-    /* Скругления задаём контейнеру, чтобы не зависеть от border-collapse у таблицы */
-    .styler-box { border-radius: 10px; overflow: hidden; }
     </style>
     """
 
-    # Рендер: используем components.html, чтобы <style> корректно применялся и не выводился как текст
-    try:
-        import streamlit.components.v1 as components
-        components.html(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", height=600, scrolling=True)
-    except Exception:
-        # Фолбэк на markdown (не всегда применяет <style>, но лучше чем ничего)
-        st.markdown(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", unsafe_allow_html=True)
+    # Рендер через markdown: наследуем тему/шрифты Streamlit
+    st.markdown(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
