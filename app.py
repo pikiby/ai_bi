@@ -880,64 +880,83 @@ def _normalize_styler_for_excel(styler):
     return styler
 
 def _convert_styler_colors_to_hex(styler):
-    """Пересоздает styler с HEX цветами вместо rgba/rgb.
+    """Конвертирует rgba/rgb цвета в hex ПОСЛЕ вычисления стилей.
     
-    ПРАВИЛЬНЫЙ ПОДХОД: Извлекаем все операции из _todo, конвертируем цвета, 
-    создаем новый styler с hex цветами.
+    ЕДИНСТВЕННЫЙ РАБОЧИЙ ПОДХОД: Вычисляем стили, конвертируем CSS, 
+    применяем заново через applymap.
     """
     import re
-    import copy
     
-    def convert_color_value(value):
-        """Конвертирует rgba/rgb в hex"""
-        if not isinstance(value, str):
-            return value
-        
-        # rgba(144,238,144,0.3) -> #90ee90
-        match = re.search(r'rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)', value)
-        if match:
-            r, g, b = map(int, match.groups())
+    # Вычисляем все стили
+    ctx = styler._compute()
+    
+    if not (hasattr(ctx, 'ctx') and ctx.ctx):
+        print("[DEBUG] Нет стилей для конвертации")
+        return styler
+    
+    print(f"[DEBUG] Обработка {len(ctx.ctx)} строк стилей")
+    
+    # Проверяем есть ли rgba/rgb
+    has_rgba = False
+    for row_styles in ctx.ctx:
+        for cell_style in row_styles:
+            if cell_style and ('rgba(' in cell_style or 'rgb(' in cell_style):
+                has_rgba = True
+                break
+        if has_rgba:
+            break
+    
+    if not has_rgba:
+        print("[DEBUG] rgba/rgb не найдено - возвращаем оригинал")
+        return styler
+    
+    # Функция конвертации
+    def rgba_to_hex(match):
+        try:
+            parts = match.group(1).split(',')
+            r = int(parts[0].strip())
+            g = int(parts[1].strip())
+            b = int(parts[2].strip())
             hex_color = f'#{r:02x}{g:02x}{b:02x}'
-            # Заменяем rgba на hex во всей строке
-            result = re.sub(r'rgba?\([^)]+\)', hex_color, value)
-            print(f"[DEBUG] Конвертация: {value} -> {result}")
-            return result
-        
-        return value
+            return hex_color
+        except:
+            return '#FFFFFF'
     
-    # Получаем DataFrame
+    # Создаем новый styler и применяем сконвертированные стили
     df = styler.data
-    
-    # Создаем новый styler
     new_styler = df.style
     
-    # Копируем table_styles с конвертацией цветов
+    # Применяем стили поячейно
+    converted_count = 0
+    for row_idx, row_styles in enumerate(ctx.ctx):
+        for col_idx, cell_style in enumerate(row_styles):
+            if cell_style and ('rgba(' in cell_style or 'rgb(' in cell_style):
+                # Конвертируем цвета
+                new_style = re.sub(r'rgba?\(([^)]+)\)', rgba_to_hex, cell_style)
+                
+                if new_style != cell_style:
+                    converted_count += 1
+                    if converted_count == 1:  # Показываем первую конвертацию
+                        print(f"[DEBUG] Пример: {cell_style[:80]} → {new_style[:80]}")
+                    
+                    # Применяем к ячейке через lambda
+                    row_label = df.index[row_idx]
+                    col_name = df.columns[col_idx]
+                    
+                    # Используем apply с фиксацией позиции
+                    new_styler = new_styler.apply(
+                        lambda x, ri=row_idx, ci=col_idx, s=new_style: 
+                            [s if i == ci else '' for i in range(len(x))],
+                        subset=pd.IndexSlice[row_label:row_label, :],
+                        axis=1
+                    )
+    
+    print(f"[DEBUG] Сконвертировано {converted_count} ячеек")
+    
+    # Копируем table_styles
     if hasattr(styler, 'table_styles') and styler.table_styles:
         new_styler.table_styles = styler.table_styles
     
-    # ГЛАВНОЕ: обрабатываем _todo (список отложенных операций стилизации)
-    if hasattr(styler, '_todo'):
-        print(f"[DEBUG] Обнаружено {len(styler._todo)} операций стилизации")
-        
-        for func, args, kwargs in styler._todo:
-            # Конвертируем цвета в kwargs
-            new_kwargs = {}
-            for key, value in kwargs.items():
-                if isinstance(value, dict):
-                    # Словарь стилей (например, {'background-color': 'rgba(...)'})
-                    new_dict = {}
-                    for k, v in value.items():
-                        new_dict[k] = convert_color_value(v)
-                    new_kwargs[key] = new_dict
-                else:
-                    new_kwargs[key] = convert_color_value(value)
-            
-            # Применяем операцию с конвертированными цветами
-            result = func(new_styler, *args, **new_kwargs)
-            if result is not None:
-                new_styler = result
-    
-    print("[DEBUG] Styler пересоздан с hex цветами")
     return new_styler
 
 def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None) -> bytes:
@@ -953,17 +972,25 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None
     if styler is not None and hasattr(styler, 'to_excel'):
         # Экспорт со стилями через Styler.to_excel()
         try:
+            # ДИАГНОСТИКА: Проверяем что внутри styler ДО конвертации
+            print("[DEBUG] === Диагностика styler ДО конвертации ===")
+            if hasattr(styler, '_todo'):
+                print(f"[DEBUG] _todo содержит {len(styler._todo)} операций")
+                for i, (func, args, kwargs) in enumerate(styler._todo):
+                    print(f"[DEBUG] Операция {i}: {func.__name__}, kwargs: {kwargs}")
+            
+            ctx_before = styler._compute()
+            if hasattr(ctx_before, 'ctx') and ctx_before.ctx:
+                print(f"[DEBUG] Стили ячеек (первая строка): {ctx_before.ctx[0][:3] if ctx_before.ctx[0] else 'пусто'}")
+            
             # КРИТИЧНО: Конвертируем rgba/rgb в hex для Excel
             styler = _convert_styler_colors_to_hex(styler)
             
-            # DEBUG: Проверим какие стили применены
-            try:
-                ctx = styler._compute()
-                if hasattr(ctx, 'ctx') and ctx.ctx:
-                    sample_style = str(ctx.ctx)[:200]
-                    print(f"[DEBUG] Styler стили после конвертации: {sample_style}")
-            except:
-                pass
+            # ДИАГНОСТИКА: Проверяем что внутри styler ПОСЛЕ конвертации
+            print("[DEBUG] === Диагностика styler ПОСЛЕ конвертации ===")
+            ctx_after = styler._compute()
+            if hasattr(ctx_after, 'ctx') and ctx_after.ctx:
+                print(f"[DEBUG] Стили ячеек (первая строка): {ctx_after.ctx[0][:3] if ctx_after.ctx[0] else 'пусто'}")
             
             # ВАЖНО: Styler.to_excel() использует ExcelWriter внутри
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
