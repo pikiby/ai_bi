@@ -471,7 +471,14 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
 
     ready_html = (meta.get("rendered_html") or "").strip()
     if ready_html:
-        st.markdown(ready_html, unsafe_allow_html=True)
+        css_part, table_part = "", ready_html
+        end_style = ready_html.find("</style>")
+        if end_style != -1:
+            end = end_style + len("</style>")
+            css_part = ready_html[:end]
+            table_part = ready_html[end:]
+        mask_open = "<div style=\"max-height:520px; overflow:auto; border-radius:10px;\">"
+        st.markdown(css_part + mask_open + table_part + "</div>", unsafe_allow_html=True)
         return
 
     defaults = {
@@ -2750,6 +2757,17 @@ if user_input:
                                     st.session_state["next_table_style"] = styler_config
                     except Exception as e:
                         st.error(f"Ошибка выполнения table_code: {e}")
+                        # Для отладки: прикрепляем исходный table_code к последней таблице
+                        try:
+                            for _it in reversed(st.session_state.get("results", [])):
+                                if _it.get("kind") == "table":
+                                    _meta = _it.get("meta") or {}
+                                    _meta["table_code"] = table_code
+                                    _meta["table_code_error"] = str(e)
+                                    _it["meta"] = _meta
+                                    break
+                        except Exception:
+                            pass
 
         # Новый лёгкий формат для стилизации: блок ```table_style```
         m_tstyle = re.search(r"```table_style\s*([\s\S]*?)```", final_reply, re.IGNORECASE)
