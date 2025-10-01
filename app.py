@@ -523,8 +523,13 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     </style>
     """
 
-    # Рендер: сначала CSS Styler, затем наша маска-контейнер с самой таблицей
-    st.markdown(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", unsafe_allow_html=True)
+    # Рендер: используем components.html, чтобы <style> корректно применялся и не выводился как текст
+    try:
+        import streamlit.components.v1 as components
+        components.html(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", height=600, scrolling=True)
+    except Exception:
+        # Фолбэк на markdown (не всегда применяет <style>, но лучше чем ничего)
+        st.markdown(css_part + container_css + f"<div class='styler-box'>{table_part}</div>", unsafe_allow_html=True)
 
 
 # Отрисовка подписи таблицы
