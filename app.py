@@ -879,6 +879,61 @@ def _normalize_styler_for_excel(styler):
     
     return styler
 
+def _convert_styler_colors_to_hex(styler):
+    """Конвертирует rgba/rgb цвета в hex для совместимости с Excel.
+    
+    openpyxl не понимает rgba() и rgb(), нужен только hex формат.
+    """
+    import re
+    
+    def rgba_to_hex(match):
+        """rgba(173,216,230,0.5) -> #ADD8E6"""
+        try:
+            parts = match.group(1).split(',')
+            r = int(parts[0].strip())
+            g = int(parts[1].strip())
+            b = int(parts[2].strip())
+            # Игнорируем альфа-канал (4-й параметр)
+            return f'#{r:02x}{g:02x}{b:02x}'
+        except:
+            return '#FFFFFF'  # Белый по умолчанию при ошибке
+    
+    # Получаем DataFrame для пересоздания styler
+    df = styler.data
+    
+    # Получаем все стили
+    ctx = styler._compute()
+    
+    # Создаем новый styler
+    new_styler = df.style
+    
+    # Применяем те же table_styles (для заголовков)
+    if hasattr(styler, 'table_styles') and styler.table_styles:
+        new_styler = new_styler.set_table_styles(styler.table_styles)
+    
+    # Конвертируем стили ячеек
+    if hasattr(ctx, 'ctx') and ctx.ctx:
+        # Применяем стили построчно и поячейно
+        for row_idx, row_styles in enumerate(ctx.ctx):
+            for col_idx, cell_style in enumerate(row_styles):
+                if cell_style:
+                    # Конвертируем rgba/rgb в hex
+                    new_style = re.sub(
+                        r'rgba?\(([^)]+)\)',
+                        rgba_to_hex,
+                        cell_style
+                    )
+                    
+                    # Применяем стиль к конкретной ячейке
+                    if new_style and new_style != cell_style:
+                        # Есть изменения - применяем новый стиль
+                        new_styler = new_styler.apply(
+                            lambda x: [new_style if i == col_idx else '' for i in range(len(x))],
+                            subset=pd.IndexSlice[row_idx:row_idx, :]
+                        )
+    
+    return new_styler
+
 def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None) -> bytes:
     """Экспорт DataFrame в Excel с опциональной поддержкой стилей через Styler.
     
@@ -892,12 +947,15 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None
     if styler is not None and hasattr(styler, 'to_excel'):
         # Экспорт со стилями через Styler.to_excel()
         try:
+            # КРИТИЧНО: Конвертируем rgba/rgb в hex для Excel
+            styler = _convert_styler_colors_to_hex(styler)
+            
             # DEBUG: Проверим какие стили применены
             try:
                 ctx = styler._compute()
                 if hasattr(ctx, 'ctx') and ctx.ctx:
                     sample_style = str(ctx.ctx)[:200]
-                    print(f"[DEBUG] Styler стили (первые 200 символов): {sample_style}")
+                    print(f"[DEBUG] Styler стили после конвертации: {sample_style}")
             except:
                 pass
             
