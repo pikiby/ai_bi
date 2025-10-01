@@ -492,6 +492,8 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     cfg = {**defaults, **user_cfg}
 
     styler = pdf.style
+    
+    # Применяем стили для HTML (через селекторы CSS)
     styler = styler.set_table_styles([
         {"selector": "thead th", "props": [
             ("background-color", cfg.get("header_fill_color")),
@@ -504,8 +506,30 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
         ]},
     ])
     
+    # Создаём отдельный styler для Excel с применением стилей к ячейкам
+    # (set_table_styles НЕ работает для Excel, нужен apply/applymap)
+    styler_for_excel = pdf.style
+    
+    # Применяем стили к ячейкам данных (для Excel)
+    cells_bg = cfg.get("cells_fill_color", "transparent")
+    if cells_bg and cells_bg != "transparent":
+        styler_for_excel = styler_for_excel.applymap(
+            lambda x: f'background-color: {cells_bg}'
+        )
+    
+    # Применяем стили к заголовкам через set_table_styles (работает для Excel)
+    header_bg = cfg.get("header_fill_color", "#f4f4f4")
+    header_color = cfg.get("header_font_color", "black")
+    styler_for_excel = styler_for_excel.set_table_styles([
+        {"selector": "th", "props": [
+            ("background-color", header_bg),
+            ("color", header_color),
+            ("font-weight", "bold"),
+        ]},
+    ], overwrite=False)
+    
     # Сохраняем styler для Excel-экспорта
-    meta["_styler_obj"] = styler
+    meta["_styler_obj"] = styler_for_excel
 
     html = styler.to_html(escape=False, table_id="styled-table")
 
@@ -767,6 +791,65 @@ def _df_to_csv_bytes(pdf: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
+def _normalize_color_for_excel(color_str: str) -> str:
+    """Преобразует CSS-цвета (rgba, rgb, hex) в hex формат для Excel.
+    
+    Excel не понимает rgba/rgb, нужен только hex формат (#RRGGBB).
+    """
+    if not color_str or color_str == "transparent" or color_str == "inherit":
+        return None
+    
+    # Если уже hex - возвращаем как есть
+    if color_str.startswith("#"):
+        return color_str
+    
+    # Преобразуем rgba(r,g,b,a) -> #RRGGBB
+    import re
+    rgba_match = re.match(r'rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)', color_str)
+    if rgba_match:
+        r, g, b = map(int, rgba_match.groups())
+        return f'#{r:02x}{g:02x}{b:02x}'
+    
+    return color_str  # Возвращаем как есть, если не распознали
+
+def _normalize_styler_for_excel(styler):
+    """Нормализует Styler для корректного экспорта в Excel.
+    
+    Проблема: openpyxl может некорректно обрабатывать rgba() цвета.
+    Решение: конвертируем все цвета в hex формат.
+    """
+    # Получаем стили, применённые к ячейкам
+    ctx = styler._compute()  # Вычисляем все стили
+    
+    # Проходим по всем стилям и нормализуем цвета
+    new_styles = []
+    for style_data in ctx.ctx:
+        normalized = []
+        for row_styles in style_data:
+            row_normalized = []
+            for cell_style in row_styles:
+                if cell_style:
+                    # Преобразуем rgba/rgb в hex
+                    new_style = cell_style
+                    for color_prop in ['background-color', 'color']:
+                        pattern = f'{color_prop}:\\s*([^;]+)'
+                        match = re.search(pattern, new_style)
+                        if match:
+                            old_color = match.group(1).strip()
+                            new_color = _normalize_color_for_excel(old_color)
+                            if new_color:
+                                new_style = new_style.replace(
+                                    f'{color_prop}: {old_color}',
+                                    f'{color_prop}: {new_color}'
+                                )
+                    row_normalized.append(new_style)
+                else:
+                    row_normalized.append('')
+            normalized.append(row_normalized)
+        new_styles.append(normalized)
+    
+    return styler
+
 def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None) -> bytes:
     """Экспорт DataFrame в Excel с опциональной поддержкой стилей через Styler.
     
@@ -780,8 +863,10 @@ def _df_to_xlsx_bytes(pdf: pd.DataFrame, sheet_name: str = "Sheet1", styler=None
     if styler is not None and hasattr(styler, 'to_excel'):
         # Экспорт со стилями через Styler.to_excel()
         try:
+            # Нормализуем цвета для Excel (rgba -> hex)
+            # styler = _normalize_styler_for_excel(styler)  # Пока отключено - сложная логика
+            
             # ВАЖНО: Styler.to_excel() использует ExcelWriter внутри
-            # Нужно передать buf напрямую без контекстного менеджера
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 styler.to_excel(writer, sheet_name=sheet_name, index=False)
             buf.seek(0)
