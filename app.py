@@ -469,6 +469,33 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
     """
     _save_table_dataframe(pdf, meta)
 
+    def _enforce_table_width(fragment: str) -> str:
+        try:
+            idx = fragment.find('<table')
+            if idx == -1:
+                return fragment
+            end_tag = fragment.find('>', idx)
+            if end_tag == -1:
+                return fragment
+            tag_open = fragment[idx:end_tag]
+            if 'style=' in tag_open:
+                import re
+                def _add_width(match):
+                    styles = match.group(1)
+                    if 'width' in styles:
+                        return match.group(0)
+                    styles = styles.rstrip()
+                    if styles and not styles.endswith(';'):
+                        styles += ';'
+                    styles += ' width:100%;'
+                    return f'style="{styles}"'
+                tag_new = re.sub(r'style="([^"]*)"', _add_width, tag_open, count=1)
+                return fragment[:idx] + tag_new + fragment[end_tag:]
+            else:
+                return fragment[:end_tag] + ' style="width:100%;"' + fragment[end_tag:]
+        except Exception:
+            return fragment
+
     ready_html = (meta.get("rendered_html") or "").strip()
     if ready_html:
         css_part, table_part = "", ready_html
@@ -477,6 +504,7 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
             end = end_style + len("</style>")
             css_part = ready_html[:end]
             table_part = ready_html[end:]
+        table_part = _enforce_table_width(table_part)
         mask_open = "<div style=\"max-height:520px; overflow:auto; border-radius:10px;\">"
         st.markdown(css_part + mask_open + table_part + "</div>", unsafe_allow_html=True)
         return
@@ -542,7 +570,8 @@ def _render_table_content_styler(pdf: pd.DataFrame, meta: dict):
         css_part = html[:end]
         table_part = html[end:]
 
-    # Рендер через markdown: наследуем тему/шрифты. Маска — inline (скролл + скругления), без <style>
+    table_part = _enforce_table_width(table_part)
+
     mask_open = "<div style=\"max-height:520px; overflow:auto; border-radius:10px;\">"
     st.markdown(css_part + mask_open + table_part + "</div>", unsafe_allow_html=True)
 
