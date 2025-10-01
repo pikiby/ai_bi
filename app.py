@@ -882,8 +882,7 @@ def _normalize_styler_for_excel(styler):
 def _convert_styler_colors_to_hex(styler):
     """Конвертирует rgba/rgb цвета в hex ПОСЛЕ вычисления стилей.
     
-    ЕДИНСТВЕННЫЙ РАБОЧИЙ ПОДХОД: Вычисляем стили, конвертируем CSS, 
-    применяем заново через applymap.
+    ПРАВИЛЬНЫЙ ПОДХОД: ctx.ctx это defaultdict с кортежами (row, col): [styles]
     """
     import re
     
@@ -894,14 +893,16 @@ def _convert_styler_colors_to_hex(styler):
         print("[DEBUG] Нет стилей для конвертации")
         return styler
     
-    print(f"[DEBUG] Обработка {len(ctx.ctx)} строк стилей")
+    print(f"[DEBUG] ctx.ctx содержит {len(ctx.ctx)} ячеек со стилями")
     
+    # ctx.ctx это defaultdict: {(row_idx, col_idx): [('prop', 'value'), ...]}
     # Проверяем есть ли rgba/rgb
     has_rgba = False
-    for row_styles in ctx.ctx:
-        for cell_style in row_styles:
-            if cell_style and ('rgba(' in cell_style or 'rgb(' in cell_style):
+    for (row_idx, col_idx), styles in ctx.ctx.items():
+        for prop, value in styles:
+            if isinstance(value, str) and ('rgba(' in value or 'rgb(' in value):
                 has_rgba = True
+                print(f"[DEBUG] Найден rgba: ({row_idx}, {col_idx}): {prop}={value}")
                 break
         if has_rgba:
             break
@@ -928,28 +929,34 @@ def _convert_styler_colors_to_hex(styler):
     
     # Применяем стили поячейно
     converted_count = 0
-    for row_idx, row_styles in enumerate(ctx.ctx):
-        for col_idx, cell_style in enumerate(row_styles):
-            if cell_style and ('rgba(' in cell_style or 'rgb(' in cell_style):
-                # Конвертируем цвета
-                new_style = re.sub(r'rgba?\(([^)]+)\)', rgba_to_hex, cell_style)
-                
-                if new_style != cell_style:
-                    converted_count += 1
-                    if converted_count == 1:  # Показываем первую конвертацию
-                        print(f"[DEBUG] Пример: {cell_style[:80]} → {new_style[:80]}")
-                    
-                    # Применяем к ячейке через lambda
-                    row_label = df.index[row_idx]
-                    col_name = df.columns[col_idx]
-                    
-                    # Используем apply с фиксацией позиции
-                    new_styler = new_styler.apply(
-                        lambda x, ri=row_idx, ci=col_idx, s=new_style: 
-                            [s if i == ci else '' for i in range(len(x))],
-                        subset=pd.IndexSlice[row_label:row_label, :],
-                        axis=1
-                    )
+    for (row_idx, col_idx), styles in ctx.ctx.items():
+        # styles это список кортежей [('background-color', 'rgba(...)'), ...]
+        converted_styles = []
+        for prop, value in styles:
+            if isinstance(value, str) and ('rgba(' in value or 'rgb(' in value):
+                # Конвертируем цвет
+                new_value = re.sub(r'rgba?\(([^)]+)\)', rgba_to_hex, value)
+                converted_styles.append(f'{prop}: {new_value}')
+                converted_count += 1
+                if converted_count == 1:
+                    print(f"[DEBUG] Конвертация: {prop}: {value} → {prop}: {new_value}")
+            else:
+                converted_styles.append(f'{prop}: {value}')
+        
+        if converted_styles:
+            # Объединяем в CSS-строку
+            css_string = '; '.join(converted_styles)
+            
+            # Применяем к конкретной ячейке
+            row_label = df.index[row_idx]
+            col_name = df.columns[col_idx]
+            
+            new_styler = new_styler.apply(
+                lambda x, ci=col_idx, s=css_string: 
+                    [s if i == ci else '' for i in range(len(x))],
+                subset=pd.IndexSlice[row_label:row_label, :],
+                axis=1
+            )
     
     print(f"[DEBUG] Сконвертировано {converted_count} ячеек")
     
