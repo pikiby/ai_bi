@@ -33,7 +33,6 @@ tags:
 WITH last_date AS (
   SELECT max(report_date) AS report_date
   FROM t_ai_global_report
-  WHERE total_active_users > 0
 )
 SELECT
   company_name,

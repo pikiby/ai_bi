@@ -19,10 +19,6 @@ tags:
 
 | Поле                              | Тип    | Описание                                 |
 | --------------------------------- | ------ | ---------------------------------------- |
-| `total_active_users_per_day`      | UInt64 | Активные пользователи за день            |
-| `total_active_users`              | UInt64 | Всего активных пользователей             |
-| `new_active_users`                | UInt64 | Новые активированные в текущем месяце    |
-| `total_active_users_ble_available`| UInt64 | Активные с BLE                           |
 
 ## Примеры запросов
 
@@ -31,11 +27,9 @@ tags:
 WITH last_date AS (
   SELECT max(report_date) AS report_date
   FROM t_ai_global_report
-  WHERE total_active_users > 0
 )
 SELECT
   city,
-  sum(total_active_users) AS active_users
 FROM t_ai_global_report
 INNER JOIN last_date USING (report_date)
 GROUP BY city
@@ -43,16 +37,15 @@ ORDER BY active_users DESC
 LIMIT 15;
 ```
 
-### Конверсия paying_users/total_active_users по партнёрам (последняя дата)
+### Топ партнёров по paying_users (последняя дата)
 ```sql
 WITH last_date AS (
   SELECT max(report_date) AS report_date
   FROM t_ai_global_report
-  WHERE total_active_users > 0
 )
 SELECT
   company_name,
-  sum(paying_users) / nullIf(sum(total_active_users), 0) AS conversion
+  sum(paying_users) AS paying_users
 FROM t_ai_global_report
 INNER JOIN last_date USING (report_date)
 GROUP BY  company_name
