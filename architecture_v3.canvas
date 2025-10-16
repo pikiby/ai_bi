@@ -1,400 +1,51 @@
 {
-  "nodes": [
-    {
-      "type": "text",
-      "id": "user",
-      "x": -1929.0327772033181,
-      "y": 425.23281923490856,
-      "width": 240,
-      "height": 90,
-      "text": "Пользователь\n\nЧто: вводит запросы.\nЗачем: бизнес-вопросы/аналитика.\nКогда: по мере диалога."
-    },
-    {
-      "type": "text",
-      "id": "ui",
-      "x": -953.8734743716764,
-      "y": 958.5140125399546,
-      "width": 430.55897158385756,
-      "height": 264.099357239911,
-      "color": "4",
-      "text": "Streamlit UI (app.py)\n\nЧто: чат, история, ввод запроса, рендер таблиц/графиков.\nЗачем: фронт-интерфейс для ассистента.\nКогда: всегда первая точка входа.\nВход: текст пользователя, состояние сессии.\nВыход: сообщения чата, визуализация, скачивание результатов."
-    },
-    {
-      "type": "text",
-      "id": "router",
-      "x": -913.1637637552938,
-      "y": -456.9996343033783,
-      "width": 380,
-      "height": 240,
-      "color": "6",
-      "text": "Маршрутизатор режимов (ROUTER_PROMPT)\n\nЧто: выбирает режим sql | rag | plotly | catalog.\nЗачем: уменьшить промахи, дать правильный следующий шаг.\nКогда: при каждом новом запросе.\nКуда: sql — если нужно считать; rag — если искать знания/схему; plotly — график по текущему df; catalog — перечисление ресурсов."
-    },
-    {
-      "type": "text",
-      "id": "prompts",
-      "x": -1172.025805542726,
-      "y": -1194.4339408534097,
-      "width": 439.0007194541248,
-      "height": 478.4750742433665,
-      "color": "1",
-      "text": "prompts.py — контракты\n\nROUTER_PROMPT\n— Что: правила выбора режима.\n— Зачем: стабильная маршрутизация.\n— Когда: перед генерацией ответа.\n\nRULES_RAG\n— Что: 2-этапные правила (короткий rag-запрос → финал строго по контексту).\n— Зачем: не выдумывать таблицы/поля, сперва найти.\n— Когда: если нужно описание/таблицы/DDL/карту полей.\n\nRULES_SQL\n— Что: структура title/explain/sql (+ plotly по запросу).\n— Зачем: единообразный и объяснимый ответ.\n— Когда: после RAG либо напрямую, если таблицы/поля очевидны.\n\nRULES_PLOTLY\n— Что: безопасный код fig.\n— Зачем: визуализация без побочных эффектов.\n— Когда: когда явно просят график/диаграмму."
-    },
-    {
-      "type": "text",
-      "id": "tables_memory",
-      "x": -1914.621982264865,
-      "y": 76.6336854529092,
-      "width": 535.2996918444612,
-      "height": 270.36401724444596,
-      "color": "2",
-      "text": "_tables_index_hint() (app.py)\n\nЧто: краткая память о ранее построенных таблицах (№, заголовок, выжимка источников/периода, SQL).\nЗачем: позволить модели ссылаться и переиспользовать уже полученные таблицы.\nКогда: добавляется как system-хинт перед маршрутизацией и SQL.\nВыход: компактный текст для system-сообщения."
-    },
-    {
-      "type": "text",
-      "id": "rag",
-      "x": 367.2860906980494,
-      "y": 848.6862884845023,
-      "width": 420,
-      "height": 320,
-      "color": "2",
-      "text": "RAG извлечение (retriever.py)\n\nЧто: запрос в векторное хранилище и сбор релевантного контекста.\nЗачем: найти описания таблиц/полей/алиасов/DDL.\nКогда: режим rag или SQL с нехваткой знаний.\nСтратегии: t_-поиск, доменные ключевые слова, общий поиск; дедуп по тексту.\nКэш: last_rag_ctx — если новый контекст пуст, берём последний удачный.\nВыход: конкатенированный контекст для модели."
-    },
-    {
-      "type": "text",
-      "id": "chroma",
-      "x": 1007.5916215060853,
-      "y": 1428.7079935405347,
-      "width": 380,
-      "height": 140,
-      "text": "ChromaDB (векторное хранилище)\n\nЧто: хранит векторы KB.\nЗачем: быстрый релевантный поиск.\nПути: CHROMA_PATH / COLLECTION_NAME."
-    },
-    {
-      "type": "text",
-      "id": "kb_docs",
-      "x": -952.7170978381929,
-      "y": 1416.653605670434,
-      "width": 380,
-      "height": 180,
-      "color": "1",
-      "text": "База знаний (docs/*.md)\n\nЧто: описания таблиц, алиасы, примеры.\nЗачем: источник правды для RAG.\nКогда: при индексации и извлечении."
-    },
-    {
-      "type": "text",
-      "id": "ingest",
-      "x": -197.17511964743088,
-      "y": 1425.616533582008,
-      "width": 380,
-      "height": 160,
-      "text": "ingest.py → run_ingest\n\nЧто: парсит KB и пишет в Chroma.\nЗачем: актуализировать векторный индекс.\nКогда: нажимают кнопку в сайдбаре или авто-индекс при старте."
-    },
-    {
-      "type": "text",
-      "id": "sql_exec",
-      "x": 372.1887246894171,
-      "y": -520.1809265138281,
-      "width": 520,
-      "height": 500,
-      "color": "2",
-      "text": "run_sql_with_auto_schema(sql_text, ...)\n\nЧто: выполняет SQL с автоисправлениями.\nЗачем: стабильно получать данные из ClickHouse.\nКогда: если модель вернула блок ```sql```.\n\nПоток:\n1) Первая попытка: выполнить как есть.\n2) Если ошибка:\n   2.1) Нормализация дубликата префикса: <DB>.<DB>. → <DB>.\n   2.2) Если ошибка НЕ по схеме — проброс наверх.\n3) Ошибка по схеме (Unknown table/identifier):\n   3.1) Извлечь таблицы из FROM/JOIN.\n   3.2) get_schema(DEFAULT_DB, tables=[...]) — полный список колонок.\n   3.3) Сформировать точный хинт: `<DB>.<table>` + все столбцы с типами.\n   3.4) Извлечь Missing columns из текста ошибки → запретить их.\n   3.5) Перегенерировать SQL строго по хинту.\n   3.6) Нормализация префикса и повтор.\n4) Короткий retry при временных сбоях.\n\nВход: начальный SQL, история сообщений, prompts_map, DEFAULT_DB.\nВыход: df + фактический SQL или ошибка с пояснением."
-    },
-    {
-      "type": "text",
-      "id": "plotly",
-      "x": 380,
-      "y": 440,
-      "width": 500,
-      "height": 260,
-      "color": "2",
-      "text": "Plotly песочница\n\nЧто: безопасное исполнение кода визуализации.\nЗачем: строить графики без рисков.\nКогда: если модель вернула блок ```plotly``` и есть df.\nБезопасность: бан-лист (import/exec/open/os/sys/requests/…), вычищаются комментарии/тройные строки.\nХелперы: col(...), has_col(), COLS — принуждение точных имён.\nРетрай: при KeyError подсказываются доступные колонки, повторная генерация кода.\nВыход: fig (go.Figure)."
-    },
-    {
-      "type": "text",
-      "id": "results",
-      "x": 1641.250378250073,
-      "y": 515.8035903590045,
-      "width": 420,
-      "height": 200,
-      "text": "История результатов\n\nЧто: хранит таблицы/графики, метаданные, экспорт.\nЗачем: повторное использование и выгрузки.\nКогда: после успешного SQL/Plotly.\nЭкспорт: CSV/XLSX/HTML/ZIP."
-    },
-    {
-      "type": "text",
-      "id": "ch_client",
-      "x": 1654.406562209642,
-      "y": 72.97049332936066,
-      "width": 500,
-      "height": 300,
-      "text": "ClickHouse_client (clickhouse_client.py)\n\nget_client(database=CLICKHOUSE_DB)\n— Что/Зачем: единый источник базы по .env.\n\nquery_run(query)\n— Что: выполняет запрос.\n— Зачем: унифицированный слой + страховка.\n— Особое: при Code:60 и `<DB>.<DB>.` — повтор с нормализацией.\n\nget_schema(database, tables=None)\n— Что: достаёт system.columns по таблицам.\n— Зачем: источник правды при перегенерации SQL."
-    },
-    {
-      "type": "text",
-      "id": "ch_server",
-      "x": 2319.4055061419012,
-      "y": 142.58195513999976,
-      "width": 360,
-      "height": 160,
-      "text": "ClickHouse Server\n\nЧто: внешняя БД.\nЗачем: хранение и выдача данных запроса."
-    },
-    {
-      "type": "text",
-      "id": "app_funcs",
-      "x": -1922.5601749562697,
-      "y": -1006.6802816902432,
-      "width": 536.6223851021616,
-      "height": 653.0853565721044,
-      "color": "2",
-      "text": "app.py — функции (что/зачем/когда)\n\n_reload_prompts()\n— Что: hot-reload prompts.py.\n— Зачем: мгновенно применять правки правил.\n— Когда: перед каждым ответом.\n\n_extract_sql_info(sql, pdf)\n— Что: таблицы/колонки/период/limit из SQL.\n— Зачем: подписи и fallback title/explain.\n— Когда: при рендере таблиц.\n\n_render_result(item)\n— Что: отрисовка таблицы/графика (+ подписи, SQL, скачивание).\n— Зачем: единый UX.\n— Когда: после ответа ассистента.\n\n_strip_llm_blocks(text)\n— Что: вырезает служебные блоки из чата.\n— Зачем: убрать дублирование.\n\n_history_zip_bytes()\n— Что: ZIP всей истории (csv/xlsx/sql/html).\n— Зачем: быстрый экспорт.\n\n_get_cached_schema(ch_client, database)\n— Что: кэш схемы в сессии.\n— Зачем: скорость, меньше обращений.\n\n_check_table_exists(name, ch_client, database)\n— Что: проверка наличия таблицы (по кэшу схемы).\n— Зачем: ранняя валидация/подсказки.\n\n_enhanced_table_search(query, chroma, collection)\n— Что: стратегия поиска по KB с несколькими путями.\n— Зачем: выше recall и точность контекста."
-    },
-    {
-      "type": "text",
-      "id": "catalog",
-      "x": -1802.340785549999,
-      "y": 955.8398830757658,
-      "width": 500,
-      "height": 320,
-      "text": "Catalog режим (детерминированный)\n\nЧто: выводит перечни из КУРАТОРСКИХ файлов без LLM/RAG.\nЗачем: стабильный и полный каталог ресурсов.\nКогда: по запросам вида ‘все ресурсы/таблицы/дашборды/каталог’.\n\nЛогика:\n- Классификация запроса: только таблицы | только дашборды | общий.\n- Читает файлы: docs/kb_catalog_tables.md и/или docs/kb_catalog_dashboards.md.\n- Собирает ответ (markdown) и возвращает в чат.\n\nПримечание: пути можно переопределить через KB_CATALOG_TABLES_FILE и KB_CATALOG_DASHBOARDS_FILE."
-    },
-    {
-      "type": "text",
-      "id": "env",
-      "x": -1914.0519419866396,
-      "y": -272.1677950602995,
-      "width": 527.8166475103701,
-      "height": 290.7974592809722,
-      "color": "1",
-      "text": ".env / runtime\n\nCLICKHOUSE_DB → DEFAULT_DB\n\n— Зачем: единый префикс и нормализация.\nOPENAI_MODEL\n\n— Зачем: выбор модели для всех шагов.\nKB_*\n\n— Зачем: где индекс и коллекция.\nПримечание: правила промптов базонезависимы."
-    },
-    {
-      "type": "text",
-      "id": "scenario_top10",
-      "x": -256.27704237121344,
-      "y": 1763.1392977743849,
-      "width": 1020,
-      "height": 280,
-      "text": "Сценарий: Топ‑10 партнёров по % заблокированной монетизации\n\nКогда/Почему: аналитическая задача с топ-N и фильтром по последней дате.\nЧто происходит:\n1) Пользователь → UI: формулирует запрос.\n2) UI → ROUTER: сначала RAG (найти `t_partners_monetization_status` и поля), затем SQL.\n3) RAG → контекст: report_date, partner_uuid, total_installation_points, blocked_monetization_points, blocked_percentage.\n4) RULES_SQL: генерируется SQL (max(report_date), WHERE total_installation_points>0, ORDER BY blocked_percentage DESC, LIMIT 10).\n5) run_sql_with_auto_schema: если Missing columns — точный хинт по колонкам таблицы и регенерация.\n6) Успех → df в историю; опционально Plotly-код и график.\nЗачем так: минимальный контекст → структурированный план → проверка по реальной схеме → стабильный результат."
-    }
-    ,
-    {
-      "type": "text",
-      "id": "catalog_files_tables",
-      "x": -1260,
-      "y": 1290,
-      "width": 520,
-      "height": 140,
-      "text": "Файл каталога таблиц\n\nЧто: docs/kb_catalog_tables.md\nЗачем: детерминированный список таблиц (без LLM).\nКогда: catalog: ‘все таблицы’ или общий каталог."
-    },
-    {
-      "type": "text",
-      "id": "catalog_files_dash",
-      "x": -1260,
-      "y": 1470,
-      "width": 520,
-      "height": 140,
-      "text": "Файл каталога дашбордов\n\nЧто: docs/kb_catalog_dashboards.md\nЗачем: детерминированный список дашбордов (без LLM).\nКогда: catalog: ‘все дашборды’ или общий каталог."
-    }
-  ],
-  "edges": [
-    {
-      "id": "e1",
-      "fromNode": "user",
-      "fromSide": "right",
-      "toNode": "ui",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e2",
-      "fromNode": "ui",
-      "fromSide": "right",
-      "toNode": "router",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e4",
-      "fromNode": "router",
-      "fromSide": "right",
-      "toNode": "rag",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e5",
-      "fromNode": "router",
-      "fromSide": "right",
-      "toNode": "sql_exec",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e6",
-      "fromNode": "router",
-      "fromSide": "right",
-      "toNode": "plotly",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e8",
-      "fromNode": "rag",
-      "fromSide": "right",
-      "toNode": "chroma",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e9",
-      "fromNode": "kb_docs",
-      "fromSide": "right",
-      "toNode": "ingest",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e10",
-      "fromNode": "ingest",
-      "fromSide": "right",
-      "toNode": "chroma",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e11",
-      "fromNode": "ui",
-      "fromSide": "right",
-      "toNode": "sql_exec",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e12",
-      "fromNode": "sql_exec",
-      "fromSide": "right",
-      "toNode": "ch_client",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e13",
-      "fromNode": "ch_client",
-      "fromSide": "right",
-      "toNode": "ch_server",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e14",
-      "fromNode": "ui",
-      "fromSide": "right",
-      "toNode": "plotly",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e15",
-      "fromNode": "plotly",
-      "fromSide": "right",
-      "toNode": "results",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e16",
-      "fromNode": "sql_exec",
-      "fromSide": "right",
-      "toNode": "results",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e17",
-      "fromNode": "tables_memory",
-      "fromSide": "right",
-      "toNode": "router",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e18",
-      "fromNode": "tables_memory",
-      "fromSide": "right",
-      "toNode": "sql_exec",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e19",
-      "fromNode": "env",
-      "fromSide": "right",
-      "toNode": "ch_client",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e20",
-      "fromNode": "env",
-      "fromSide": "right",
-      "toNode": "ui",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e21",
-      "fromNode": "app_funcs",
-      "fromSide": "right",
-      "toNode": "ui",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e22",
-      "fromNode": "catalog",
-      "fromSide": "right",
-      "toNode": "ui",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e23",
-      "fromNode": "prompts",
-      "fromSide": "right",
-      "toNode": "sql_exec",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e3",
-      "fromNode": "prompts",
-      "fromSide": "right",
-      "toNode": "router",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "082de5ff-4ec5-4935-b6cc-f623af1461ff",
-      "fromNode": "router",
-      "fromSide": "right",
-      "toNode": "catalog",
-      "toSide": "left",
-      "toEnd": "arrow",
-      "style": "solid",
-      "shape": "curved"
-    }
-    ,
-    {
-      "id": "e24",
-      "fromNode": "catalog",
-      "fromSide": "right",
-      "toNode": "catalog_files_tables",
-      "toSide": "left",
-      "toEnd": "arrow"
-    },
-    {
-      "id": "e25",
-      "fromNode": "catalog",
-      "fromSide": "right",
-      "toNode": "catalog_files_dash",
-      "toSide": "left",
-      "toEnd": "arrow"
-    }
-  ]
+	"nodes":[
+		{"type":"text","id":"user","x":-1929.0327772033181,"y":425.23281923490856,"width":240,"height":90,"text":"Пользователь\n\nЧто: вводит запросы.\nЗачем: бизнес-вопросы/аналитика.\nКогда: по мере диалога."},
+		{"type":"text","id":"ui","x":-953.8734743716764,"y":958.5140125399546,"width":430.55897158385756,"height":264.099357239911,"color":"4","text":"Streamlit UI (app.py)\n\nЧто: чат, история, ввод запроса, рендер таблиц/графиков.\nЗачем: фронт-интерфейс для ассистента.\nКогда: всегда первая точка входа.\nВход: текст пользователя, состояние сессии.\nВыход: сообщения чата, визуализация, скачивание результатов."},
+		{"type":"text","id":"router","x":-913.1637637552938,"y":-456.9996343033783,"width":380,"height":240,"color":"6","text":"Маршрутизатор режимов (ROUTER_PROMPT)\n\nЧто: выбирает режим sql | rag | plotly | catalog.\nЗачем: уменьшить промахи, дать правильный следующий шаг.\nКогда: при каждом новом запросе.\nКуда: sql — если нужно считать; rag — если искать знания/схему; plotly — график по текущему df; catalog — перечисление ресурсов."},
+		{"type":"text","id":"prompts","x":-1172.025805542726,"y":-1194.4339408534097,"width":439.0007194541248,"height":478.4750742433665,"color":"1","text":"prompts.py — контракты\n\nROUTER_PROMPT\n— Что: правила выбора режима.\n— Зачем: стабильная маршрутизация.\n— Когда: перед генерацией ответа.\n\nRULES_RAG\n— Что: 2-этапные правила (короткий rag-запрос → финал строго по контексту).\n— Зачем: не выдумывать таблицы/поля, сперва найти.\n— Когда: если нужно описание/таблицы/DDL/карту полей.\n\nRULES_SQL\n— Что: структура title/explain/sql (+ plotly по запросу).\n— Зачем: единообразный и объяснимый ответ.\n— Когда: после RAG либо напрямую, если таблицы/поля очевидны.\n\nRULES_PLOTLY\n— Что: безопасный код fig.\n— Зачем: визуализация без побочных эффектов.\n— Когда: когда явно просят график/диаграмму."},
+		{"type":"text","id":"tables_memory","x":-1914.621982264865,"y":76.6336854529092,"width":535.2996918444612,"height":270.36401724444596,"color":"2","text":"_tables_index_hint() (app.py)\n\nЧто: краткая память о ранее построенных таблицах (№, заголовок, выжимка источников/периода, SQL).\nЗачем: позволить модели ссылаться и переиспользовать уже полученные таблицы.\nКогда: добавляется как system-хинт перед маршрутизацией и SQL.\nВыход: компактный текст для system-сообщения."},
+		{"type":"text","id":"rag","x":367.2860906980494,"y":848.6862884845023,"width":420,"height":320,"color":"2","text":"RAG извлечение (retriever.py)\n\nЧто: запрос в векторное хранилище и сбор релевантного контекста.\nЗачем: найти описания таблиц/полей/алиасов/DDL.\nКогда: режим rag или SQL с нехваткой знаний.\nСтратегии: t_-поиск, доменные ключевые слова, общий поиск; дедуп по тексту.\nКэш: last_rag_ctx — если новый контекст пуст, берём последний удачный.\nВыход: конкатенированный контекст для модели."},
+		{"type":"text","id":"chroma","x":1007.5916215060853,"y":1428.7079935405347,"width":380,"height":140,"text":"ChromaDB (векторное хранилище)\n\nЧто: хранит векторы KB.\nЗачем: быстрый релевантный поиск.\nПути: CHROMA_PATH / COLLECTION_NAME."},
+		{"type":"text","id":"kb_docs","x":-952.7170978381929,"y":1416.653605670434,"width":380,"height":180,"color":"1","text":"База знаний (docs/*.md)\n\nЧто: описания таблиц, алиасы, примеры.\nЗачем: источник правды для RAG.\nКогда: при индексации и извлечении."},
+		{"type":"text","id":"ingest","x":-197.17511964743088,"y":1425.616533582008,"width":380,"height":160,"text":"ingest.py → run_ingest\n\nЧто: парсит KB и пишет в Chroma.\nЗачем: актуализировать векторный индекс.\nКогда: нажимают кнопку в сайдбаре или авто-индекс при старте."},
+		{"type":"text","id":"sql_exec","x":372.1887246894171,"y":-520.1809265138281,"width":520,"height":500,"color":"2","text":"run_sql_with_auto_schema(sql_text, ...)\n\nЧто: выполняет SQL с автоисправлениями.\nЗачем: стабильно получать данные из ClickHouse.\nКогда: если модель вернула блок ```sql```.\n\nПоток:\n1) Первая попытка: выполнить как есть.\n2) Если ошибка:\n   2.1) Нормализация дубликата префикса: <DB>.<DB>. → <DB>.\n   2.2) Если ошибка НЕ по схеме — проброс наверх.\n3) Ошибка по схеме (Unknown table/identifier):\n   3.1) Извлечь таблицы из FROM/JOIN.\n   3.2) get_schema(DEFAULT_DB, tables=[...]) — полный список колонок.\n   3.3) Сформировать точный хинт: `<DB>.<table>` + все столбцы с типами.\n   3.4) Извлечь Missing columns из текста ошибки → запретить их.\n   3.5) Перегенерировать SQL строго по хинту.\n   3.6) Нормализация префикса и повтор.\n4) Короткий retry при временных сбоях.\n\nВход: начальный SQL, история сообщений, prompts_map, DEFAULT_DB.\nВыход: df + фактический SQL или ошибка с пояснением."},
+		{"type":"text","id":"plotly","x":380,"y":440,"width":500,"height":260,"color":"2","text":"Plotly песочница\n\nЧто: безопасное исполнение кода визуализации.\nЗачем: строить графики без рисков.\nКогда: если модель вернула блок ```plotly``` и есть df.\nБезопасность: бан-лист (import/exec/open/os/sys/requests/…), вычищаются комментарии/тройные строки.\nХелперы: col(...), has_col(), COLS — принуждение точных имён.\nРетрай: при KeyError подсказываются доступные колонки, повторная генерация кода.\nВыход: fig (go.Figure)."},
+		{"type":"text","id":"results","x":1641.250378250073,"y":515.8035903590045,"width":420,"height":200,"text":"История результатов\n\nЧто: хранит таблицы/графики, метаданные, экспорт.\nЗачем: повторное использование и выгрузки.\nКогда: после успешного SQL/Plotly.\nЭкспорт: CSV/XLSX/HTML/ZIP."},
+		{"type":"text","id":"ch_client","x":1654.406562209642,"y":72.97049332936066,"width":500,"height":300,"text":"ClickHouse_client (clickhouse_client.py)\n\nget_client(database=CLICKHOUSE_DB)\n— Что/Зачем: единый источник базы по .env.\n\nquery_run(query)\n— Что: выполняет запрос.\n— Зачем: унифицированный слой + страховка.\n— Особое: при Code:60 и `<DB>.<DB>.` — повтор с нормализацией.\n\nget_schema(database, tables=None)\n— Что: достаёт system.columns по таблицам.\n— Зачем: источник правды при перегенерации SQL."},
+		{"type":"text","id":"ch_server","x":2319.4055061419012,"y":142.58195513999976,"width":360,"height":160,"text":"ClickHouse Server\n\nЧто: внешняя БД.\nЗачем: хранение и выдача данных запроса."},
+		{"type":"text","id":"app_funcs","x":-1922.5601749562697,"y":-1006.6802816902432,"width":536.6223851021616,"height":653.0853565721044,"color":"2","text":"app.py — функции (что/зачем/когда)\n\n_reload_prompts()\n— Что: hot-reload prompts.py.\n— Зачем: мгновенно применять правки правил.\n— Когда: перед каждым ответом.\n\n_extract_sql_info(sql, pdf)\n— Что: таблицы/колонки/период/limit из SQL.\n— Зачем: подписи и fallback title/explain.\n— Когда: при рендере таблиц.\n\n_render_result(item)\n— Что: отрисовка таблицы/графика (+ подписи, SQL, скачивание).\n— Зачем: единый UX.\n— Когда: после ответа ассистента.\n\n_strip_llm_blocks(text)\n— Что: вырезает служебные блоки из чата.\n— Зачем: убрать дублирование.\n\n_history_zip_bytes()\n— Что: ZIP всей истории (csv/xlsx/sql/html).\n— Зачем: быстрый экспорт.\n\n_get_cached_schema(ch_client, database)\n— Что: кэш схемы в сессии.\n— Зачем: скорость, меньше обращений.\n\n_check_table_exists(name, ch_client, database)\n— Что: проверка наличия таблицы (по кэшу схемы).\n— Зачем: ранняя валидация/подсказки.\n\n_enhanced_table_search(query, chroma, collection)\n— Что: стратегия поиска по KB с несколькими путями.\n— Зачем: выше recall и точность контекста."},
+		{"type":"text","id":"catalog","x":-1802.340785549999,"y":955.8398830757658,"width":500,"height":320,"text":"Catalog режим (детерминированный)\n\nЧто: выводит перечни из КУРАТОРСКИХ файлов без LLM/RAG.\nЗачем: стабильный и полный каталог ресурсов.\nКогда: по запросам вида ‘все ресурсы/таблицы/дашборды/каталог’.\n\nЛогика:\n- Классификация запроса: только таблицы | только дашборды | общий.\n- Читает файлы: docs/kb_catalog_tables.md и/или docs/kb_catalog_dashboards.md.\n- Собирает ответ (markdown) и возвращает в чат.\n\nПримечание: пути можно переопределить через KB_CATALOG_TABLES_FILE и KB_CATALOG_DASHBOARDS_FILE."},
+		{"type":"text","id":"env","x":-1914.0519419866396,"y":-272.1677950602995,"width":527.8166475103701,"height":290.7974592809722,"color":"1","text":".env / runtime\n\nCLICKHOUSE_DB → DEFAULT_DB\n\n— Зачем: единый префикс и нормализация.\nOPENAI_MODEL\n\n— Зачем: выбор модели для всех шагов.\nKB_*\n\n— Зачем: где индекс и коллекция.\nПримечание: правила промптов базонезависимы."},
+		{"type":"text","id":"scenario_top10","x":-256.27704237121344,"y":1763.1392977743849,"width":1020,"height":280,"text":"Сценарий: Топ‑10 партнёров по % заблокированной монетизации\n\nКогда/Почему: аналитическая задача с топ-N и фильтром по последней дате.\nЧто происходит:\n1) Пользователь → UI: формулирует запрос.\n2) UI → ROUTER: сначала RAG (найти `t_partners_monetization_status` и поля), затем SQL.\n3) RAG → контекст: report_date, partner_uuid, total_installation_points, blocked_monetization_points, blocked_percentage.\n4) RULES_SQL: генерируется SQL (max(report_date), WHERE total_installation_points>0, ORDER BY blocked_percentage DESC, LIMIT 10).\n5) run_sql_with_auto_schema: если Missing columns — точный хинт по колонкам таблицы и регенерация.\n6) Успех → df в историю; опционально Plotly-код и график.\nЗачем так: минимальный контекст → структурированный план → проверка по реальной схеме → стабильный результат."},
+		{"type":"text","id":"catalog_files_tables","x":-1260,"y":1290,"width":520,"height":140,"text":"Файл каталога таблиц\n\nЧто: docs/kb_catalog_tables.md\nЗачем: детерминированный список таблиц (без LLM).\nКогда: catalog: ‘все таблицы’ или общий каталог."},
+		{"type":"text","id":"catalog_files_dash","x":-1260,"y":1470,"width":520,"height":140,"text":"Файл каталога дашбордов\n\nЧто: docs/kb_catalog_dashboards.md\nЗачем: детерминированный список дашбордов (без LLM).\nКогда: catalog: ‘все дашборды’ или общий каталог."}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"user","fromSide":"right","toNode":"ui","toSide":"left","toEnd":"arrow"},
+		{"id":"e2","fromNode":"ui","fromSide":"right","toNode":"router","toSide":"left","toEnd":"arrow"},
+		{"id":"e4","fromNode":"router","fromSide":"right","toNode":"rag","toSide":"left","toEnd":"arrow"},
+		{"id":"e5","fromNode":"router","fromSide":"right","toNode":"sql_exec","toSide":"left","toEnd":"arrow"},
+		{"id":"e6","fromNode":"router","fromSide":"right","toNode":"plotly","toSide":"left","toEnd":"arrow"},
+		{"id":"e8","fromNode":"rag","fromSide":"right","toNode":"chroma","toSide":"left","toEnd":"arrow"},
+		{"id":"e9","fromNode":"kb_docs","fromSide":"right","toNode":"ingest","toSide":"left","toEnd":"arrow"},
+		{"id":"e10","fromNode":"ingest","fromSide":"right","toNode":"chroma","toSide":"left","toEnd":"arrow"},
+		{"id":"e11","fromNode":"ui","fromSide":"right","toNode":"sql_exec","toSide":"left","toEnd":"arrow"},
+		{"id":"e12","fromNode":"sql_exec","fromSide":"right","toNode":"ch_client","toSide":"left","toEnd":"arrow"},
+		{"id":"e13","fromNode":"ch_client","fromSide":"right","toNode":"ch_server","toSide":"left","toEnd":"arrow"},
+		{"id":"e14","fromNode":"ui","fromSide":"right","toNode":"plotly","toSide":"left","toEnd":"arrow"},
+		{"id":"e15","fromNode":"plotly","fromSide":"right","toNode":"results","toSide":"left","toEnd":"arrow"},
+		{"id":"e16","fromNode":"sql_exec","fromSide":"right","toNode":"results","toSide":"left","toEnd":"arrow"},
+		{"id":"e17","fromNode":"tables_memory","fromSide":"right","toNode":"router","toSide":"left","toEnd":"arrow"},
+		{"id":"e18","fromNode":"tables_memory","fromSide":"right","toNode":"sql_exec","toSide":"left","toEnd":"arrow"},
+		{"id":"e19","fromNode":"env","fromSide":"right","toNode":"ch_client","toSide":"left","toEnd":"arrow"},
+		{"id":"e20","fromNode":"env","fromSide":"right","toNode":"ui","toSide":"left","toEnd":"arrow"},
+		{"id":"e21","fromNode":"app_funcs","fromSide":"right","toNode":"ui","toSide":"left","toEnd":"arrow"},
+		{"id":"e22","fromNode":"catalog","fromSide":"right","toNode":"ui","toSide":"left","toEnd":"arrow"},
+		{"id":"e23","fromNode":"prompts","fromSide":"right","toNode":"sql_exec","toSide":"left","toEnd":"arrow"},
+		{"id":"e3","fromNode":"prompts","fromSide":"right","toNode":"router","toSide":"left","toEnd":"arrow"},
+		{"id":"082de5ff-4ec5-4935-b6cc-f623af1461ff","fromNode":"router","fromSide":"right","toNode":"catalog","toSide":"left","toEnd":"arrow","style":"solid","shape":"curved"},
+		{"id":"e24","fromNode":"catalog","fromSide":"right","toNode":"catalog_files_tables","toSide":"left","toEnd":"arrow"},
+		{"id":"e25","fromNode":"catalog","fromSide":"right","toNode":"catalog_files_dash","toSide":"left","toEnd":"arrow"}
+	]
 }
