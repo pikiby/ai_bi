@@ -132,9 +132,11 @@ class ClickHouse_client:
         table_code = table_code or ""
         plotly_code = plotly_code or ""
         data = [[user_uuid, item_uuid, title, db or "", sql_code, table_code, plotly_code, 0]]
+        # Порядок аргументов: insert(table, data, column_names=[...])
         self.client.insert(
             "saved_queries",
-            [
+            data,
+            column_names=[
                 "user_uuid",
                 "item_uuid",
                 "title",
@@ -144,7 +146,6 @@ class ClickHouse_client:
                 "plotly_code",
                 "is_deleted",
             ],
-            data,
         )
 
     def rename_saved_query(self, user_uuid: str, item_uuid: str, new_title: str) -> None:
