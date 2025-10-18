@@ -285,7 +285,8 @@ def _run_saved_item(item_uuid: str):
         st.session_state["messages"].append({"role": "assistant", "content": assist_text})
         st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
 
-        df_pl = ch.query_run(sql)
+        with st.spinner("Выполняю сохранённый запрос…"):
+            df_pl = ch.query_run(sql)
         st.session_state["last_df"] = df_pl
         meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
         table_code = (rec.get("table_code") or "").strip()
@@ -3153,7 +3154,7 @@ if user_input:
                         
                         # 1) Готовый HTML от ассистента
                         styled_html = local_vars.get("styled_html")
-                        if isinstance(styled_html, str) and styled_html.strip():
+                if isinstance(styled_html, str) and styled_html.strip():
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
                                 if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
@@ -3166,7 +3167,6 @@ if user_input:
                                     _push_result("table", df_pl=old_df, meta=new_meta)
                                     applied = True
                                     created_table = True
-                                    st.rerun()
                                     break
                         # 2) Styler от ассистента → HTML + сохранение styler для Excel
                         if not created_table:
@@ -3187,9 +3187,8 @@ if user_input:
                                             new_meta["_styler_obj"] = styled_df_obj
                                             _push_result("table", df_pl=old_df, meta=new_meta)
                                             applied = True
-                                            created_table = True
-                                            st.rerun()
-                                            break
+                                    created_table = True
+                                    break
                             except Exception:
                                 pass
                         # 3) Старый путь: styler_config
@@ -3208,7 +3207,6 @@ if user_input:
                                         _push_result("table", df_pl=old_df, meta=new_meta)
                                         applied = True
                                         created_table = True
-                                        st.rerun()
                                         break
                                 if not applied:
                                     st.session_state["next_table_style"] = styler_config
@@ -3257,12 +3255,29 @@ if user_input:
             else:
                 code = plotly_code  # берём уже извлечённый текст из ```plotly или ```python
 
-                # Если это go.Table — это табличный код, а не график. Не исполняем,
-                # покажем подсказку и включим фолбэк на построение ГРАФИКА.
+                # Если это go.Table — это табличный код, а не график. Авто‑переход в режим TABLE.
                 if re.search(r"go\.Table\(", code):
                     saw_table_plotly = True
-                    st.info("Получен код таблицы (go.Table). Ожидается график — пропускаю этот код и попробую построить график по текущим данным.")
-                    code = ""
+                    try:
+                        # Преобразуем текущий df в табличный результат без участия plotly-кода
+                        if st.session_state.get("last_df") is not None:
+                            _df_pl = st.session_state["last_df"]
+                            # Простой baseline: "зебра" как мягкий аналог раскраски строк
+                            meta_tbl = {"sql": st.session_state.get("last_sql_meta", {}).get("sql"),
+                                        "sql_original": st.session_state.get("last_sql_meta", {}).get("sql_original"),
+                                        "title": st.session_state.get("last_sql_meta", {}).get("title", "")}
+                            # Пометим специальный стиль на следующий рендер
+                            st.session_state["next_table_style"] = {"striped": True}
+                            _push_result("table", df_pl=_df_pl, meta=meta_tbl)
+                            created_table = True
+                            # Не выполняем plotly-код
+                            code = ""
+                            st.info("Получен go.Table → переключаюсь в режим TABLE и показываю таблицу с базовой раскраской (зебра).")
+                        else:
+                            st.info("Получен go.Table, но данных df нет — пропускаю.")
+                            code = ""
+                    except Exception:
+                        code = ""
 
                 # Базовая защита: не допускаем опасные конструкции
                 BANNED_RE = re.compile(
