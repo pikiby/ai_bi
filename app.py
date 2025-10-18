@@ -633,10 +633,13 @@ def _render_chart(item: dict):
     # title = _get_title(meta, fallback_source="context")
     # st.markdown(f"### {title}")
     
+    # Уникальный ключ для графика, чтобы исключить конфликт идентификаторов при повторном рендере
+    _chart_key = f"plotly_{item.get('ts','')}_{item.get('msg_idx','')}_{id(fig)}"
     st.plotly_chart(
         fig,
         theme=None,
         use_container_width=True,
+        key=_chart_key,
         config={
             "displaylogo": False,
             "toImageButtonOptions": {"format": "png", "scale": 2}
