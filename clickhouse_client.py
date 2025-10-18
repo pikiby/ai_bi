@@ -79,7 +79,7 @@ class ClickHouse_client:
             where.append(f"lower(title) LIKE lower('%{s}%')")
         sql = f"""
             SELECT toString(item_uuid) as item_uuid, title, updated_at
-            FROM saved_queries
+            FROM saved_queries FINAL
             WHERE {' AND '.join(where)}
             ORDER BY updated_at DESC
             LIMIT {int(limit)}
@@ -104,7 +104,7 @@ class ClickHouse_client:
                    toString(item_uuid) as item_uuid,
                    title, db, sql_code, table_code, plotly_code,
                    is_deleted, created_at, updated_at
-            FROM saved_queries
+            FROM saved_queries FINAL
             WHERE user_uuid = '{user_uuid}' AND item_uuid = '{uid}' AND is_deleted = 0
             LIMIT 1
         """
@@ -149,29 +149,47 @@ class ClickHouse_client:
         )
 
     def rename_saved_query(self, user_uuid: str, item_uuid: str, new_title: str) -> None:
-        """Переименовать элемент (обновляет updated_at)."""
-        uid = item_uuid.replace("'", "''")
-        title = new_title.replace("'", "''")
-        sql = (
-            "ALTER TABLE saved_queries UPDATE title = '"
-            + title
-            + "', updated_at = now64(3) WHERE user_uuid = '"
-            + user_uuid
-            + "' AND item_uuid = '"
-            + uid
-            + "'"
+        """Переименовать элемент через вставку новой версии строки (ReplacingMergeTree)."""
+        rec = self.get_saved_query(user_uuid, item_uuid)
+        if not rec:
+            return
+        # Вставляем новую строку с тем же ключом и обновлённым title
+        self.insert_saved_query(
+            user_uuid=user_uuid,
+            item_uuid=item_uuid,
+            title=new_title,
+            db=rec.get("db") or "",
+            sql_code=rec.get("sql_code") or "",
+            table_code=rec.get("table_code") or "",
+            plotly_code=rec.get("plotly_code") or "",
         )
-        self.client.command(sql)
 
     def soft_delete_saved_query(self, user_uuid: str, item_uuid: str) -> None:
-        """Мягкое удаление элемента (is_deleted = 1, обновляет updated_at)."""
-        uid = item_uuid.replace("'", "''")
-        sql = (
-            "ALTER TABLE saved_queries UPDATE is_deleted = 1, updated_at = now64(3) "
-            + "WHERE user_uuid = '"
-            + user_uuid
-            + "' AND item_uuid = '"
-            + uid
-            + "'"
+        """Мягкое удаление через вставку новой версии строки (is_deleted = 1)."""
+        rec = self.get_saved_query(user_uuid, item_uuid)
+        if not rec:
+            return
+        data = [[
+            user_uuid,
+            item_uuid,
+            rec.get("title") or "",
+            rec.get("db") or "",
+            rec.get("sql_code") or "",
+            rec.get("table_code") or "",
+            rec.get("plotly_code") or "",
+            1,  # is_deleted
+        ]]
+        self.client.insert(
+            "saved_queries",
+            data,
+            column_names=[
+                "user_uuid",
+                "item_uuid",
+                "title",
+                "db",
+                "sql_code",
+                "table_code",
+                "plotly_code",
+                "is_deleted",
+            ],
         )
-        self.client.command(sql)

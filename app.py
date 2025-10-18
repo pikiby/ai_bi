@@ -225,6 +225,7 @@ def _render_saved_queries_sidebar():
                         ch.rename_saved_query(COMMON_USER_UUID, item_uuid, new_title)
                         st.success("Переименовано")
                         st.session_state.pop("_saved_queries_cache", None)
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Ошибка: {e}")
                 if st.button("Удалить…", key=f"sq_del_open_{item_uuid}"):
