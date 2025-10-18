@@ -215,7 +215,8 @@ def _render_saved_queries_sidebar():
         col_btn, col_more = st.sidebar.columns([10, 2])
         with col_btn:
             if st.button(title, key=f"sq_run_{item_uuid}", use_container_width=True):
-                _run_saved_item(item_uuid)
+                # Триггерим запуск вне сайдбара, чтобы рендер шёл в основной чат
+                st.session_state["__sq_run__"] = item_uuid
         with col_more:
             with st.popover("…"):
                 new_title = st.text_input("Переименовать", value=title, key=f"sq_rename_{item_uuid}")
@@ -265,12 +266,18 @@ def _run_saved_item(item_uuid: str):
         ch = ClickHouse_client()
         rec = ch.get_saved_query(COMMON_USER_UUID, item_uuid)
         if not rec:
-            st.sidebar.error("Элемент не найден или удалён")
+            st.error("Элемент не найден или удалён")
             return
         sql = (rec.get("sql_code") or "").strip()
         if not sql:
-            st.sidebar.error("У элемента отсутствует SQL-код")
+            st.error("У элемента отсутствует SQL-код")
             return
+        # Публикуем системное ассистентское сообщение, к которому привяжем результаты
+        title = rec.get("title") or "Сохранённый запрос"
+        assist_text = f"Запуск сохранённого запроса: {title}"
+        st.session_state["messages"].append({"role": "assistant", "content": assist_text})
+        st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
+
         df_pl = ch.query_run(sql)
         st.session_state["last_df"] = df_pl
         meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
@@ -296,7 +303,6 @@ def _run_saved_item(item_uuid: str):
                     meta["table_code"] = table_code
                     meta["_styler_obj"] = styled_df_obj
                 _push_result("table", df_pl=df_pl, meta=meta)
-                _render_result(st.session_state["results"][-1])
                 return
             except Exception as e:
                 st.error(f"Ошибка выполнения table_code: {e}")
@@ -322,16 +328,14 @@ def _run_saved_item(item_uuid: str):
                 if isinstance(fig, go.Figure):
                     meta["plotly_code"] = plotly_code
                     _push_result("chart", fig=fig, meta=meta)
-                    _render_result(st.session_state["results"][-1])
                     return
                 else:
                     st.error("Код графика должен создать переменную fig (plotly.graph_objects.Figure)")
             except Exception as e:
                 st.error(f"Ошибка выполнения plotly_code: {e}")
         _push_result("table", df_pl=df_pl, meta=meta)
-        _render_result(st.session_state["results"][-1])
     except Exception as e:
-        st.sidebar.error(f"Ошибка запуска сохранённого запроса: {e}")
+        st.error(f"Ошибка запуска сохранённого запроса: {e}")
 
 # ----------------------- Вспомогательные функции -----------------------
 
@@ -2648,6 +2652,11 @@ if _prompts_warn:
 
 # Сайдбар: список сохранённых запросов с поиском и действиями
 _render_saved_queries_sidebar()
+
+# Если из сайдбара пришёл триггер запуска сохранённого запроса — выполняем его в основном контейнере
+_pending_run = st.session_state.pop("__sq_run__", None)
+if _pending_run:
+    _run_saved_item(_pending_run)
 
 # Рендер существующей истории чата
 if st.session_state["messages"]:
