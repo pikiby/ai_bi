@@ -195,11 +195,11 @@ def _save_current_result(kind: str, item: dict):
                         table_code=table_code,
                         plotly_code=plotly_code,
                     )
-                st.success("Сохранено")
-                st.session_state.pop("_saved_queries_cache", None)
-                # Обновим сайдбар немедленно
-                st.rerun()
-                return True, "OK"
+                    st.success("Сохранено")
+                    st.session_state.pop("_saved_queries_cache", None)
+                    # Обновим сайдбар немедленно
+                    st.rerun()
+                    return True, "OK"
                 except Exception as e:
                     st.error(f"Ошибка сохранения: {e}")
                     return False, str(e)
