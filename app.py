@@ -47,6 +47,14 @@ CATALOG_DASHBOARDS_FILE = os.getenv("KB_CATALOG_DASHBOARDS_FILE", os.path.join("
 KB_T_AI_GLOBAL_REPORT_FILE = os.path.join("docs", "kb_t_ai_global_report.md")
 SQL_SEMANTIC_GUARD = os.getenv("SQL_SEMANTIC_GUARD", "1") == "1"
 
+# --- Флаг сохранений (только на операции сохранения) ---
+# По требованию: флаг влияет ТОЛЬКО на отображение кнопок "Сохранить ..." и INSERT.
+# Чтение/запуск/переименование/удаление доступны всегда.
+SAVED_QUERIES_ENABLED = os.getenv("SAVED_QUERIES_ENABLED", "1") == "1"
+
+# --- Общий каталог пользователя (нулевой UUID) ---
+COMMON_USER_UUID = "00000000-0000-0000-0000-000000000000"
+
 # --- Авто-индексация при старте (однократно на процесс) ---
 # Включается флагом окружения: KB_AUTO_INGEST_ON_START=1
 @st.cache_resource  # гарантирует запуск ровно один раз на процесс Streamlit
@@ -119,6 +127,205 @@ if "mode_history" not in st.session_state:
     st.session_state["mode_history"] = []
 if "last_router_hint" not in st.session_state:
     st.session_state["last_router_hint"] = None
+
+# --- Широкий режим интерфейса (переключатель рядом со строкой ввода) ---
+if "wide_mode" not in st.session_state:
+    st.session_state["wide_mode"] = False
+
+def _apply_wide_mode_css():
+    """Применяет CSS для растягивания контейнера на всю ширину при активном флаге wide_mode.
+    Нельзя менять layout через set_page_config на лету, поэтому используем CSS."""
+    if st.session_state.get("wide_mode"):
+        st.markdown(
+            """
+            <style>
+            .block-container {max-width: 100%; padding-left: 1.5rem; padding-right: 1.5rem;}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+_apply_wide_mode_css()
+
+# ======================== Saved Queries: helpers ========================
+
+def _save_current_result(kind: str, item: dict):
+    """Сохранение текущего результата как элемента каталога сохранённых запросов.
+    Сохраняем сырые строки: sql_code, table_code/plotly_code.
+    kind ∈ {"table", "chart"}.
+    """
+    if not SAVED_QUERIES_ENABLED:
+        return False, "Сохранение отключено"
+    try:
+        import uuid
+        ch = ClickHouse_client()
+        meta = item.get("meta") or {}
+        # Берём исходный SQL от модели, иначе использованный SQL
+        sql_code = (meta.get("sql_original") or meta.get("sql") or "").strip()
+        table_code = (meta.get("table_code") or "").strip() if kind == "table" else ""
+        plotly_code = (meta.get("plotly_code") or "").strip() if kind == "chart" else ""
+        if not sql_code:
+            return False, "Нет SQL-кода для сохранения"
+        title_suggest = None
+        try:
+            if kind == "table":
+                df_pl = item.get("df_pl")
+                pdf = df_pl.to_pandas() if df_pl is not None else None
+                title_suggest = _get_title(meta, pdf, "sql")
+            else:
+                title_suggest = (meta.get("title") or "Результаты запроса").strip()
+        except Exception:
+            title_suggest = "Мой запрос"
+        with st.popover("Сохранить " + ("таблицу" if kind == "table" else "график")):
+            t = st.text_input("Название", value=title_suggest or "Мой запрос")
+            if st.button("Сохранить", use_container_width=True):
+                ch.insert_saved_query(
+                    user_uuid=COMMON_USER_UUID,
+                    item_uuid=str(uuid.uuid4()),
+                    title=t.strip() or "Без названия",
+                    db="",
+                    sql_code=sql_code,
+                    table_code=table_code,
+                    plotly_code=plotly_code,
+                )
+                st.success("Сохранено")
+                st.session_state.pop("_saved_queries_cache", None)
+                return True, "OK"
+        return False, None
+    except Exception as e:
+        return False, str(e)
+
+
+def _render_saved_queries_sidebar():
+    """Сайдбар со списком сохранённых запросов: поиск по названию,
+    запуск по клику, подменю "..." с переименованием и удалением."""
+    st.sidebar.markdown("**Сохранённые запросы**")
+    search = st.sidebar.text_input("Поиск по названию", key="sq_search", placeholder="Начните вводить...")
+    ch = ClickHouse_client()
+    rows = ch.list_saved_queries(COMMON_USER_UUID, search_text=search or None)
+    for row in rows:
+        item_uuid = row.get("item_uuid")
+        title = row.get("title") or "Без названия"
+        col_btn, col_more = st.sidebar.columns([10, 2])
+        with col_btn:
+            if st.button(title, key=f"sq_run_{item_uuid}", use_container_width=True):
+                _run_saved_item(item_uuid)
+        with col_more:
+            with st.popover("…"):
+                new_title = st.text_input("Переименовать", value=title, key=f"sq_rename_{item_uuid}")
+                if st.button("Сохранить имя", key=f"sq_rename_btn_{item_uuid}"):
+                    try:
+                        ch.rename_saved_query(COMMON_USER_UUID, item_uuid, new_title)
+                        st.success("Переименовано")
+                        st.session_state.pop("_saved_queries_cache", None)
+                    except Exception as e:
+                        st.error(f"Ошибка: {e}")
+                if st.button("Удалить…", key=f"sq_del_open_{item_uuid}"):
+                    st.session_state["_sq_confirm_delete"] = {"uuid": item_uuid, "title": title}
+    _show_delete_modal_if_needed()
+
+
+def _show_delete_modal_if_needed():
+    data = st.session_state.get("_sq_confirm_delete")
+    if not data:
+        return
+    item_uuid = data.get("uuid")
+    title = data.get("title")
+    @st.dialog(f"Удалить «{title}»?")
+    def _confirm_delete_dialog():
+        st.write("Действие нельзя отменить. Удалить элемент?")
+        col_ok, col_cancel = st.columns(2)
+        with col_ok:
+            if st.button("Удалить", type="primary"):
+                try:
+                    ch = ClickHouse_client()
+                    ch.soft_delete_saved_query(COMMON_USER_UUID, item_uuid)
+                    st.success("Удалено")
+                    st.session_state.pop("_saved_queries_cache", None)
+                    st.session_state.pop("_sq_confirm_delete", None)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Ошибка: {e}")
+        with col_cancel:
+            if st.button("Отмена"):
+                st.session_state.pop("_sq_confirm_delete", None)
+    _confirm_delete_dialog()
+
+
+def _run_saved_item(item_uuid: str):
+    """Выполнить сохранённый элемент: всегда сначала SQL → затем table_code/plotly_code.
+    Результат добавляется в чат теми же функциями, что и обычно."""
+    try:
+        ch = ClickHouse_client()
+        rec = ch.get_saved_query(COMMON_USER_UUID, item_uuid)
+        if not rec:
+            st.sidebar.error("Элемент не найден или удалён")
+            return
+        sql = (rec.get("sql_code") or "").strip()
+        if not sql:
+            st.sidebar.error("У элемента отсутствует SQL-код")
+            return
+        df_pl = ch.query_run(sql)
+        st.session_state["last_df"] = df_pl
+        meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
+        table_code = (rec.get("table_code") or "").strip()
+        plotly_code = (rec.get("plotly_code") or "").strip()
+        if table_code:
+            try:
+                df_polars = df_pl
+                df = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
+                def col(*names):
+                    for nm in names:
+                        if nm in df.columns:
+                            return df[nm]
+                    raise KeyError(f"Нет ни одной из колонок: {names}")
+                def has_col(name):
+                    return name in df.columns
+                COLS = list(df.columns)
+                safe_builtins = {"__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list}}
+                local_vars = {"pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS}
+                exec(table_code, safe_builtins | local_vars, local_vars)
+                styled_df_obj = local_vars.get("styled_df")
+                if styled_df_obj is not None and hasattr(styled_df_obj, "to_html"):
+                    meta["table_code"] = table_code
+                    meta["_styler_obj"] = styled_df_obj
+                _push_result("table", df_pl=df_pl, meta=meta)
+                _render_result(st.session_state["results"][-1])
+                return
+            except Exception as e:
+                st.error(f"Ошибка выполнения table_code: {e}")
+        if plotly_code and st.session_state.get("last_df") is not None:
+            try:
+                pdf = df_pl.to_pandas()
+                def col(*names):
+                    for nm in names:
+                        if nm in pdf.columns:
+                            return pdf[nm]
+                    raise KeyError(f"Нет ни одной из колонок: {names}")
+                def has_col(name):
+                    return name in pdf.columns
+                COLS = list(pdf.columns)
+                code_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", plotly_code)
+                safe_globals = {
+                    "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+                    "pd": pd, "px": px, "go": go, "df": pdf, "col": col, "has_col": has_col, "COLS": COLS,
+                }
+                local_vars = {}
+                exec(code_clean, safe_globals, local_vars)
+                fig = local_vars.get("fig")
+                if isinstance(fig, go.Figure):
+                    meta["plotly_code"] = plotly_code
+                    _push_result("chart", fig=fig, meta=meta)
+                    _render_result(st.session_state["results"][-1])
+                    return
+                else:
+                    st.error("Код графика должен создать переменную fig (plotly.graph_objects.Figure)")
+            except Exception as e:
+                st.error(f"Ошибка выполнения plotly_code: {e}")
+        _push_result("table", df_pl=df_pl, meta=meta)
+        _render_result(st.session_state["results"][-1])
+    except Exception as e:
+        st.sidebar.error(f"Ошибка запуска сохранённого запроса: {e}")
 
 # ----------------------- Вспомогательные функции -----------------------
 
@@ -390,6 +597,8 @@ def _render_table(item: dict):
     _render_table_code(meta)
     _render_table_style_block_styler(meta)
     _render_download_buttons(pdf, item, "table")
+    # Кнопка сохранения таблицы (флаг влияет только на сохранение)
+    _save_current_result("table", item)
 
 
 # Отрисовка графиков: координирует полную отрисовку Plotly-графиков с интерактивностью и экспортом
@@ -421,6 +630,8 @@ def _render_chart(item: dict):
     _render_sql_block(meta)
     _render_plotly_code(meta)
     _render_download_buttons(fig, item, "chart")
+    # Кнопка сохранения графика (флаг влияет только на сохранение)
+    _save_current_result("chart", item)
 
 
 # УНИФИЦИРОВАННАЯ ФУНКЦИЯ: Получение заголовков для таблиц и графиков с умным fallback
@@ -2429,6 +2640,9 @@ _prompts_map, _prompts_warn = _reload_prompts()
 if _prompts_warn:
     st.warning("В `prompts.py` отсутствуют: " + ", ".join(_prompts_warn))
 
+# Сайдбар: список сохранённых запросов с поиском и действиями
+_render_saved_queries_sidebar()
+
 # Рендер существующей истории чата
 if st.session_state["messages"]:
     for i, m in enumerate(st.session_state["messages"]):
@@ -2451,6 +2665,14 @@ if st.session_state["messages"]:
                     if item.get("msg_idx") == i:
                         _render_result(item)
 
+
+# Переключатель ширины рядом со строкой ввода
+try:
+    col_wide, _ = st.columns([2, 10], gap="small")
+except TypeError:
+    col_wide, _ = st.columns([2, 10])
+with col_wide:
+    st.toggle("Широкий экран", key="wide_mode")
 
 # Поле ввода внизу
 user_input = st.chat_input("Введите запрос…")

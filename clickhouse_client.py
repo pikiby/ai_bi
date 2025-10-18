@@ -60,3 +60,117 @@ class ClickHouse_client:
         for table, name, ctype in rows:
             schema.setdefault(table, []).append((name, ctype))
         return schema
+
+    # -------------------- Saved Queries helpers (ClickHouse) --------------------
+    # Сохранение/чтение пользовательских запросов (строки кода),
+    # используем общую таблицу saved_queries в текущей БД (CLICKHOUSE_DB).
+
+    def list_saved_queries(self, user_uuid: str, search_text: str | None = None, limit: int = 200) -> list[dict]:
+        """Вернёт список сохранённых элементов для сайдбара.
+        Только не удалённые, отсортированные по updated_at DESC.
+        Поиск — только по названию (подстрока, нечувствительно к регистру).
+        """
+        where = ["is_deleted = 0"]
+        # Общий каталог: фильтруем строго по данному user_uuid (в дальнейшем можно расширить IN (...))
+        where.append(f"user_uuid = '{user_uuid}'")
+        if search_text:
+            # ILIKE доступен в CH начиная с определённых версий; для совместимости используем lower(title) LIKE lower('%...%')
+            s = search_text.replace("'", "''")
+            where.append(f"lower(title) LIKE lower('%{s}%')")
+        sql = f"""
+            SELECT toString(item_uuid) as item_uuid, title, updated_at
+            FROM saved_queries
+            WHERE {' AND '.join(where)}
+            ORDER BY updated_at DESC
+            LIMIT {int(limit)}
+        """
+        try:
+            res = self.client.query(sql)
+            rows = list(res.result_rows)
+            cols = res.column_names
+        except Exception:
+            return []
+        out = []
+        for r in rows:
+            d = {cols[i]: r[i] for i in range(len(cols))}
+            out.append(d)
+        return out
+
+    def get_saved_query(self, user_uuid: str, item_uuid: str) -> dict | None:
+        """Вернёт полную запись сохранённого элемента по user_uuid + item_uuid."""
+        uid = item_uuid.replace("'", "''")
+        sql = f"""
+            SELECT toString(user_uuid) as user_uuid,
+                   toString(item_uuid) as item_uuid,
+                   title, db, sql_code, table_code, plotly_code,
+                   is_deleted, created_at, updated_at
+            FROM saved_queries
+            WHERE user_uuid = '{user_uuid}' AND item_uuid = '{uid}' AND is_deleted = 0
+            LIMIT 1
+        """
+        try:
+            res = self.client.query(sql)
+            if not res.result_rows:
+                return None
+            row = res.result_rows[0]
+            cols = res.column_names
+            return {cols[i]: row[i] for i in range(len(cols))}
+        except Exception:
+            return None
+
+    def insert_saved_query(
+        self,
+        user_uuid: str,
+        item_uuid: str,
+        title: str,
+        db: str,
+        sql_code: str,
+        table_code: str | None = None,
+        plotly_code: str | None = None,
+    ) -> None:
+        """Добавляет новую запись в saved_queries. Поля created_at/updated_at задаются по умолчанию в CH."""
+        table_code = table_code or ""
+        plotly_code = plotly_code or ""
+        data = [[user_uuid, item_uuid, title, db or "", sql_code, table_code, plotly_code, 0]]
+        self.client.insert(
+            "saved_queries",
+            [
+                "user_uuid",
+                "item_uuid",
+                "title",
+                "db",
+                "sql_code",
+                "table_code",
+                "plotly_code",
+                "is_deleted",
+            ],
+            data,
+        )
+
+    def rename_saved_query(self, user_uuid: str, item_uuid: str, new_title: str) -> None:
+        """Переименовать элемент (обновляет updated_at)."""
+        uid = item_uuid.replace("'", "''")
+        title = new_title.replace("'", "''")
+        sql = (
+            "ALTER TABLE saved_queries UPDATE title = '"
+            + title
+            + "', updated_at = now64(3) WHERE user_uuid = '"
+            + user_uuid
+            + "' AND item_uuid = '"
+            + uid
+            + "'"
+        )
+        self.client.command(sql)
+
+    def soft_delete_saved_query(self, user_uuid: str, item_uuid: str) -> None:
+        """Мягкое удаление элемента (is_deleted = 1, обновляет updated_at)."""
+        uid = item_uuid.replace("'", "''")
+        sql = (
+            "ALTER TABLE saved_queries UPDATE is_deleted = 1, updated_at = now64(3) "
+            + "WHERE user_uuid = '"
+            + user_uuid
+            + "' AND item_uuid = '"
+            + uid
+            + "'"
+        )
+        self.client.command(sql)
