@@ -162,6 +162,10 @@ def _save_current_result(kind: str, item: dict):
         meta = item.get("meta") or {}
         # Берём исходный SQL от модели, иначе использованный SQL
         sql_code = (meta.get("sql_original") or meta.get("sql") or "").strip()
+        # Для графиков часто SQL лежит в last_sql_meta, т.к. meta у графика может не содержать SQL
+        if not sql_code and kind == "chart":
+            last_meta = st.session_state.get("last_sql_meta") or {}
+            sql_code = (last_meta.get("sql_original") or last_meta.get("sql") or "").strip()
         table_code = (meta.get("table_code") or "").strip() if kind == "table" else ""
         plotly_code = (meta.get("plotly_code") or "").strip() if kind == "chart" else ""
         if not sql_code:
@@ -191,9 +195,11 @@ def _save_current_result(kind: str, item: dict):
                         table_code=table_code,
                         plotly_code=plotly_code,
                     )
-                    st.success("Сохранено")
-                    st.session_state.pop("_saved_queries_cache", None)
-                    return True, "OK"
+                st.success("Сохранено")
+                st.session_state.pop("_saved_queries_cache", None)
+                # Обновим сайдбар немедленно
+                st.rerun()
+                return True, "OK"
                 except Exception as e:
                     st.error(f"Ошибка сохранения: {e}")
                     return False, str(e)
