@@ -176,21 +176,27 @@ def _save_current_result(kind: str, item: dict):
                 title_suggest = (meta.get("title") or "Результаты запроса").strip()
         except Exception:
             title_suggest = "Мой запрос"
+        # Уникальные ключи виджетов, чтобы не конфликтовали между несколькими результатами
+        key_base = f"{kind}_{item.get('ts','')}_{item.get('msg_idx','')}"
         with st.popover("Сохранить " + ("таблицу" if kind == "table" else "график")):
-            t = st.text_input("Название", value=title_suggest or "Мой запрос")
-            if st.button("Сохранить", use_container_width=True):
-                ch.insert_saved_query(
-                    user_uuid=COMMON_USER_UUID,
-                    item_uuid=str(uuid.uuid4()),
-                    title=t.strip() or "Без названия",
-                    db="",
-                    sql_code=sql_code,
-                    table_code=table_code,
-                    plotly_code=plotly_code,
-                )
-                st.success("Сохранено")
-                st.session_state.pop("_saved_queries_cache", None)
-                return True, "OK"
+            t = st.text_input("Название", value=title_suggest or "Мой запрос", key=f"sq_name_{key_base}")
+            if st.button("Сохранить", use_container_width=True, key=f"sq_btn_{key_base}"):
+                try:
+                    ch.insert_saved_query(
+                        user_uuid=COMMON_USER_UUID,
+                        item_uuid=str(uuid.uuid4()),
+                        title=t.strip() or "Без названия",
+                        db="",
+                        sql_code=sql_code,
+                        table_code=table_code,
+                        plotly_code=plotly_code,
+                    )
+                    st.success("Сохранено")
+                    st.session_state.pop("_saved_queries_cache", None)
+                    return True, "OK"
+                except Exception as e:
+                    st.error(f"Ошибка сохранения: {e}")
+                    return False, str(e)
         return False, None
     except Exception as e:
         return False, str(e)
