@@ -992,7 +992,9 @@ def _render_table_code(meta: dict):
 # Отрисовка кнопок скачивания
 def _render_download_buttons(data, item: dict, data_type: str):
     """Отрисовка кнопок скачивания для таблиц и графиков"""
+    # Уникальный суффикс для ключей виджетов: timestamp + id(item) избегает коллизий при двух результатах в одну секунду
     ts = (item.get("ts") or data_type).replace(":", "-")
+    key_sfx = f"{ts}_{id(item)}"
     
     if data_type == "table":
         # CSV и XLSX кнопки для таблиц
@@ -1007,7 +1009,7 @@ def _render_download_buttons(data, item: dict, data_type: str):
                 data=_df_to_csv_bytes(data),
                 file_name=f"table_{ts}.csv",
                 mime="text/csv",
-                key=f"dl_csv_{ts}",
+                key=f"dl_csv_{key_sfx}",
                 use_container_width=True,
             )
         with col_xlsx:
@@ -1020,7 +1022,7 @@ def _render_download_buttons(data, item: dict, data_type: str):
                 data=_df_to_xlsx_bytes(data, "Result", styler=styler_obj),
                 file_name=f"table_{ts}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_xlsx_{ts}",
+                key=f"dl_xlsx_{key_sfx}",
                 use_container_width=True,
             )
     
@@ -1039,7 +1041,7 @@ def _render_download_buttons(data, item: dict, data_type: str):
                 data=html_bytes,
                 file_name=f"chart_{ts}.html",
                 mime="text/html",
-                key=f"dl_html_{ts}",
+                key=f"dl_html_{key_sfx}",
                 use_container_width=True,
             )
 
@@ -3154,7 +3156,7 @@ if user_input:
                         
                         # 1) Готовый HTML от ассистента
                         styled_html = local_vars.get("styled_html")
-                if isinstance(styled_html, str) and styled_html.strip():
+                        if isinstance(styled_html, str) and styled_html.strip():
                             applied = False
                             for it in reversed(st.session_state.get("results", [])):
                                 if it.get("kind") == "table" and isinstance(it.get("df_pl"), pl.DataFrame):
@@ -3187,8 +3189,8 @@ if user_input:
                                             new_meta["_styler_obj"] = styled_df_obj
                                             _push_result("table", df_pl=old_df, meta=new_meta)
                                             applied = True
-                                    created_table = True
-                                    break
+                                            created_table = True
+                                            break
                             except Exception:
                                 pass
                         # 3) Старый путь: styler_config
