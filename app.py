@@ -2992,7 +2992,8 @@ if user_input:
             )
             if needs_confirm:
                 st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
-                _show_human_sql_clarify(plan_text, user_input)
+                txt = _build_human_sql_clarify_text(plan_text, user_input)
+                st.session_state["messages"].append({"role": "assistant", "content": txt})
                 st.stop()
         exec_msgs = (
             [{"role": "system", "content": _tables_index_hint()}]
