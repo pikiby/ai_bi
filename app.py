@@ -631,7 +631,7 @@ def _build_human_pivot_clarify_text(plan_text: str, columns: list[str] | None = 
         "- Столбцы: 1) Месяц; 2) Платформа; 3) — (без столбцов)\n"
         "- Значения: 1) Без агрегации; 2) Выручка; 3) Количество оплат\n"
         "- Формат даты: 1) D.M.Y (по умолчанию); 2) Y‑M‑D; 3) Месяц словами + год\n\n"
-        "Ответьте, например: `Строки: 1; Столбцы: 1; Значения: 1; Формат: 1` или `Ок` для значений по умолчанию."
+        "Ответьте, например: `Источник: 1; Строки: 1; Столбцы: 1; Значения: 1; Формат: 1` или `Ок` для значений по умолчанию."
     )
 
 def _build_human_sql_suggestions(plan_text: str) -> str:
@@ -3636,13 +3636,20 @@ if user_input:
                 # Ожидаем, что переменная df перезаписана на сводную
                 new_df = local_vars.get("df")
                 if isinstance(new_df, pd.DataFrame):
-                    st.session_state["last_df"] = pl.from_pandas(new_df)
+                    new_pl = pl.from_pandas(new_df)
+                    st.session_state["last_df"] = new_pl
                     # Сохраним pivot_code в meta последней таблицы, чтобы при сохранении он попал в ClickHouse
                     try:
                         if st.session_state.get("results"):
                             st.session_state["results"][-1].setdefault("meta", {})["pivot_code"] = pivot_code
                     except Exception:
                         pass
+                    # Отрисуем новую таблицу на основе сводной сразу
+                    meta_tbl = dict(st.session_state.get("last_sql_meta", {}))
+                    meta_tbl.setdefault("title", "Сводная таблица")
+                    meta_tbl["pivot_code"] = pivot_code
+                    _push_result("table", df_pl=new_pl, meta=meta_tbl)
+                    _render_result(st.session_state["results"][-1])
                 else:
                     st.info("Код сводной должен присвоить переменной df новый pandas.DataFrame.")
             except Exception as e:
