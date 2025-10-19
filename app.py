@@ -3000,6 +3000,31 @@ if user_input:
 
         # 2b) Финальный ответ/SQL с учётом контекста
         hint_exec = _last_result_hint()
+
+        # ВАЖНО: перед генерацией SQL из RAG — короткое человеческое уточнение (как в ветке sql)
+        try:
+            plan_msgs = (
+                ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+                + [{"role": "system", "content": prompts_map["sql_plan"]}]
+                + st.session_state["messages"]
+                + ([{"role": "system", "content": f"Контекст базы знаний:\n{context}\n"}] if context else [])
+            )
+            plan_reply = client.chat.completions.create(
+                model=OPENAI_MODEL, messages=plan_msgs, temperature=0
+            ).choices[0].message.content
+        except Exception:
+            plan_reply = ""
+        m_plan_rag = re.search(r"```sql_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
+        if m_plan_rag:
+            plan_text = m_plan_rag.group(1).strip()
+            needs_confirm = AUTO_PLAN_REQUIRED or bool(
+                re.search(r"\b(по\s+месяц|по\s+дням|по\s+год|на\s+конец\s+месяц|итог\s+месяц|топ)\b",
+                          user_input, flags=re.IGNORECASE)
+            )
+            if needs_confirm:
+                st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
+                _show_human_sql_clarify(plan_text, user_input)
+                st.stop()
         exec_msgs = (
             [{"role": "system", "content": _tables_index_hint()}]
             + ([{"role": "system", "content": hint_exec}] if hint_exec else [])
