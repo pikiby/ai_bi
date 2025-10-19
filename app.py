@@ -2993,6 +2993,10 @@ if user_input:
             if needs_confirm:
                 st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
                 txt = _build_human_sql_clarify_text(plan_text, user_input)
+                # Немедленно показать пользователю
+                with st.chat_message("assistant"):
+                    st.markdown(txt)
+                # И сохранить в историю для следующего рендера
                 st.session_state["messages"].append({"role": "assistant", "content": txt})
                 st.stop()
         exec_msgs = (
@@ -3181,6 +3185,8 @@ if user_input:
             ptext = m_pplan.group(1).strip()
             st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
             txt = _build_human_pivot_clarify_text(ptext)
+            with st.chat_message("assistant"):
+                st.markdown(txt)
             st.session_state["messages"].append({"role": "assistant", "content": txt})
             st.stop()
 
