@@ -103,6 +103,7 @@ class ClickHouse_client:
             SELECT toString(user_uuid) as user_uuid,
                    toString(item_uuid) as item_uuid,
                    title, db, sql_code, table_code, plotly_code,
+                   ifNull(pivot_code, '') as pivot_code,
                    is_deleted, created_at, updated_at
             FROM saved_queries FINAL
             WHERE user_uuid = '{user_uuid}' AND item_uuid = '{uid}' AND is_deleted = 0
@@ -127,11 +128,18 @@ class ClickHouse_client:
         sql_code: str,
         table_code: str | None = None,
         plotly_code: str | None = None,
+        pivot_code: str | None = None,
     ) -> None:
         """Добавляет новую запись в saved_queries. Поля created_at/updated_at задаются по умолчанию в CH."""
         table_code = table_code or ""
         plotly_code = plotly_code or ""
-        data = [[user_uuid, item_uuid, title, db or "", sql_code, table_code, plotly_code, 0]]
+        pivot_code = pivot_code or ""
+        # Убедимся, что колонка pivot_code существует (однократно, безопасно)
+        try:
+            self.client.command("ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS pivot_code String DEFAULT ''")
+        except Exception:
+            pass
+        data = [[user_uuid, item_uuid, title, db or "", sql_code, table_code, plotly_code, pivot_code, 0]]
         # Порядок аргументов: insert(table, data, column_names=[...])
         self.client.insert(
             "saved_queries",
@@ -144,6 +152,7 @@ class ClickHouse_client:
                 "sql_code",
                 "table_code",
                 "plotly_code",
+                "pivot_code",
                 "is_deleted",
             ],
         )
@@ -162,6 +171,7 @@ class ClickHouse_client:
             sql_code=rec.get("sql_code") or "",
             table_code=rec.get("table_code") or "",
             plotly_code=rec.get("plotly_code") or "",
+            pivot_code=rec.get("pivot_code") or "",
         )
 
     def soft_delete_saved_query(self, user_uuid: str, item_uuid: str) -> None:
@@ -177,6 +187,7 @@ class ClickHouse_client:
             rec.get("sql_code") or "",
             rec.get("table_code") or "",
             rec.get("plotly_code") or "",
+            rec.get("pivot_code") or "",
             1,  # is_deleted
         ]]
         self.client.insert(
@@ -190,6 +201,7 @@ class ClickHouse_client:
                 "sql_code",
                 "table_code",
                 "plotly_code",
+                "pivot_code",
                 "is_deleted",
             ],
         )

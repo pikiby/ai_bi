@@ -194,6 +194,7 @@ def _save_current_result(kind: str, item: dict):
                         sql_code=sql_code,
                         table_code=table_code,
                         plotly_code=plotly_code,
+                        pivot_code=(meta.get("pivot_code") or ""),
                     )
                     st.success("Сохранено")
                     st.session_state.pop("_saved_queries_cache", None)
@@ -289,8 +290,35 @@ def _run_saved_item(item_uuid: str):
             df_pl = ch.query_run(sql)
         st.session_state["last_df"] = df_pl
         meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
+        pivot_code = (rec.get("pivot_code") or "").strip()
         table_code = (rec.get("table_code") or "").strip()
         plotly_code = (rec.get("plotly_code") or "").strip()
+        # Применим сводное преобразование перед стилями/графиком, если есть
+        if pivot_code:
+            try:
+                df_polars = df_pl
+                df = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
+                def col(*names):
+                    for nm in names:
+                        if nm in df.columns:
+                            return nm
+                    raise KeyError(f"Нет ни одной из колонок: {names}")
+                def has_col(name):
+                    return name in df.columns
+                COLS = list(df.columns)
+                safe_globals = {"__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+                                "pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS}
+                local_vars = {}
+                exec(pivot_code, safe_globals, local_vars)
+                new_df = local_vars.get("df")
+                if isinstance(new_df, pd.DataFrame):
+                    df_pl = pl.from_pandas(new_df)
+                    st.session_state["last_df"] = df_pl
+                    meta["pivot_code"] = pivot_code
+                else:
+                    st.info("pivot_code должен присвоить df новый pandas.DataFrame.")
+            except Exception as e:
+                st.error(f"Ошибка выполнения pivot_code: {e}")
         if table_code:
             try:
                 df_polars = df_pl
@@ -403,6 +431,10 @@ def _reload_prompts():
         "table": _get(
             "RULES_TABLE",
             "Режим TABLE. Верни ровно один блок ```table_code``` с кодом, создающим переменную styled_df (pandas Styler)."
+        ),
+        "pivot": _get(
+            "RULES_PIVOT",
+            "Режим PIVOT. Верни ровно один блок ```pivot_code```; внутри перезапиши df на результат df.pivot(...)."
         ),
     }
     return p_map, warn
@@ -537,7 +569,7 @@ def _strip_llm_blocks(text: str) -> str:
     if not text:
         return text
     # Убираем служебные блоки (table_style обрабатывается отдельно в строке 2172)
-    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table"):
+    for tag in ("title", "explain", "sql", "rag", "python", "plotly", "table", "pivot", "pivot_code"):
         text = re.sub(
             rf"```{tag}\s*.*?```",
             "",
@@ -2917,6 +2949,38 @@ if user_input:
 
 
 
+    elif mode == "pivot":
+        # Режим PIVOT: формирование сводной таблицы (только код преобразования df)
+        cols_hint_msg = []
+        try:
+            if st.session_state.get("last_df") is not None:
+                _pdf = st.session_state["last_df"].to_pandas()
+                cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
+                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                )
+                cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+        except Exception:
+            cols_hint_msg = []
+
+        hint_exec = _last_result_hint()
+        exec_msgs = (
+            ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+            + [{"role": "system", "content": prompts_map["pivot"]}]
+            + cols_hint_msg
+            + st.session_state["messages"]
+        )
+        try:
+            model_name = st.session_state.get("model", OPENAI_MODEL)
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=exec_msgs,
+                temperature=0.2,
+            )
+            final_reply = response.choices[0].message.content
+        except Exception as e:
+            final_reply = "Не удалось получить код PIVOT."
+            st.error(f"Ошибка на шаге ответа (PIVOT): {e}")
+
     elif mode == "table":
         # Режим TABLE: генерация стилей для таблиц
         # Передаём модели список доступных колонок и их типы (аналогично ветке plotly)
@@ -3108,6 +3172,42 @@ if user_input:
                         st.code(orig_sql, language="sql")
 
         # Убрали обработку блока table — режим упразднён
+
+        # 4.5) PIVOT: если ассистент вернул блок ```pivot_code``` — применяем сводное преобразование к df
+        m_pivot = re.search(r"```pivot_code\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        if m_pivot and st.session_state.get("last_df") is not None:
+            try:
+                pivot_code = m_pivot.group(1).strip()
+                df_polars = st.session_state["last_df"]
+                df = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
+                def col(*names):
+                    for nm in names:
+                        if nm in df.columns:
+                            return nm
+                    raise KeyError(f"Нет ни одной из колонок: {names}")
+                def has_col(name):
+                    return name in df.columns
+                COLS = list(df.columns)
+                safe_globals = {
+                    "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+                    "pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS,
+                }
+                local_vars = {}
+                exec(pivot_code, safe_globals, local_vars)
+                # Ожидаем, что переменная df перезаписана на сводную
+                new_df = local_vars.get("df")
+                if isinstance(new_df, pd.DataFrame):
+                    st.session_state["last_df"] = pl.from_pandas(new_df)
+                    # Сохраним pivot_code в meta последней таблицы, чтобы при сохранении он попал в ClickHouse
+                    try:
+                        if st.session_state.get("results"):
+                            st.session_state["results"][-1].setdefault("meta", {})["pivot_code"] = pivot_code
+                    except Exception:
+                        pass
+                else:
+                    st.info("Код сводной должен присвоить переменной df новый pandas.DataFrame.")
+            except Exception as e:
+                st.error(f"Ошибка выполнения pivot_code: {e}")
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
