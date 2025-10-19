@@ -641,22 +641,43 @@ def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
             cols_md = f"\nДоступные столбцы: {show}\n"
     except Exception:
         cols_md = ""
-    city = (guessed.get('city') or 'Город')
-    comp = (guessed.get('company') or 'Компания')
-    dcol = (guessed.get('date') or 'Дата')
-    plat = (guessed.get('platform') or 'Платформа')
-    rev = (guessed.get('revenue') or 'Выручка')
-    cnt = (guessed.get('count') or 'Количество оплат')
+    city = guessed.get('city')
+    comp = guessed.get('company')
+    dcol = guessed.get('date')
+    plat = guessed.get('platform')
+    rev = guessed.get('revenue')
+    cnt = guessed.get('count')
+    opts = []
+    opts.append(f"- Источник: 1) текущие (по умолчанию); 2) новые данные")
+    if city or comp or dcol:
+        idx_opts = []
+        if city:
+            idx_opts.append(f"1) {city}")
+        if comp:
+            idx_opts.append(f"2) {comp}")
+        if dcol:
+            idx_opts.append(f"3) {dcol}")
+        opts.append("- Строки: " + "; ".join(idx_opts))
+    if dcol:
+        opts.append("- Столбцы: 1) Месяц; 2) — (без столбцов)")
+    if plat:
+        opts.append(f"- Платформа (если нужна): {plat}")
+    if rev or cnt:
+        val_opts = []
+        val_opts.append("1) Без агрегации")
+        if rev:
+            val_opts.append(f"2) {rev}")
+        if cnt:
+            val_opts.append(f"3) {cnt}")
+        opts.append("- Значения: " + "; ".join(val_opts))
+    opts.append("- Формат даты: 1) D.M.Y; 2) Y-M-D; 3) Месяц словами + год")
+    tips = "\n".join(opts)
     return (
         "**Сделаю сводную.**\n\n"
-        "**Источник**: 1) текущие данные (по умолчанию); 2) получить новые данные."
-        + cols_md + "\n"
+        "**Доступные столбцы:** " + cols_md + "\n"
         "**Выберите параметры (цифрами):**\n"
-        f"- Строки: 1) {city}; 2) {comp}; 3) {dcol}\n"
-        f"- Столбцы: 1) Месяц; 2) {plat}; 3) — (без столбцов)\n"
-        f"- Значения: 1) Без агрегации; 2) {rev}; 3) {cnt}\n"
-        "- Формат даты: 1) D.M.Y (по умолчанию); 2) Y‑M‑D; 3) Месяц словами + год\n\n"
-        "Ответьте, например: `Источник: 1; Строки: 1; Столбцы: 1; Значения: 1; Формат: 1` или `Ок` для значений по умолчанию."
+        + tips +
+        "\n\nОтветьте, например: `Источник: 1; Строки: 1; Значения: 2; Формат: 1` или `Ок` для текущих значений."
     )
 
 def _build_human_sql_suggestions(plan_text: str) -> str:
