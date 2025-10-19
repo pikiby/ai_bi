@@ -303,13 +303,28 @@ def _run_saved_item(item_uuid: str):
                 def has_col(name):
                     return name in df.columns
                 COLS = list(df.columns)
+                # Инкрементальные правки: передаём предыдущий styled_df если есть
+                _prev_styler = None
+                try:
+                    for _it_prev in reversed(st.session_state.get("results", [])):
+                        if _it_prev.get("kind") == "table":
+                            _prev_styler = (_it_prev.get("meta") or {}).get("_styler_obj")
+                            if _prev_styler is not None:
+                                break
+                except Exception:
+                    _prev_styler = None
+
                 safe_builtins = {"__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list}}
-                local_vars = {"pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS}
-                exec(table_code, safe_builtins | local_vars, local_vars)
+                local_vars = {"pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS, "styled_df": _prev_styler}
+                exec(table_code, safe_builtins, local_vars)
                 styled_df_obj = local_vars.get("styled_df")
                 if styled_df_obj is not None and hasattr(styled_df_obj, "to_html"):
                     meta["table_code"] = table_code
                     meta["_styler_obj"] = styled_df_obj
+                    try:
+                        meta["rendered_html"] = styled_df_obj.to_html(escape=False, table_id="styled-table")
+                    except Exception:
+                        pass
                 _push_result("table", df_pl=df_pl, meta=meta)
                 return
             except Exception as e:
@@ -2677,12 +2692,12 @@ if st.session_state["messages"]:
         with st.chat_message(m["role"]):
             # Не показываем пустые сообщения (защита от случайных пустых записей)
             if m["content"]:
-                # Очищаем служебные блоки перед выводом в истории
+                # Сначала заменим table_code/table_style на читабельные фразы, потом удалим служебные блоки
                 if m["role"] == "assistant":
-                    cleaned_content = _strip_llm_blocks(m["content"])
-                    # Заменяем блоки стилей таблицы на читаемые фразы
-                    cleaned_content = re.sub(r"```table_code[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned_content, flags=re.IGNORECASE)
-                    cleaned_content = re.sub(r"```table_style[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned_content, flags=re.IGNORECASE).strip()
+                    txt = m["content"]
+                    txt = re.sub(r"```table_code[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", txt, flags=re.IGNORECASE)
+                    txt = re.sub(r"```table_style[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", txt, flags=re.IGNORECASE)
+                    cleaned_content = _strip_llm_blocks(txt).strip()
                     if cleaned_content:
                         st.markdown(cleaned_content)
                 else:
@@ -2975,10 +2990,10 @@ if user_input:
     st.session_state["last_assistant_idx"] = len(st.session_state["messages"]) - 1
     with st.chat_message("assistant"):
         # Не показываем служебные блоки title/explain/sql/table_style — они рендерятся отдельно
-        cleaned = _strip_llm_blocks(final_reply)
-        # Заменяем блоки стилей таблицы на читаемые фразы
-        cleaned = re.sub(r"```table_code[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"```table_style[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", cleaned, flags=re.IGNORECASE).strip()
+        # Сначала заменим table_code/table_style на читабельные фразы, затем удалим служебные блоки
+        _txt = re.sub(r"```table_code[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", final_reply, flags=re.IGNORECASE)
+        _txt = re.sub(r"```table_style[\s\S]*?```", "_Создаю таблицу с новыми стилями..._", _txt, flags=re.IGNORECASE)
+        cleaned = _strip_llm_blocks(_txt).strip()
         if cleaned:
             st.markdown(cleaned)
         created_chart = False
@@ -3128,6 +3143,17 @@ if user_input:
                             return isinstance(name, str) and name in df.columns
                         COLS = list(df.columns)
                         
+                        # Поддержка инкрементальных правок стилей: передаём предыдущий styled_df (если был)
+                        _prev_styler = None
+                        try:
+                            for _it_prev in reversed(st.session_state.get("results", [])):
+                                if _it_prev.get("kind") == "table":
+                                    _prev_styler = (_it_prev.get("meta") or {}).get("_styler_obj")
+                                    if _prev_styler is not None:
+                                        break
+                        except Exception:
+                            _prev_styler = None
+
                         safe_builtins = {
                             "__builtins__": {
                                 "len": len, 
@@ -3150,6 +3176,7 @@ if user_input:
                             "true": True,  # Поддержка JSON-стиля
                             "false": False,
                             "null": None,
+                            "styled_df": _prev_styler,  # база для инкрементальных изменений
                         }
                         local_vars = {}
                         exec(table_code, safe_builtins, local_vars)
@@ -3167,6 +3194,7 @@ if user_input:
                                     new_meta["rendered_html"] = styled_html
                                     new_meta["table_code"] = table_code
                                     _push_result("table", df_pl=old_df, meta=new_meta)
+                                    _render_result(st.session_state["results"][-1])
                                     applied = True
                                     created_table = True
                                     break
@@ -3188,6 +3216,7 @@ if user_input:
                                             # ВАЖНО: сохраняем styler для Excel-экспорта
                                             new_meta["_styler_obj"] = styled_df_obj
                                             _push_result("table", df_pl=old_df, meta=new_meta)
+                                            _render_result(st.session_state["results"][-1])
                                             applied = True
                                             created_table = True
                                             break
@@ -3207,6 +3236,7 @@ if user_input:
                                         new_meta["styler_config"] = styler_config
                                         new_meta["table_code"] = table_code
                                         _push_result("table", df_pl=old_df, meta=new_meta)
+                                        _render_result(st.session_state["results"][-1])
                                         applied = True
                                         created_table = True
                                         break
@@ -3271,6 +3301,7 @@ if user_input:
                             # Пометим специальный стиль на следующий рендер
                             st.session_state["next_table_style"] = {"striped": True}
                             _push_result("table", df_pl=_df_pl, meta=meta_tbl)
+                            _render_result(st.session_state["results"][-1])
                             created_table = True
                             # Не выполняем plotly-код
                             code = ""
