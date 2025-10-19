@@ -651,7 +651,7 @@ def _interpret_sql_confirmation(text: str) -> dict:
     if not text:
         return {}
     low = text.lower()
-    if low.strip() in {"ок", "ok", "да", "подходит"}:
+    if low.strip() in {"ок", "ok", "да", "подходит", "сделай", "сделай уже", "да сделай", "как считаешь", "как считаешь нужным"}:
         return {"metric": 1, "top": 1, "period": 1}
     # Пробуем по ключевым словам
     sel = {}
@@ -680,7 +680,7 @@ def _interpret_pivot_confirmation(text: str) -> dict:
     if not text:
         return {}
     low = text.lower()
-    if low.strip() in {"ок", "ok", "да", "подходит"}:
+    if low.strip() in {"ок", "ok", "да", "подходит", "сделай", "сделай уже", "да сделай", "как считаешь", "как считаешь нужным"}:
         return {"index": 1, "columns": 1, "values": 1, "date": 1}
     sel = {}
     # keywords
@@ -2937,27 +2937,36 @@ if user_input:
 
     # Если ждём подтверждение плана — трактуем это сообщение как ответ и принудительно выбираем режим
     pre_mode, mode_notice = (None, None)
-    awaiting = st.session_state.pop("awaiting_plan", None)
+    awaiting = st.session_state.get("awaiting_plan")
     if awaiting:
         kind = awaiting.get("kind")
         plan_text = awaiting.get("plan", "")
         # Разбираем выбор пользователя
         sel = _interpret_sql_confirmation(user_input) if kind == "sql" else _interpret_pivot_confirmation(user_input)
-        # Если ответ расплывчатый или пуст — покажем варианты и не продолжим
+        # Если ответ пуст/расплывчатый, проверим — это новый запрос или принять дефолт
         if not sel:
-            kind = awaiting.get("kind")
-            txt = _build_human_sql_suggestions(plan_text) if kind == "sql" else _build_human_pivot_clarify_text(plan_text)
-            with st.chat_message("assistant"):
-                st.markdown(txt)
-            # возвращаем ожидание плана обратно и прерываем обработку
-            st.session_state["awaiting_plan"] = awaiting
-            st.stop()
+            # Новый запрос: пользователь сменил задачу (например, попросил сводную/график/каталог)
+            if re.search(r"\b(сводн|pivot|график|plot|chart|таблиц|каталог|ресурс|дашборд|описани|структур|ddl|покажи|топ\b.*)", user_input, flags=re.IGNORECASE):
+                # Снимаем ожидание плана и продолжаем обычную маршрутизацию
+                st.session_state.pop("awaiting_plan", None)
+                pre_mode = None
+                mode_notice = None
+            else:
+                # Примем дефолты ОДИН раз и сообщим
+                default_sel = {"metric": 1, "top": 1, "period": 1} if kind == "sql" else {"index": 1, "columns": 1, "values": 1, "date": 1}
+                info_text = "Ок, беру значения по умолчанию (1‑1‑1)." if kind == "sql" else "Ок, беру значения по умолчанию."
+                with st.chat_message("assistant"):
+                    st.markdown(info_text)
+                st.session_state["messages"].append({"role": "assistant", "content": info_text})
+                sel = default_sel
         # Иначе — принимаем как подтверждение и конвертируем в инструкцию
-        confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
-        st.session_state["plan_confirmation"] = confirm_text
-        st.session_state["plan_locked"] = awaiting.get("plan", "")
-        pre_mode = kind
-        mode_notice = "Использую подтверждённый план"
+        if sel:
+            confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
+            st.session_state["plan_confirmation"] = confirm_text
+            st.session_state["plan_locked"] = awaiting.get("plan", "")
+            st.session_state.pop("awaiting_plan", None)
+            pre_mode = kind
+            mode_notice = "Использую подтверждённый план"
 
     # Если pre_mode выставлен (подтверждение плана) — используем его
     mode_source = "router"
