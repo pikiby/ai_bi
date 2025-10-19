@@ -614,22 +614,47 @@ def _build_human_sql_clarify_text(plan_text: str, user_text: str) -> str:
         "Ответьте, например: `Метрика: 1; Топ: 2; Период: 2` или просто `Ок` для варианта 1‑1‑1."
     )
 
-def _build_human_pivot_clarify_text(plan_text: str, columns: list[str] | None = None) -> str:
+def _guess_df_columns(pdf) -> dict:
+    names = [str(c).lower() for c in getattr(pdf, 'columns', [])]
+    def find(keys):
+        for k in keys:
+            for c in getattr(pdf, 'columns', []):
+                if k in str(c).lower():
+                    return str(c)
+        return None
+    return {
+        'city': find(['город', 'city']),
+        'company': find(['компан', 'company', 'partner', 'company_name']),
+        'date': find(['date', 'report_date', 'дата']),
+        'revenue': find(['выруч', 'revenue', 'amount', 'android_pl', 'ios_pl', '_pl']),
+        'count': find(['count', 'кол-во', 'количество', 'transactions', 'оплат']),
+        'platform': find(['platform', 'платформ']),
+    }
+
+def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
     cols_md = ""
+    guessed = {}
     try:
-        if columns:
-            show = ", ".join(f"`{c}`" for c in list(columns)[:12])
+        if pdf is not None:
+            guessed = _guess_df_columns(pdf)
+            show = ", ".join(f"`{c}`" for c in list(pdf.columns)[:12])
             cols_md = f"\nДоступные столбцы: {show}\n"
     except Exception:
         cols_md = ""
+    city = (guessed.get('city') or 'Город')
+    comp = (guessed.get('company') or 'Компания')
+    dcol = (guessed.get('date') or 'Дата')
+    plat = (guessed.get('platform') or 'Платформа')
+    rev = (guessed.get('revenue') or 'Выручка')
+    cnt = (guessed.get('count') or 'Количество оплат')
     return (
-        "**Сделаю сводную по текущей таблице.**\n\n"
-        "**Источник**: текущие данные (последняя полученная таблица)."
+        "**Сделаю сводную.**\n\n"
+        "**Источник**: 1) текущие данные (по умолчанию); 2) получить новые данные."
         + cols_md + "\n"
         "**Выберите параметры (цифрами):**\n"
-        "- Строки: 1) Город; 2) Компания; 3) Дата\n"
-        "- Столбцы: 1) Месяц; 2) Платформа; 3) — (без столбцов)\n"
-        "- Значения: 1) Без агрегации; 2) Выручка; 3) Количество оплат\n"
+        f"- Строки: 1) {city}; 2) {comp}; 3) {dcol}\n"
+        f"- Столбцы: 1) Месяц; 2) {plat}; 3) — (без столбцов)\n"
+        f"- Значения: 1) Без агрегации; 2) {rev}; 3) {cnt}\n"
         "- Формат даты: 1) D.M.Y (по умолчанию); 2) Y‑M‑D; 3) Месяц словами + год\n\n"
         "Ответьте, например: `Источник: 1; Строки: 1; Столбцы: 1; Значения: 1; Формат: 1` или `Ок` для значений по умолчанию."
     )
