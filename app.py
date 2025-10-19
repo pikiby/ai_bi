@@ -2988,7 +2988,8 @@ if user_input:
             st.session_state["plan_confirmation"] = confirm_text
             st.session_state["plan_locked"] = awaiting.get("plan", "")
             if kind == "pivot":
-                st.session_state["pivot_ready"] = True
+                st.session_state["pivot_sel"] = sel
+                st.session_state["pivot_pending"] = True
             st.session_state.pop("awaiting_plan", None)
             pre_mode = kind
             mode_notice = "Использую подтверждённый план"
@@ -3307,7 +3308,7 @@ if user_input:
 
     elif mode == "pivot":
         # Если есть подтверждённый план — сразу просим pivot_code
-        if st.session_state.get("pivot_ready") or st.session_state.get("plan_locked") or st.session_state.get("plan_confirmation"):
+        if st.session_state.get("pivot_pending") or st.session_state.get("plan_locked") or st.session_state.get("plan_confirmation"):
             cols_hint_msg = []
             try:
                 if st.session_state.get("last_df") is not None:
@@ -3329,7 +3330,7 @@ if user_input:
             _confirm = st.session_state.pop("plan_confirmation", "")
             if _confirm:
                 _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
-            st.session_state.pop("pivot_ready", None)
+            st.session_state.pop("pivot_pending", None)
             _messages_payload = _prefix + exec_msgs
             try:
                 response = client.chat.completions.create(
@@ -3373,15 +3374,15 @@ if user_input:
         m_pplan = re.search(r"```pivot_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
         if m_pplan:
             ptext = m_pplan.group(1).strip()
-            # Сформируем список колонок текущего df для контекстной подсказки
-            cols_list = []
+            # Сформируем контекстную подсказку по реальным столбцам текущего df
+            _pdf_ctx = None
             try:
                 if st.session_state.get("last_df") is not None:
-                    cols_list = list(st.session_state["last_df"].to_pandas().columns)
+                    _pdf_ctx = st.session_state["last_df"].to_pandas()
             except Exception:
-                cols_list = []
+                _pdf_ctx = None
             st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
-            txt = _build_human_pivot_clarify_text(ptext, columns=cols_list)
+            txt = _build_human_pivot_clarify_text(ptext, pdf=_pdf_ctx)
             with st.chat_message("assistant"):
                 st.markdown(txt)
             st.session_state["messages"].append({"role": "assistant", "content": txt})
@@ -3614,6 +3615,54 @@ if user_input:
 
         # 4.5) PIVOT: если ассистент вернул блок ```pivot_code``` — применяем сводное преобразование к df
         m_pivot = re.search(r"```pivot_code\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
+        if st.session_state.get("pivot_pending") and st.session_state.get("last_df") is not None and not m_pivot:
+            # Fallback: строим сводную на клиенте по выбранным параметрам
+            try:
+                sel = st.session_state.get("pivot_sel", {})
+                df_polars = st.session_state["last_df"]
+                pdf = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
+                # Подбор колонок
+                g = _guess_df_columns(pdf)
+                idx = g.get('city') if sel.get('index',1)==1 else (g.get('company') if sel.get('index',1)==2 else g.get('date'))
+                col_choice = sel.get('columns',1)
+                if col_choice == 1 and g.get('date'):
+                    # создаём месяц в формате по выбору
+                    fmt = sel.get('date',1)
+                    fmt_map = {1: '%d.%m.%Y', 2: '%Y-%m-%d', 3: '%B %Y'}
+                    pdf['__month__'] = pd.to_datetime(pdf[g.get('date')], errors='coerce').dt.to_period('M').dt.to_timestamp().dt.strftime(fmt_map.get(fmt, '%d.%m.%Y'))
+                    cols = '__month__'
+                elif col_choice == 2 and g.get('platform'):
+                    cols = g.get('platform')
+                else:
+                    cols = None
+                val_choice = sel.get('values',1)
+                if val_choice == 2 and g.get('revenue'):
+                    val = g.get('revenue')
+                elif val_choice == 3 and g.get('count'):
+                    val = g.get('count')
+                else:
+                    # дефолт: первая числовая
+                    num_cols = [c for c in pdf.columns if pd.api.types.is_numeric_dtype(pdf[c])]
+                    val = num_cols[0] if num_cols else None
+                if idx is None:
+                    idx = pdf.columns[0]
+                if val is None:
+                    val = pdf.columns[1] if len(pdf.columns)>1 else pdf.columns[0]
+                if cols:
+                    pivot_df = pd.pivot_table(pdf, index=[idx], columns=[cols], values=val, aggfunc='sum', fill_value=0)
+                else:
+                    pivot_df = pd.pivot_table(pdf, index=[idx], values=val, aggfunc='sum')
+                new_pl = pl.from_pandas(pivot_df.reset_index())
+                st.session_state['last_df'] = new_pl
+                meta_tbl = dict(st.session_state.get('last_sql_meta', {}))
+                meta_tbl.setdefault('title', 'Сводная таблица')
+                _push_result('table', df_pl=new_pl, meta=meta_tbl)
+                _render_result(st.session_state['results'][-1])
+            except Exception as e:
+                st.error(f"Fallback сводной не удался: {e}")
+            finally:
+                st.session_state.pop('pivot_pending', None)
+
         if m_pivot and st.session_state.get("last_df") is not None:
             try:
                 pivot_code = m_pivot.group(1).strip()
@@ -3650,6 +3699,7 @@ if user_input:
                     meta_tbl["pivot_code"] = pivot_code
                     _push_result("table", df_pl=new_pl, meta=meta_tbl)
                     _render_result(st.session_state["results"][-1])
+                    st.session_state.pop("pivot_pending", None)
                 else:
                     st.info("Код сводной должен присвоить переменной df новый pandas.DataFrame.")
             except Exception as e:
