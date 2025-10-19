@@ -632,15 +632,15 @@ def _guess_df_columns(pdf) -> dict:
     }
 
 def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
-    cols_md = ""
+    cols_md = "—"
     guessed = {}
     try:
         if pdf is not None:
             guessed = _guess_df_columns(pdf)
             show = ", ".join(f"`{c}`" for c in list(pdf.columns)[:12])
-            cols_md = f"\nДоступные столбцы: {show}\n"
+            cols_md = show or "—"
     except Exception:
-        cols_md = ""
+        cols_md = "—"
     city = guessed.get('city')
     comp = guessed.get('company')
     dcol = guessed.get('date')
@@ -657,7 +657,8 @@ def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
             idx_opts.append(f"2) {comp}")
         if dcol:
             idx_opts.append(f"3) {dcol}")
-        opts.append("- Строки: " + "; ".join(idx_opts))
+        if idx_opts:
+            opts.append("- Строки: " + "; ".join(idx_opts))
     if dcol:
         opts.append("- Столбцы: 1) Месяц; 2) — (без столбцов)")
     if plat:
@@ -674,10 +675,10 @@ def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
     tips = "\n".join(opts)
     return (
         "**Сделаю сводную.**\n\n"
-        "**Доступные столбцы:** " + cols_md + "\n"
+        f"**Доступные столбцы:** {cols_md}\n\n"
         "**Выберите параметры (цифрами):**\n"
-        + tips +
-        "\n\nОтветьте, например: `Источник: 1; Строки: 1; Значения: 2; Формат: 1` или `Ок` для текущих значений."
+        + tips
+        + "\n\nОтветьте, например: `Источник: 1; Строки: 1; Значения: 2; Формат: 1` или `Ок` для текущих значений."
     )
 
 def _build_human_sql_suggestions(plan_text: str) -> str:
@@ -3245,7 +3246,11 @@ if user_input:
             if re.search(r"\b(сводн|pivot)\w*\b", user_input, flags=re.IGNORECASE):
                 if st.session_state.get("last_df") is not None:
                     st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ""}
-                    txt = _build_human_pivot_clarify_text("")
+                    try:
+                        _pivot_prompt_df = st.session_state["last_df"].to_pandas()
+                    except Exception:
+                        _pivot_prompt_df = None
+                    txt = _build_human_pivot_clarify_text("", pdf=_pivot_prompt_df)
                     with st.chat_message("assistant"):
                         st.markdown(txt)
                     st.session_state["messages"].append({"role": "assistant", "content": txt})
@@ -3353,19 +3358,33 @@ if user_input:
 
 
     elif mode == "pivot":
-        # Если есть подтверждённый план — сразу просим pivot_code
-        if st.session_state.get("pivot_pending") or st.session_state.get("plan_locked") or st.session_state.get("plan_confirmation"):
+        # Всегда передаём модели информацию о доступных колонках
+        cols_hint_msg = []
+        pivot_pdf_ctx = None
+        try:
+            if st.session_state.get("last_df") is not None:
+                _pdf = st.session_state["last_df"].to_pandas()
+                pivot_pdf_ctx = _pdf
+                cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
+                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                )
+                cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+        except Exception:
             cols_hint_msg = []
-            try:
-                if st.session_state.get("last_df") is not None:
-                    _pdf = st.session_state["last_df"].to_pandas()
-                    cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
-                        [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
-                    )
-                    cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
-            except Exception:
-                cols_hint_msg = []
-            exec_msgs = ([{"role": "system", "content": prompts_map["pivot"]}] + cols_hint_msg + st.session_state["messages"])
+
+        has_confirmed_plan = (
+            st.session_state.get("pivot_pending")
+            or st.session_state.get("plan_locked")
+            or st.session_state.get("plan_confirmation")
+        )
+
+        if has_confirmed_plan:
+            # Генерация pivot_code по подтверждённому плану
+            exec_msgs = (
+                [{"role": "system", "content": prompts_map["pivot"]}]
+                + cols_hint_msg
+                + st.session_state["messages"]
+            )
             _prefix = []
             _locked = st.session_state.pop("plan_locked", "")
             if _locked:
@@ -3376,7 +3395,6 @@ if user_input:
             _confirm = st.session_state.pop("plan_confirmation", "")
             if _confirm:
                 _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
-            st.session_state.pop("pivot_pending", None)
             _messages_payload = _prefix + exec_msgs
             try:
                 response = client.chat.completions.create(
@@ -3389,75 +3407,46 @@ if user_input:
                 final_reply = "Не удалось получить код PIVOT."
                 st.error(f"Ошибка на шаге ответа (PIVOT): {e}")
         else:
-            # Режим PIVOT: формирование сводной таблицы (только код преобразования df)
-            cols_hint_msg = []
+            # Шаг 0: план PIVOT — обязателен до подтверждения
+            hint_exec = _last_result_hint()
+            p_msgs = (
+                ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+                + [{"role": "system", "content": prompts_map["pivot_plan"]}]
+                + cols_hint_msg
+                + st.session_state["messages"]
+            )
             try:
-                if st.session_state.get("last_df") is not None:
-                    _pdf = st.session_state["last_df"].to_pandas()
-                    cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
-                        [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
-                    )
-                    cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+                plan_reply = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=p_msgs,
+                    temperature=0,
+                ).choices[0].message.content
             except Exception:
-                cols_hint_msg = []
-
-        # Шаг 0: план PIVOT — обязателен к подтверждению
-        hint_exec = _last_result_hint()
-        p_msgs = (
-            ([{"role": "system", "content": hint_exec}] if hint_exec else [])
-            + [{"role": "system", "content": prompts_map["pivot_plan"]}]
-            + cols_hint_msg
-            + st.session_state["messages"]
-        )
-        try:
-            plan_reply = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=p_msgs,
-                temperature=0,
-            ).choices[0].message.content
-        except Exception:
-            plan_reply = ""
-        m_pplan = re.search(r"```pivot_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
-        if m_pplan:
-            ptext = m_pplan.group(1).strip()
-            # Сформируем контекстную подсказку по реальным столбцам текущего df
-            _pdf_ctx = None
-            try:
-                if st.session_state.get("last_df") is not None:
-                    _pdf_ctx = st.session_state["last_df"].to_pandas()
-            except Exception:
+                plan_reply = ""
+            m_pplan = re.search(r"```pivot_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
+            if m_pplan:
+                ptext = m_pplan.group(1).strip()
+                # Сформируем контекстную подсказку по реальным столбцам текущего df
                 _pdf_ctx = None
-            st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
-            txt = _build_human_pivot_clarify_text(ptext, pdf=_pdf_ctx)
+                try:
+                    if st.session_state.get("last_df") is not None:
+                        _pdf_ctx = st.session_state["last_df"].to_pandas()
+                except Exception:
+                    _pdf_ctx = None
+                st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
+                txt = _build_human_pivot_clarify_text(ptext, pdf=_pdf_ctx)
+                with st.chat_message("assistant"):
+                    st.markdown(txt)
+                st.session_state["messages"].append({"role": "assistant", "content": txt})
+                st.stop()
+
+            # Если LLM не вернул план, продолжим без него (fallback на дефолт)
+            st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ""}
+            txt = _build_human_pivot_clarify_text("", pdf=pivot_pdf_ctx)
             with st.chat_message("assistant"):
                 st.markdown(txt)
             st.session_state["messages"].append({"role": "assistant", "content": txt})
             st.stop()
-
-        # Если сюда дошли по подтверждённому плану — генерируем pivot_code с учётом plan_locked/подтверждения
-        # Сформируем payload для генерации pivot_code
-        exec_msgs = ([{"role": "system", "content": prompts_map["pivot"]}] + cols_hint_msg + st.session_state["messages"])
-        _prefix = []
-        _locked = st.session_state.pop("plan_locked", "")
-        if _locked:
-            _prefix += [
-                {"role": "system", "content": "Используй подтверждённый pivot_plan:"},
-                {"role": "system", "content": _locked},
-            ]
-        _confirm = st.session_state.pop("plan_confirmation", "")
-        if _confirm:
-            _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
-        _messages_payload = _prefix + exec_msgs
-        try:
-            response = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=_messages_payload,
-                temperature=0.2,
-            )
-            final_reply = response.choices[0].message.content
-        except Exception as e:
-            final_reply = "Не удалось получить код PIVOT."
-            st.error(f"Ошибка на шаге ответа (PIVOT): {e}")
 
     elif mode == "table":
         # Режим TABLE: генерация стилей для таблиц
@@ -3634,7 +3623,11 @@ if user_input:
                     # Если ранее пользователь просил сводную, сразу предложим параметры PIVOT
                     if st.session_state.pop("post_sql_pivot_requested", False):
                         st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ""}
-                        txt = _build_human_pivot_clarify_text("")
+                        try:
+                            _pivot_prompt_df = st.session_state["last_df"].to_pandas()
+                        except Exception:
+                            _pivot_prompt_df = None
+                        txt = _build_human_pivot_clarify_text("", pdf=_pivot_prompt_df)
                         with st.chat_message("assistant"):
                             st.markdown(txt)
                         st.session_state["messages"].append({"role": "assistant", "content": txt})
