@@ -420,6 +420,10 @@ def _reload_prompts():
             "RULES_SQL",
             "Режим SQL. Верни лаконичный ответ с одним блоком ```sql ...``` и не добавляй ничего лишнего."
         ),
+        "sql_plan": _get(
+            "RULES_SQL_PLAN",
+            "Режим SQL_PLAN. Верни ровно один блок ```sql_plan``` по шаблону."
+        ),
         "rag": _get(
             "RULES_RAG",
             "Режим RAG. Сначала верни блок ```rag <краткий_запрос>```, без пояснений."
@@ -2227,6 +2231,12 @@ def _validate_sql_semantics(sql_text: str, category: str, meta: dict) -> tuple[b
     if category == "subscriptions":
         if not any(("sub" in u.lower()) or (u.startswith("paying_users")) for u in used):
             return False, "Ожидались метрики подписок, но они не найдены."
+    # Защита от неправильной агрегации *_cum (кумулятивные поля нельзя суммировать/усреднять)
+    try:
+        if re.search(r"\b(sum|avg|count|min|max)\s*\([^)]*?_cum[^)]*\)", sql_text, flags=re.IGNORECASE):
+            return False, "Нельзя агрегировать поля *_cum; для конца месяца бери снимок последнего дня без SUM."
+    except Exception:
+        pass
     return True, ""
 
 # Возвращает список дашбордов из локальной папки документов.
@@ -2925,13 +2935,38 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
 
     elif mode == "sql":
+        # Шаг 0: короткий план (sql_plan) для уточнений — если ask не пуст, показываем и ждём ответа
         hint_exec = _last_result_hint()
+        plan_msgs = (
+            ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+            + [{"role": "system", "content": prompts_map["sql_plan"]}]
+            + st.session_state["messages"]
+        )
+        try:
+            plan_reply = client.chat.completions.create(
+                model=OPENAI_MODEL, messages=plan_msgs, temperature=0
+            ).choices[0].message.content
+        except Exception:
+            plan_reply = ""
+        m_plan = re.search(r"```sql_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
+        if m_plan:
+            plan_text = m_plan.group(1).strip()
+            needs_ask = bool(re.search(r"^ask\s*:\s*(.+)$", plan_text, flags=re.IGNORECASE | re.MULTILINE))
+            # Показать план пользователю для прозрачности
+            st.session_state["messages"].append({"role": "assistant", "content": "```sql_plan\n" + plan_text + "\n```"})
+            with st.chat_message("assistant"):
+                st.markdown("**План запроса (уточнение перед SQL):**")
+                st.code(plan_text, language="")
+            if needs_ask:
+                st.info("Ответьте на вопрос из плана, затем продолжим построение SQL.")
+                st.stop()
+
+        # Шаг 1: генерация SQL (и при необходимости — plotly сразу после него)
         exec_msgs = (
             [{"role": "system", "content": _tables_index_hint()}]
             + ([{"role": "system", "content": hint_exec}] if hint_exec else [])
             + [
                 {"role": "system", "content": prompts_map["sql"]},
-                # Небольшой мост: объясняем, что график — в той же реплике
                 {"role": "system", "content": "Если пользователь просит визуализацию (график/диаграмму), верни сразу после блока ```sql``` ещё и блок ```plotly```."},
                 {"role": "system", "content": prompts_map["plotly"]},
             ]
