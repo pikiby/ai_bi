@@ -590,6 +590,65 @@ def _strip_llm_blocks(text: str) -> str:
     return text
 
 
+# ------------- Clarify helpers (human-facing) -------------
+def _parse_plan_kv(plan_text: str) -> dict:
+    """Парсит простой ключ: значение из плана LLM в словарь."""
+    out = {}
+    if not plan_text:
+        return out
+    for line in plan_text.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            out[k.strip().lower()] = v.strip()
+    return out
+
+def _show_human_sql_clarify(plan_text: str, user_text: str):
+    d = _parse_plan_kv(plan_text)
+    src = d.get("source")
+    date_logic = d.get("date_logic")
+    metrics = d.get("metrics")
+    group_by = d.get("group_by")
+    ask = d.get("ask", "")
+    question = ask or "Уточните метрику и трактовку: нужен топ в каждом периоде или общий?"
+    with st.chat_message("assistant"):
+        parts = []
+        if src:
+            parts.append(f"Источник: {src}")
+        if date_logic:
+            parts.append(f"Периодизация: {date_logic}")
+        if metrics:
+            parts.append(f"Метрики: {metrics}")
+        if group_by:
+            parts.append(f"Срез: {group_by}")
+        if parts:
+            st.markdown("; ".join(parts))
+        st.markdown(question)
+        st.caption("Ответьте одной фразой — продолжу построение запроса.")
+
+def _show_human_pivot_clarify(plan_text: str):
+    d = _parse_plan_kv(plan_text)
+    idx = d.get("index")
+    cols = d.get("columns")
+    vals = d.get("values")
+    date_fmt = d.get("date_format") or "D.M.Y"
+    ask = d.get("ask", "")
+    question = ask or "Уточните: строки (index), столбцы (columns), значения (values) и формат даты (по умолчанию D.M.Y)."
+    with st.chat_message("assistant"):
+        parts = []
+        if idx:
+            parts.append(f"Строки: {idx}")
+        if cols:
+            parts.append(f"Столбцы: {cols}")
+        if vals:
+            parts.append(f"Значения: {vals}")
+        if date_fmt:
+            parts.append(f"Формат даты: {date_fmt}")
+        if parts:
+            st.markdown("; ".join(parts))
+        st.markdown(question)
+        st.caption("Ответьте одной фразой — продолжу.")
+
+
 def _last_result_hint() -> str | None:
     results = st.session_state.get("results", [])
     has_df = st.session_state.get("last_df") is not None
@@ -2839,6 +2898,14 @@ if user_input:
     except Exception:
         pass
 
+    # Временный тех.блок: показываем выбранный режим (для отладки маршрутизации)
+    try:
+        if os.getenv("SHOW_MODE_DEBUG", "1") == "1":
+            with st.chat_message("assistant"):
+                st.caption(f"[debug] mode: {mode} • source: {mode_source}")
+    except Exception:
+        pass
+
     final_reply = ""
 
     if mode == "catalog":
@@ -2971,16 +3038,11 @@ if user_input:
         m_plan = re.search(r"```sql_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
         if m_plan:
             plan_text = m_plan.group(1).strip()
-            # Показать план и при необходимости запомнить ожидание подтверждения
-            st.session_state["messages"].append({"role": "assistant", "content": "```sql_plan\n" + plan_text + "\n```"})
-            with st.chat_message("assistant"):
-                st.markdown("**План запроса (уточнение перед SQL):**")
-                st.code(plan_text, language="")
-            # Всегда требуем подтверждение при AUTO_PLAN_REQUIRED, либо если есть явная двусмысленность
+            # Всегда требуем подтверждение при AUTO_PLAN_REQUIRED или явной двусмысленности
             needs_confirm = AUTO_PLAN_REQUIRED or bool(re.search(r"\b(по\s+месяц|по\s+дням|по\s+год|на\s+конец\s+месяц|итог\s+месяц|топ)\b", user_input, flags=re.IGNORECASE))
             if needs_confirm:
                 st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
-                st.info("Подтвердите план (ответьте сообщением), затем построю SQL.")
+                _show_human_sql_clarify(plan_text, user_input)
                 st.stop()
 
         # Шаг 1: генерация SQL (и при необходимости — plotly сразу после него)
@@ -3051,12 +3113,8 @@ if user_input:
         m_pplan = re.search(r"```pivot_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
         if m_pplan:
             ptext = m_pplan.group(1).strip()
-            st.session_state["messages"].append({"role": "assistant", "content": "```pivot_plan\n" + ptext + "\n```"})
-            with st.chat_message("assistant"):
-                st.markdown("**План сводной (уточнение перед PIVOT):**")
-                st.code(ptext, language="")
             st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
-            st.info("Подтвердите план (ответьте сообщением), затем выполню сводную.")
+            _show_human_pivot_clarify(ptext)
             st.stop()
 
         # Если сюда дошли по подтверждённому плану — генерируем pivot_code с учётом plan_locked/подтверждения
