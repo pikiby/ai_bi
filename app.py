@@ -602,51 +602,20 @@ def _parse_plan_kv(plan_text: str) -> dict:
             out[k.strip().lower()] = v.strip()
     return out
 
-def _show_human_sql_clarify(plan_text: str, user_text: str):
+def _build_human_sql_clarify_text(plan_text: str, user_text: str) -> str:
     d = _parse_plan_kv(plan_text)
-    src = d.get("source")
-    date_logic = d.get("date_logic")
-    metrics = d.get("metrics")
-    group_by = d.get("group_by")
-    ask = d.get("ask", "")
-    question = ask or "Уточните метрику и трактовку: нужен топ в каждом периоде или общий?"
-    with st.chat_message("assistant"):
-        parts = []
-        if src:
-            parts.append(f"Источник: {src}")
-        if date_logic:
-            parts.append(f"Периодизация: {date_logic}")
-        if metrics:
-            parts.append(f"Метрики: {metrics}")
-        if group_by:
-            parts.append(f"Срез: {group_by}")
-        if parts:
-            st.markdown("; ".join(parts))
-        st.markdown(question)
-        st.caption("Ответьте одной фразой — продолжу построение запроса.")
+    # Показываем дружелюбный текст, скрывая технические имена
+    ask = d.get("ask", "").strip()
+    head = "Чтобы построить корректный запрос, нужно уточнить детали."
+    q = ask or "Уточните метрику (например, выручка/кол-во оплат) и трактовку топа (в каждом месяце или общий)."
+    return head + "\n" + q + "\nОтветьте одной фразой — продолжу."
 
-def _show_human_pivot_clarify(plan_text: str):
+def _build_human_pivot_clarify_text(plan_text: str) -> str:
     d = _parse_plan_kv(plan_text)
-    idx = d.get("index")
-    cols = d.get("columns")
-    vals = d.get("values")
-    date_fmt = d.get("date_format") or "D.M.Y"
-    ask = d.get("ask", "")
-    question = ask or "Уточните: строки (index), столбцы (columns), значения (values) и формат даты (по умолчанию D.M.Y)."
-    with st.chat_message("assistant"):
-        parts = []
-        if idx:
-            parts.append(f"Строки: {idx}")
-        if cols:
-            parts.append(f"Столбцы: {cols}")
-        if vals:
-            parts.append(f"Значения: {vals}")
-        if date_fmt:
-            parts.append(f"Формат даты: {date_fmt}")
-        if parts:
-            st.markdown("; ".join(parts))
-        st.markdown(question)
-        st.caption("Ответьте одной фразой — продолжу.")
+    ask = d.get("ask", "").strip()
+    head = "Чтобы сделать сводную, уточните оси."
+    q = ask or "Строки (index), столбцы (columns), значения (values) и формат даты (по умолчанию D.M.Y)."
+    return head + "\n" + q + "\nОтветьте одной фразой — продолжу."
 
 
 def _last_result_hint() -> str | None:
@@ -3047,28 +3016,64 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
 
     elif mode == "sql":
-        # Шаг 0: короткий план (sql_plan) для уточнений — всегда показываем и ждём подтверждения при AUTO_PLAN_REQUIRED
-        hint_exec = _last_result_hint()
-        plan_msgs = (
-            ([{"role": "system", "content": hint_exec}] if hint_exec else [])
-            + [{"role": "system", "content": prompts_map["sql_plan"]}]
-            + st.session_state["messages"]
-        )
-        try:
-            plan_reply = client.chat.completions.create(
-                model=OPENAI_MODEL, messages=plan_msgs, temperature=0
-            ).choices[0].message.content
-        except Exception:
-            plan_reply = ""
-        m_plan = re.search(r"```sql_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
-        if m_plan:
-            plan_text = m_plan.group(1).strip()
-            # Всегда требуем подтверждение при AUTO_PLAN_REQUIRED или явной двусмысленности
-            needs_confirm = AUTO_PLAN_REQUIRED or bool(re.search(r"\b(по\s+месяц|по\s+дням|по\s+год|на\s+конец\s+месяц|итог\s+месяц|топ)\b", user_input, flags=re.IGNORECASE))
-            if needs_confirm:
-                st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
-                _show_human_sql_clarify(plan_text, user_input)
-                st.stop()
+        # Если есть подтверждённый план — пропускаем этап уточнения
+        if st.session_state.get("plan_locked"):
+            hint_exec = _last_result_hint()
+            exec_msgs = (
+                [{"role": "system", "content": _tables_index_hint()}]
+                + ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+                + [
+                    {"role": "system", "content": prompts_map["sql"]},
+                    {"role": "system", "content": "Если пользователь просит визуализацию (график/диаграмму), верни сразу после блока ```sql``` ещё и блок ```plotly```."},
+                    {"role": "system", "content": prompts_map["plotly"]},
+                ]
+                + st.session_state["messages"]
+            )
+            _prefix = []
+            _locked = st.session_state.pop("plan_locked", "")
+            if _locked:
+                _prefix += [
+                    {"role": "system", "content": "Используй подтверждённый sql_plan, если он задан."},
+                    {"role": "system", "content": _locked},
+                ]
+            _confirm = st.session_state.pop("plan_confirmation", "")
+            if _confirm:
+                _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
+            _messages_payload = _prefix + exec_msgs
+            try:
+                final_reply = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=_messages_payload,
+                    temperature=0.2,
+                ).choices[0].message.content
+            except Exception as e:
+                final_reply = "Не удалось получить ответ в режиме SQL."
+                st.error(f"Ошибка на шаге ответа (SQL): {e}")
+            # Перейдём к общему разбору final_reply ниже
+        else:
+            # Шаг 0: короткий план (sql_plan) для уточнений — всегда показываем и ждём подтверждения при AUTO_PLAN_REQUIRED
+            hint_exec = _last_result_hint()
+            plan_msgs = (
+                ([{"role": "system", "content": hint_exec}] if hint_exec else [])
+                + [{"role": "system", "content": prompts_map["sql_plan"]}]
+                + st.session_state["messages"]
+            )
+            try:
+                plan_reply = client.chat.completions.create(
+                    model=OPENAI_MODEL, messages=plan_msgs, temperature=0
+                ).choices[0].message.content
+            except Exception:
+                plan_reply = ""
+            m_plan = re.search(r"```sql_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
+            if m_plan:
+                plan_text = m_plan.group(1).strip()
+                # Всегда требуем подтверждение при AUTO_PLAN_REQUIRED или явной двусмысленности
+                needs_confirm = AUTO_PLAN_REQUIRED or bool(re.search(r"\b(по\s+месяц|по\s+дням|по\s+год|на\s+конец\s+месяц|итог\s+месяц|топ)\b", user_input, flags=re.IGNORECASE))
+                if needs_confirm:
+                    st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
+                    txt = _build_human_sql_clarify_text(plan_text, user_input)
+                    st.session_state["messages"].append({"role": "assistant", "content": txt})
+                    st.stop()
 
         # Шаг 1: генерация SQL (и при необходимости — plotly сразу после него)
         exec_msgs = (
@@ -3107,17 +3112,52 @@ if user_input:
 
 
     elif mode == "pivot":
-        # Режим PIVOT: формирование сводной таблицы (только код преобразования df)
-        cols_hint_msg = []
-        try:
-            if st.session_state.get("last_df") is not None:
-                _pdf = st.session_state["last_df"].to_pandas()
-                cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
-                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
-                )
-                cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
-        except Exception:
+        # Если есть подтверждённый план — сразу просим pivot_code
+        if st.session_state.get("plan_locked"):
             cols_hint_msg = []
+            try:
+                if st.session_state.get("last_df") is not None:
+                    _pdf = st.session_state["last_df"].to_pandas()
+                    cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
+                        [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                    )
+                    cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+            except Exception:
+                cols_hint_msg = []
+            exec_msgs = ([{"role": "system", "content": prompts_map["pivot"]}] + cols_hint_msg + st.session_state["messages"])
+            _prefix = []
+            _locked = st.session_state.pop("plan_locked", "")
+            if _locked:
+                _prefix += [
+                    {"role": "system", "content": "Используй подтверждённый pivot_plan:"},
+                    {"role": "system", "content": _locked},
+                ]
+            _confirm = st.session_state.pop("plan_confirmation", "")
+            if _confirm:
+                _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
+            _messages_payload = _prefix + exec_msgs
+            try:
+                response = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=_messages_payload,
+                    temperature=0.2,
+                )
+                final_reply = response.choices[0].message.content
+            except Exception as e:
+                final_reply = "Не удалось получить код PIVOT."
+                st.error(f"Ошибка на шаге ответа (PIVOT): {e}")
+        else:
+            # Режим PIVOT: формирование сводной таблицы (только код преобразования df)
+            cols_hint_msg = []
+            try:
+                if st.session_state.get("last_df") is not None:
+                    _pdf = st.session_state["last_df"].to_pandas()
+                    cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
+                        [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                    )
+                    cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
+            except Exception:
+                cols_hint_msg = []
 
         # Шаг 0: план PIVOT — обязателен к подтверждению
         hint_exec = _last_result_hint()
@@ -3139,7 +3179,8 @@ if user_input:
         if m_pplan:
             ptext = m_pplan.group(1).strip()
             st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
-            _show_human_pivot_clarify(ptext)
+            txt = _build_human_pivot_clarify_text(ptext)
+            st.session_state["messages"].append({"role": "assistant", "content": txt})
             st.stop()
 
         # Если сюда дошли по подтверждённому плану — генерируем pivot_code с учётом plan_locked/подтверждения
