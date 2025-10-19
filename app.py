@@ -2237,6 +2237,12 @@ def _validate_sql_semantics(sql_text: str, category: str, meta: dict) -> tuple[b
             return False, "Нельзя агрегировать поля *_cum; для конца месяца бери снимок последнего дня без SUM."
     except Exception:
         pass
+    # Запрет SQL PIVOT (должно быть клиентское pandas-преобразование)
+    try:
+        if re.search(r"\bPIVOT\b", sql_text, flags=re.IGNORECASE):
+            return False, "Запрещён синтаксис PIVOT в SQL — сводная делается на клиенте (pandas)."
+    except Exception:
+        pass
     return True, ""
 
 # Возвращает список дашбордов из локальной папки документов.
