@@ -689,9 +689,13 @@ def _interpret_pivot_confirmation(text: str) -> dict:
         return {}
     low = text.lower()
     if low.strip() in {"ок", "ok", "да", "подходит", "сделай", "сделай уже", "да сделай", "как считаешь", "как считаешь нужным"}:
-        return {"index": 1, "columns": 1, "values": 1, "date": 1}
+        return {"source": 1, "index": 1, "columns": 1, "values": 1, "date": 1}
     sel = {}
     # keywords
+    if "новые" in low or "получить новые" in low:
+        sel["source"] = 2
+    elif "текущ" in low:
+        sel["source"] = 1
     if "город" in low:
         sel["index"] = 1
     elif "компан" in low:
@@ -719,7 +723,9 @@ def _interpret_pivot_confirmation(text: str) -> dict:
     # numeric
     nums = _interpret_numbers(low)
     if nums:
-        for i, key in enumerate(["index", "columns", "values", "date"]):
+        # допускаем 4 или 5 чисел: source, index, columns, values, date
+        order = ["source", "index", "columns", "values", "date"]
+        for i, key in enumerate(order):
             if i < len(nums):
                 sel[key] = nums[i]
     return sel
@@ -2969,9 +2975,20 @@ if user_input:
                 sel = default_sel
         # Иначе — принимаем как подтверждение и конвертируем в инструкцию
         if sel:
+            # Если выбран источник новых данных для pivot — переключим на SQL, затем вернёмся к сводной
+            if kind == "pivot" and sel.get("source") == 2:
+                st.session_state["post_sql_pivot_requested"] = True
+                st.session_state.pop("awaiting_plan", None)
+                pre_mode = None  # вернёмся к обычной маршрутизации (скорее всего sql)
+                with st.chat_message("assistant"):
+                    st.markdown("Сначала получу новые данные, затем сделаю сводную.")
+                st.session_state["messages"].append({"role": "assistant", "content": "Сначала получу новые данные, затем сделаю сводную."})
+                st.stop()
             confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
             st.session_state["plan_confirmation"] = confirm_text
             st.session_state["plan_locked"] = awaiting.get("plan", "")
+            if kind == "pivot":
+                st.session_state["pivot_ready"] = True
             st.session_state.pop("awaiting_plan", None)
             pre_mode = kind
             mode_notice = "Использую подтверждённый план"
@@ -3290,7 +3307,7 @@ if user_input:
 
     elif mode == "pivot":
         # Если есть подтверждённый план — сразу просим pivot_code
-        if st.session_state.get("plan_locked") or st.session_state.get("plan_confirmation"):
+        if st.session_state.get("pivot_ready") or st.session_state.get("plan_locked") or st.session_state.get("plan_confirmation"):
             cols_hint_msg = []
             try:
                 if st.session_state.get("last_df") is not None:
@@ -3312,6 +3329,7 @@ if user_input:
             _confirm = st.session_state.pop("plan_confirmation", "")
             if _confirm:
                 _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
+            st.session_state.pop("pivot_ready", None)
             _messages_payload = _prefix + exec_msgs
             try:
                 response = client.chat.completions.create(
