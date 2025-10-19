@@ -46,6 +46,8 @@ CATALOG_TABLES_FILE = os.getenv("KB_CATALOG_TABLES_FILE", os.path.join("docs", "
 CATALOG_DASHBOARDS_FILE = os.getenv("KB_CATALOG_DASHBOARDS_FILE", os.path.join("docs", "kb_catalog_dashboards.md"))
 KB_T_AI_GLOBAL_REPORT_FILE = os.path.join("docs", "kb_t_ai_global_report.md")
 SQL_SEMANTIC_GUARD = os.getenv("SQL_SEMANTIC_GUARD", "1") == "1"
+# Обязательное подтверждение плана перед SQL/PIVOT (можно отключить флагом)
+AUTO_PLAN_REQUIRED = os.getenv("AUTO_PLAN_REQUIRED", "1") == "1"
 
 # --- Флаг сохранений (только на операции сохранения) ---
 # По требованию: флаг влияет ТОЛЬКО на отображение кнопок "Сохранить ..." и INSERT.
@@ -439,6 +441,10 @@ def _reload_prompts():
         "pivot": _get(
             "RULES_PIVOT",
             "Режим PIVOT. Верни ровно один блок ```pivot_code```; внутри перезапиши df на результат df.pivot(...)."
+        ),
+        "pivot_plan": _get(
+            "RULES_PIVOT_PLAN",
+            "Режим PIVOT_PLAN. Верни ровно один блок ```pivot_plan``` по шаблону."
         ),
     }
     return p_map, warn
@@ -2778,8 +2784,16 @@ if user_input:
 
     prompts_map, _ = _reload_prompts()  # >>> Горячая подгрузка актуальных блоков
 
-    # pre_mode, mode_notice = _infer_mode_prehook(user_input)
+    # Если ждём подтверждение плана — трактуем это сообщение как ответ и принудительно выбираем режим
     pre_mode, mode_notice = (None, None)
+    awaiting = st.session_state.pop("awaiting_plan", None)
+    if awaiting:
+        st.session_state["plan_confirmation"] = user_input
+        st.session_state["plan_locked"] = awaiting.get("plan", "")
+        pre_mode = awaiting.get("kind")
+        mode_notice = "Использую подтверждённый план"
+
+    # Если pre_mode выставлен (подтверждение плана) — используем его
     mode_source = "router"
 
     if pre_mode:
@@ -2941,7 +2955,7 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
 
     elif mode == "sql":
-        # Шаг 0: короткий план (sql_plan) для уточнений — если ask не пуст, показываем и ждём ответа
+        # Шаг 0: короткий план (sql_plan) для уточнений — всегда показываем и ждём подтверждения при AUTO_PLAN_REQUIRED
         hint_exec = _last_result_hint()
         plan_msgs = (
             ([{"role": "system", "content": hint_exec}] if hint_exec else [])
@@ -2957,14 +2971,16 @@ if user_input:
         m_plan = re.search(r"```sql_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
         if m_plan:
             plan_text = m_plan.group(1).strip()
-            needs_ask = bool(re.search(r"^ask\s*:\s*(.+)$", plan_text, flags=re.IGNORECASE | re.MULTILINE))
-            # Показать план пользователю для прозрачности
+            # Показать план и при необходимости запомнить ожидание подтверждения
             st.session_state["messages"].append({"role": "assistant", "content": "```sql_plan\n" + plan_text + "\n```"})
             with st.chat_message("assistant"):
                 st.markdown("**План запроса (уточнение перед SQL):**")
                 st.code(plan_text, language="")
-            if needs_ask:
-                st.info("Ответьте на вопрос из плана, затем продолжим построение SQL.")
+            # Всегда требуем подтверждение при AUTO_PLAN_REQUIRED, либо если есть явная двусмысленность
+            needs_confirm = AUTO_PLAN_REQUIRED or bool(re.search(r"\b(по\s+месяц|по\s+дням|по\s+год|на\s+конец\s+месяц|итог\s+месяц|топ)\b", user_input, flags=re.IGNORECASE))
+            if needs_confirm:
+                st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
+                st.info("Подтвердите план (ответьте сообщением), затем построю SQL.")
                 st.stop()
 
         # Шаг 1: генерация SQL (и при необходимости — plotly сразу после него)
@@ -2981,7 +2997,13 @@ if user_input:
         try:
             final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
-                messages=exec_msgs,
+                messages=(
+                    ([{"role": "system", "content": "Используй подтверждённый sql_plan, если он задан."},
+                      {"role": "system", "content": st.session_state.pop("plan_locked", "")}]
+                     + ([{"role": "system", "content": "Уточнение пользователя: " + st.session_state.pop("plan_confirmation", "")}]
+                        if st.session_state.get("plan_confirmation") else [])
+                    + exec_msgs
+                ),
                 temperature=0.2,
             ).choices[0].message.content
         except Exception as e:
@@ -3003,17 +3025,47 @@ if user_input:
         except Exception:
             cols_hint_msg = []
 
+        # Шаг 0: план PIVOT — обязателен к подтверждению
         hint_exec = _last_result_hint()
-        exec_msgs = (
+        p_msgs = (
             ([{"role": "system", "content": hint_exec}] if hint_exec else [])
-            + [{"role": "system", "content": prompts_map["pivot"]}]
+            + [{"role": "system", "content": prompts_map["pivot_plan"]}]
             + cols_hint_msg
             + st.session_state["messages"]
         )
         try:
-            model_name = st.session_state.get("model", OPENAI_MODEL)
+            plan_reply = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=p_msgs,
+                temperature=0,
+            ).choices[0].message.content
+        except Exception:
+            plan_reply = ""
+        m_pplan = re.search(r"```pivot_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
+        if m_pplan:
+            ptext = m_pplan.group(1).strip()
+            st.session_state["messages"].append({"role": "assistant", "content": "```pivot_plan\n" + ptext + "\n```"})
+            with st.chat_message("assistant"):
+                st.markdown("**План сводной (уточнение перед PIVOT):**")
+                st.code(ptext, language="")
+            st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
+            st.info("Подтвердите план (ответьте сообщением), затем выполню сводную.")
+            st.stop()
+
+        # Если сюда дошли по подтверждённому плану — генерируем pivot_code с учётом plan_locked/подтверждения
+        exec_msgs = (
+            ([{"role": "system", "content": prompts_map["pivot"]}]
+             + cols_hint_msg
+             + ([{"role": "system", "content": "Используй подтверждённый pivot_plan:"},
+                 {"role": "system", "content": st.session_state.pop("plan_locked", "")}]
+                if st.session_state.get("plan_locked") else [])
+             + ([{"role": "system", "content": "Уточнение пользователя: " + st.session_state.pop("plan_confirmation", "")}]
+                if st.session_state.get("plan_confirmation") else [])
+             + st.session_state["messages"]
+        )
+        try:
             response = client.chat.completions.create(
-                model=model_name,
+                model=OPENAI_MODEL,
                 messages=exec_msgs,
                 temperature=0.2,
             )
