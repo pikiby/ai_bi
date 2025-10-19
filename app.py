@@ -614,10 +614,18 @@ def _build_human_sql_clarify_text(plan_text: str, user_text: str) -> str:
         "Ответьте, например: `Метрика: 1; Топ: 2; Период: 2` или просто `Ок` для варианта 1‑1‑1."
     )
 
-def _build_human_pivot_clarify_text(plan_text: str) -> str:
+def _build_human_pivot_clarify_text(plan_text: str, columns: list[str] | None = None) -> str:
+    cols_md = ""
+    try:
+        if columns:
+            show = ", ".join(f"`{c}`" for c in list(columns)[:12])
+            cols_md = f"\nДоступные столбцы: {show}\n"
+    except Exception:
+        cols_md = ""
     return (
         "**Сделаю сводную по текущей таблице.**\n\n"
-        "**Источник**: текущие данные (последняя полученная таблица).\n\n"
+        "**Источник**: текущие данные (последняя полученная таблица)."
+        + cols_md + "\n"
         "**Выберите параметры (цифрами):**\n"
         "- Строки: 1) Город; 2) Компания; 3) Дата\n"
         "- Столбцы: 1) Месяц; 2) Платформа; 3) — (без столбцов)\n"
