@@ -3159,6 +3159,23 @@ if user_input:
             st.error(f"Ошибка на шаге ответа (RAG): {e}")
 
     elif mode == "sql":
+        # Если пользователь явно просит сводную в тексте запроса — мягко переадресуем в PIVOT
+        try:
+            if re.search(r"\b(сводн|pivot)\w*\b", user_input, flags=re.IGNORECASE):
+                if st.session_state.get("last_df") is not None:
+                    st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ""}
+                    txt = _build_human_pivot_clarify_text("")
+                    with st.chat_message("assistant"):
+                        st.markdown(txt)
+                    st.session_state["messages"].append({"role": "assistant", "content": txt})
+                    st.stop()
+                else:
+                    # Сообщим, что сначала получим данные, затем сводную
+                    with st.chat_message("assistant"):
+                        st.markdown("Сначала получу базовые данные, затем предложу параметры для сводной таблицы.")
+                    st.session_state["post_sql_pivot_requested"] = True
+        except Exception:
+            pass
         # Если есть подтверждённый план — пропускаем этап уточнения
         if st.session_state.get("plan_locked"):
             hint_exec = _last_result_hint()
@@ -3525,6 +3542,14 @@ if user_input:
                     _push_result("table", df_pl=df_pl, meta=meta_table)
                     _render_result(st.session_state["results"][-1])
                     created_table = True
+                    # Если ранее пользователь просил сводную, сразу предложим параметры PIVOT
+                    if st.session_state.pop("post_sql_pivot_requested", False):
+                        st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ""}
+                        txt = _build_human_pivot_clarify_text("")
+                        with st.chat_message("assistant"):
+                            st.markdown(txt)
+                        st.session_state["messages"].append({"role": "assistant", "content": txt})
+                        st.stop()
                 else:
                     st.error("Драйвер вернул неожиданный формат данных.")
             except Exception as e:
