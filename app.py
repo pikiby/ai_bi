@@ -603,19 +603,28 @@ def _parse_plan_kv(plan_text: str) -> dict:
     return out
 
 def _build_human_sql_clarify_text(plan_text: str, user_text: str) -> str:
-    d = _parse_plan_kv(plan_text)
-    # Показываем дружелюбный текст, скрывая технические имена
-    ask = d.get("ask", "").strip()
-    head = "Чтобы построить корректный запрос, нужно уточнить детали."
-    q = ask or "Уточните метрику (например, выручка/кол-во оплат) и трактовку топа (в каждом месяце или общий)."
-    return head + "\n" + q + "\nОтветьте одной фразой — продолжу."
+    # Дружелюбный текст с вариантами и источником
+    head = "Построю топ 10 городов по мобильным оплатам. Уточните параметры:"
+    src = "Источник: t_ai_global_report — агрегированная таблица по мобильным подпискам и платежам.\nЕсли дата не указана — берём последнюю доступную."
+    opts = [
+        "Метрика (выберите номер): 1) Выручка (Android + iOS) — сумма платежей; 2) Количество оплат — число транзакций",
+        "Топ 10: 1) Единый топ за весь период; 2) Топ в каждом месяце",
+        "Период: 1) Последняя доступная дата; 2) По месяцам",
+        "Ответьте, например: 'Метрика: 1; Топ: 2; Период: 2' или просто 'Ок' для 1‑1‑1.",
+    ]
+    return head + "\n" + src + "\n\n" + "\n".join(opts)
 
 def _build_human_pivot_clarify_text(plan_text: str) -> str:
-    d = _parse_plan_kv(plan_text)
-    ask = d.get("ask", "").strip()
-    head = "Чтобы сделать сводную, уточните оси."
-    q = ask or "Строки (index), столбцы (columns), значения (values) и формат даты (по умолчанию D.M.Y)."
-    return head + "\n" + q + "\nОтветьте одной фразой — продолжу."
+    head = "Сделаю сводную по текущей таблице. Уточните параметры:"
+    src = "Источник: текущие данные (последняя полученная таблица)."
+    opts = [
+        "Строки: 1) Город; 2) Компания; 3) Дата",
+        "Столбцы: 1) Месяц; 2) Платформа; 3) — (без столбцов)",
+        "Значения: 1) Без агрегации; 2) Выручка; 3) Количество оплат",
+        "Формат даты: 1) D.M.Y (по умолчанию); 2) Y‑M‑D; 3) Месяц словами + год",
+        "Ответьте, например: 'Строки: 1; Столбцы: 1; Значения: 1; Формат: 1' или 'Ок' для значений по умолчанию.",
+    ]
+    return head + "\n" + src + "\n\n" + "\n".join(opts)
 
 def _build_human_sql_suggestions(plan_text: str) -> str:
     """Дружелюбные варианты ответа для SQL, если пользователь отвечает "не знаю"."""
@@ -633,6 +642,104 @@ def _is_vague_reply(text: str) -> bool:
         return True
     low = text.strip().lower()
     return any(p in low for p in ["не знаю", "откуда", "как хочешь", "неважно", "без разницы", "любой", "какой угодно"]) 
+
+def _interpret_numbers(line: str) -> list[int]:
+    nums = re.findall(r"\b([1-3])\b", line)
+    return [int(n) for n in nums]
+
+def _interpret_sql_confirmation(text: str) -> dict:
+    """Парсит ответ пользователя для SQL-уточнения. Возвращает {'metric','top','period'} или {}."""
+    if not text:
+        return {}
+    low = text.lower()
+    if low.strip() in {"ок", "ok", "да", "подходит"}:
+        return {"metric": 1, "top": 1, "period": 1}
+    # Пробуем по ключевым словам
+    sel = {}
+    if "выручк" in low:
+        sel["metric"] = 1
+    if any(w in low for w in ["кол-во", "количество", "оплат", "покупок"]):
+        sel["metric"] = 2
+    if "каждом" in low or "каждый месяц" in low:
+        sel["top"] = 2
+    if "общий" in low or "за всё время" in low or "за все время" in low:
+        sel["top"] = 1
+    if "последн" in low:
+        sel["period"] = 1
+    if "по месяц" in low:
+        sel["period"] = 2
+    # Пробуем числовой ввод
+    nums = _interpret_numbers(low)
+    if nums:
+        # допускаем '1 2 2' или 'метрика:1; топ:2; период:2' — берём по порядку
+        for i, key in enumerate(["metric", "top", "period"]):
+            if i < len(nums):
+                sel[key] = nums[i]
+    return sel
+
+def _interpret_pivot_confirmation(text: str) -> dict:
+    if not text:
+        return {}
+    low = text.lower()
+    if low.strip() in {"ок", "ok", "да", "подходит"}:
+        return {"index": 1, "columns": 1, "values": 1, "date": 1}
+    sel = {}
+    # keywords
+    if "город" in low:
+        sel["index"] = 1
+    elif "компан" in low:
+        sel["index"] = 2
+    elif "дат" in low:
+        sel["index"] = 3
+    if "месяц" in low:
+        sel["columns"] = 1
+    elif "платформ" in low:
+        sel["columns"] = 2
+    elif "без столб" in low or "—" in low:
+        sel["columns"] = 3
+    if "без агрег" in low or "без агр" in low:
+        sel["values"] = 1
+    elif "выручк" in low:
+        sel["values"] = 2
+    elif "кол-во" in low or "количество" in low:
+        sel["values"] = 3
+    if "d.m.y" in low or "d.m.y" in text:
+        sel["date"] = 1
+    elif "y-m-d" in low:
+        sel["date"] = 2
+    elif "словами" in low:
+        sel["date"] = 3
+    # numeric
+    nums = _interpret_numbers(low)
+    if nums:
+        for i, key in enumerate(["index", "columns", "values", "date"]):
+            if i < len(nums):
+                sel[key] = nums[i]
+    return sel
+
+def _sql_selection_to_instruction(sel: dict) -> str:
+    m = sel.get("metric", 1)
+    t = sel.get("top", 1)
+    p = sel.get("period", 1)
+    metric = "revenue (Android_PL + IOS_PL)" if m == 1 else "payments_count"
+    top = "global_top" if t == 1 else "top_per_month"
+    period = "last_date" if p == 1 else "by_months"
+    return (
+        "Параметры пользователя: "
+        f"metric={metric}; top={top}; period={period}. "
+        "Соблюдай RULES_SQL (не суммируй *_cum; по месяцам агрегируй дневные поля)."
+    )
+
+def _pivot_selection_to_instruction(sel: dict) -> str:
+    idx = {1: "city", 2: "company_name", 3: "date"}.get(sel.get("index", 1), "city")
+    cols = {1: "month", 2: "platform", 3: "none"}.get(sel.get("columns", 1), "month")
+    vals = {1: "none", 2: "revenue", 3: "payments_count"}.get(sel.get("values", 1), "none")
+    datef = {1: "D.M.Y", 2: "Y-M-D", 3: "MonthName Y"}.get(sel.get("date", 1), "D.M.Y")
+    return (
+        "Параметры сводной: "
+        f"index={idx}; columns={cols}; values={vals}; date_format={datef}. "
+        "Сформируй pivot_code (pandas), без HTML."
+    )
 
 
 def _last_result_hint() -> str | None:
@@ -2833,23 +2940,24 @@ if user_input:
     pre_mode, mode_notice = (None, None)
     awaiting = st.session_state.pop("awaiting_plan", None)
     if awaiting:
-        # Если ответ расплывчатый — предложим варианты и не продолжим, пока не будет понятного ответа
-        if _is_vague_reply(user_input):
+        kind = awaiting.get("kind")
+        plan_text = awaiting.get("plan", "")
+        # Разбираем выбор пользователя
+        sel = _interpret_sql_confirmation(user_input) if kind == "sql" else _interpret_pivot_confirmation(user_input)
+        # Если ответ расплывчатый или пуст — покажем варианты и не продолжим
+        if not sel:
             kind = awaiting.get("kind")
-            plan_text = awaiting.get("plan", "")
-            if kind == "sql":
-                txt = _build_human_sql_suggestions(plan_text)
-            else:
-                txt = _build_human_pivot_clarify_text(plan_text)
+            txt = _build_human_sql_suggestions(plan_text) if kind == "sql" else _build_human_pivot_clarify_text(plan_text)
             with st.chat_message("assistant"):
                 st.markdown(txt)
             # возвращаем ожидание плана обратно и прерываем обработку
             st.session_state["awaiting_plan"] = awaiting
             st.stop()
-        # Иначе — принимаем как подтверждение
-        st.session_state["plan_confirmation"] = user_input
+        # Иначе — принимаем как подтверждение и конвертируем в инструкцию
+        confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
+        st.session_state["plan_confirmation"] = confirm_text
         st.session_state["plan_locked"] = awaiting.get("plan", "")
-        pre_mode = awaiting.get("kind")
+        pre_mode = kind
         mode_notice = "Использую подтверждённый план"
 
     # Если pre_mode выставлен (подтверждение плана) — используем его
