@@ -2995,15 +2995,22 @@ if user_input:
             + st.session_state["messages"]
         )
         try:
+            # Сформируем итоговый список сообщений отдельно (проще для синтаксиса и читаемости)
+            _prefix = []
+            _locked = st.session_state.pop("plan_locked", "")
+            if _locked:
+                _prefix += [
+                    {"role": "system", "content": "Используй подтверждённый sql_plan, если он задан."},
+                    {"role": "system", "content": _locked},
+                ]
+            _confirm = st.session_state.pop("plan_confirmation", "")
+            if _confirm:
+                _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
+            _messages_payload = _prefix + exec_msgs
+
             final_reply = client.chat.completions.create(
                 model=OPENAI_MODEL,
-                messages=(
-                    ([{"role": "system", "content": "Используй подтверждённый sql_plan, если он задан."},
-                      {"role": "system", "content": st.session_state.pop("plan_locked", "")}]
-                     + ([{"role": "system", "content": "Уточнение пользователя: " + st.session_state.pop("plan_confirmation", "")}]
-                        if st.session_state.get("plan_confirmation") else [])
-                    + exec_msgs
-                ),
+                messages=_messages_payload,
                 temperature=0.2,
             ).choices[0].message.content
         except Exception as e:
@@ -3053,20 +3060,23 @@ if user_input:
             st.stop()
 
         # Если сюда дошли по подтверждённому плану — генерируем pivot_code с учётом plan_locked/подтверждения
-        exec_msgs = (
-            ([{"role": "system", "content": prompts_map["pivot"]}]
-             + cols_hint_msg
-             + ([{"role": "system", "content": "Используй подтверждённый pivot_plan:"},
-                 {"role": "system", "content": st.session_state.pop("plan_locked", "")}]
-                if st.session_state.get("plan_locked") else [])
-             + ([{"role": "system", "content": "Уточнение пользователя: " + st.session_state.pop("plan_confirmation", "")}]
-                if st.session_state.get("plan_confirmation") else [])
-             + st.session_state["messages"]
-        )
+        # Сформируем payload для генерации pivot_code
+        exec_msgs = ([{"role": "system", "content": prompts_map["pivot"]}] + cols_hint_msg + st.session_state["messages"])
+        _prefix = []
+        _locked = st.session_state.pop("plan_locked", "")
+        if _locked:
+            _prefix += [
+                {"role": "system", "content": "Используй подтверждённый pivot_plan:"},
+                {"role": "system", "content": _locked},
+            ]
+        _confirm = st.session_state.pop("plan_confirmation", "")
+        if _confirm:
+            _prefix += [{"role": "system", "content": "Уточнение пользователя: " + _confirm}]
+        _messages_payload = _prefix + exec_msgs
         try:
             response = client.chat.completions.create(
                 model=OPENAI_MODEL,
-                messages=exec_msgs,
+                messages=_messages_payload,
                 temperature=0.2,
             )
             final_reply = response.choices[0].message.content
