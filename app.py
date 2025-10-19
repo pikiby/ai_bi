@@ -3282,7 +3282,7 @@ if user_input:
 
     elif mode == "pivot":
         # Если есть подтверждённый план — сразу просим pivot_code
-        if st.session_state.get("plan_locked"):
+        if st.session_state.get("plan_locked") or st.session_state.get("plan_confirmation"):
             cols_hint_msg = []
             try:
                 if st.session_state.get("last_df") is not None:
@@ -3347,8 +3347,15 @@ if user_input:
         m_pplan = re.search(r"```pivot_plan\s*([\s\S]*?)```", plan_reply, re.IGNORECASE)
         if m_pplan:
             ptext = m_pplan.group(1).strip()
+            # Сформируем список колонок текущего df для контекстной подсказки
+            cols_list = []
+            try:
+                if st.session_state.get("last_df") is not None:
+                    cols_list = list(st.session_state["last_df"].to_pandas().columns)
+            except Exception:
+                cols_list = []
             st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
-            txt = _build_human_pivot_clarify_text(ptext)
+            txt = _build_human_pivot_clarify_text(ptext, columns=cols_list)
             with st.chat_message("assistant"):
                 st.markdown(txt)
             st.session_state["messages"].append({"role": "assistant", "content": txt})
