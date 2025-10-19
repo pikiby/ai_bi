@@ -617,6 +617,23 @@ def _build_human_pivot_clarify_text(plan_text: str) -> str:
     q = ask or "Строки (index), столбцы (columns), значения (values) и формат даты (по умолчанию D.M.Y)."
     return head + "\n" + q + "\nОтветьте одной фразой — продолжу."
 
+def _build_human_sql_suggestions(plan_text: str) -> str:
+    """Дружелюбные варианты ответа для SQL, если пользователь отвечает "не знаю"."""
+    base = [
+        "Можно так:",
+        "- Метрика: выручка (Android_PL + IOS_PL) ИЛИ количество оплат", 
+        "- Топ: в каждом месяце ИЛИ общий за всё время",
+        "- Период: последняя доступная дата ИЛИ по месяцам",
+        "Ответьте, например: 'метрика=выручка; топ=в каждом месяце; период=по месяцам'",
+    ]
+    return "\n".join(base)
+
+def _is_vague_reply(text: str) -> bool:
+    if not text:
+        return True
+    low = text.strip().lower()
+    return any(p in low for p in ["не знаю", "откуда", "как хочешь", "неважно", "без разницы", "любой", "какой угодно"]) 
+
 
 def _last_result_hint() -> str | None:
     results = st.session_state.get("results", [])
@@ -2816,6 +2833,20 @@ if user_input:
     pre_mode, mode_notice = (None, None)
     awaiting = st.session_state.pop("awaiting_plan", None)
     if awaiting:
+        # Если ответ расплывчатый — предложим варианты и не продолжим, пока не будет понятного ответа
+        if _is_vague_reply(user_input):
+            kind = awaiting.get("kind")
+            plan_text = awaiting.get("plan", "")
+            if kind == "sql":
+                txt = _build_human_sql_suggestions(plan_text)
+            else:
+                txt = _build_human_pivot_clarify_text(plan_text)
+            with st.chat_message("assistant"):
+                st.markdown(txt)
+            # возвращаем ожидание плана обратно и прерываем обработку
+            st.session_state["awaiting_plan"] = awaiting
+            st.stop()
+        # Иначе — принимаем как подтверждение
         st.session_state["plan_confirmation"] = user_input
         st.session_state["plan_locked"] = awaiting.get("plan", "")
         pre_mode = awaiting.get("kind")
