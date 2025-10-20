@@ -1185,6 +1185,7 @@ def _render_table(item: dict):
     _render_table_caption(meta, pdf)
     _render_sql_block(meta)
     _render_table_code(meta)
+    _render_pivot_code(meta)
     _render_table_style_block_styler(meta)
     _render_download_buttons(pdf, item, "table")
     # Кнопка сохранения таблицы (флаг влияет только на сохранение)
@@ -1559,6 +1560,14 @@ def _render_table_code(meta: dict):
         return
     with st.expander("Показать код TABLE (table_code)", expanded=False):
         st.code(table_src, language="python")
+
+def _render_pivot_code(meta: dict):
+    """Отрисовка свернутого блока с кодом PIVOT (pivot_code)."""
+    pivot_src = (meta.get("pivot_code") or "").strip()
+    if not pivot_src:
+        return
+    with st.expander("Показать код PIVOT (pivot_code)", expanded=False):
+        st.code(pivot_src, language="python")
 
 
 # Отрисовка кнопок скачивания
