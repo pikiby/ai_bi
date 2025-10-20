@@ -4114,6 +4114,11 @@ if user_input:
                 # Ожидаем, что переменная df перезаписана на сводную
                 new_df = local_vars.get("df")
                 if isinstance(new_df, pd.DataFrame):
+                    try:
+                        if not isinstance(new_df.index, pd.RangeIndex):
+                            new_df = new_df.reset_index()
+                    except Exception:
+                        new_df = new_df.reset_index(drop=True)
                     new_pl = pl.from_pandas(new_df)
                     st.session_state["last_df"] = new_pl
                     try:
