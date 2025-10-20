@@ -247,8 +247,6 @@ def _save_current_result(kind: str, item: dict):
 
 def _render_saved_queries_sidebar():
     st.sidebar.toggle("Широкий экран", key="wide_mode")
-    """Сайдбар со списком сохранённых запросов: поиск по названию,
-    запуск по клику, подменю "..." с переименованием и удалением."""
     st.sidebar.markdown("**Сохранённые запросы**")
     search = st.sidebar.text_input("Поиск по названию", key="sq_search", placeholder="Начните вводить...")
     ch = ClickHouse_client()
@@ -1610,6 +1608,8 @@ def _render_code_editors(item: dict, index: int | None = None):
     default_table = (meta.get("table_code") or "").strip()
     default_plotly = (meta.get("plotly_code") or "").strip()
     kind = item.get("kind")
+
+    idx = index if index is not None else 0
 
     with st.expander("Редактировать и применить код", expanded=False):
         form_key = f"code_form_{idx}"
