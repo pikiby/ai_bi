@@ -634,10 +634,12 @@ def _guess_df_columns(pdf) -> dict:
 def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
     cols_md = "—"
     guessed = {}
+    columns_list = []
     try:
         if pdf is not None:
             guessed = _guess_df_columns(pdf)
-            show = ", ".join(f"`{c}`" for c in list(pdf.columns)[:12])
+            columns_list = list(pdf.columns)
+            show = ", ".join(f"`{c}`" for c in columns_list[:12])
             cols_md = show or "—"
     except Exception:
         cols_md = "—"
@@ -649,28 +651,34 @@ def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
     cnt = guessed.get('count')
     opts = []
     opts.append(f"- Источник: 1) текущие (по умолчанию); 2) новые данные")
-    if city or comp or dcol:
-        idx_opts = []
-        if city:
-            idx_opts.append(f"1) {city}")
-        if comp:
-            idx_opts.append(f"2) {comp}")
-        if dcol:
-            idx_opts.append(f"3) {dcol}")
-        if idx_opts:
-            opts.append("- Строки: " + "; ".join(idx_opts))
+
+    idx_opts = []
+    if city:
+        idx_opts.append(f"1) {city}")
+    if comp:
+        idx_opts.append(f"2) {comp}")
     if dcol:
-        opts.append("- Столбцы: 1) Месяц; 2) — (без столбцов)")
+        idx_opts.append(f"3) {dcol}")
+    if not idx_opts and columns_list:
+        idx_opts.append(f"1) {columns_list[0]}")
+    if idx_opts:
+        opts.append("- Строки: " + "; ".join(idx_opts))
+
+    col_opts = []
+    if dcol:
+        col_opts.append("1) Создать столбцы по месяцам")
     if plat:
-        opts.append(f"- Платформа (если нужна): {plat}")
-    if rev or cnt:
-        val_opts = []
-        val_opts.append("1) Без агрегации")
-        if rev:
-            val_opts.append(f"2) {rev}")
-        if cnt:
-            val_opts.append(f"3) {cnt}")
-        opts.append("- Значения: " + "; ".join(val_opts))
+        col_opts.append(f"2) {plat}")
+    col_opts.append("3) — (без столбцов)")
+    opts.append("- Столбцы: " + "; ".join(col_opts))
+
+    val_opts = ["1) Без агрегации"]
+    if rev:
+        val_opts.append(f"2) {rev}")
+    if cnt:
+        val_opts.append(f"3) {cnt}")
+    opts.append("- Значения: " + "; ".join(val_opts))
+
     opts.append("- Формат даты: 1) D.M.Y; 2) Y-M-D; 3) Месяц словами + год")
     tips = "\n".join(opts)
     return (
@@ -791,15 +799,67 @@ def _sql_selection_to_instruction(sel: dict) -> str:
     )
 
 def _pivot_selection_to_instruction(sel: dict) -> str:
-    idx = {1: "city", 2: "company_name", 3: "date"}.get(sel.get("index", 1), "city")
-    cols = {1: "month", 2: "platform", 3: "none"}.get(sel.get("columns", 1), "month")
-    vals = {1: "none", 2: "revenue", 3: "payments_count"}.get(sel.get("values", 1), "none")
-    datef = {1: "D.M.Y", 2: "Y-M-D", 3: "MonthName Y"}.get(sel.get("date", 1), "D.M.Y")
+    source = "current" if sel.get("source", 1) == 1 else "new"
+    idx = sel.get("index_name") or ""
+    cols = sel.get("columns_name") or "none"
+    vals = sel.get("values_name") or "none"
+    datef = sel.get("date_format", "D.M.Y")
+    date_col = sel.get("date_column")
+    extra_hint = ""
+    if cols == "__month__" and date_col:
+        extra_hint = f" Используй колонку {date_col} для формирования месяца в формате {datef}."
     return (
         "Параметры сводной: "
-        f"index={idx}; columns={cols}; values={vals}; date_format={datef}. "
-        "Сформируй pivot_code (pandas), без HTML."
+        f"source={source}; index={idx or 'auto'}; columns={cols}; values={vals}; date_format={datef}. "
+        + extra_hint +
+        " Сформируй pivot_code (pandas), без HTML."
     )
+
+def _resolve_pivot_selection(sel: dict, pdf: pd.DataFrame | None) -> dict:
+    """Дополняет выбор пользователя фактическими именами колонок."""
+    resolved = dict(sel)
+    resolved.setdefault("source", 1)
+    resolved.setdefault("index", 1)
+    resolved.setdefault("columns", 3)
+    resolved.setdefault("values", 1)
+    resolved.setdefault("date", 1)
+
+    guessed = _guess_df_columns(pdf) if pdf is not None else {}
+
+    # Определяем колонку для строк
+    index_name = None
+    if resolved.get("index") == 1 and guessed.get("city"):
+        index_name = guessed["city"]
+    elif resolved.get("index") == 2 and guessed.get("company"):
+        index_name = guessed["company"]
+    elif resolved.get("index") == 3 and guessed.get("date"):
+        index_name = guessed["date"]
+    elif pdf is not None and not pdf.empty:
+        index_name = str(pdf.columns[0])
+
+    # Определяем колонку для столбцов
+    columns_name = "none"
+    if resolved.get("columns") == 1 and guessed.get("date"):
+        columns_name = "__month__"  # будет создана из даты
+    elif resolved.get("columns") == 2 and guessed.get("platform"):
+        columns_name = guessed["platform"]
+    elif resolved.get("columns") == 3:
+        columns_name = "none"
+
+    # Определяем колонку значений
+    values_name = "none"
+    if resolved.get("values") == 2 and guessed.get("revenue"):
+        values_name = guessed["revenue"]
+    elif resolved.get("values") == 3 and guessed.get("count"):
+        values_name = guessed["count"]
+
+    resolved["index_name"] = index_name
+    resolved["columns_name"] = columns_name
+    resolved["values_name"] = values_name
+    resolved["date_format"] = {1: "D.M.Y", 2: "Y-M-D", 3: "MonthName Y"}.get(resolved.get("date", 1), "D.M.Y")
+    resolved["date_column"] = guessed.get("date")
+
+    return resolved
 
 
 def _last_result_hint() -> str | None:
@@ -3031,6 +3091,12 @@ if user_input:
                     st.markdown("Сначала получу новые данные, затем сделаю сводную.")
                 st.session_state["messages"].append({"role": "assistant", "content": "Сначала получу новые данные, затем сделаю сводную."})
                 st.stop()
+            if kind == "pivot":
+                try:
+                    _clarify_pdf = st.session_state["last_df"].to_pandas() if st.session_state.get("last_df") is not None else None
+                except Exception:
+                    _clarify_pdf = None
+                sel = _resolve_pivot_selection(sel, _clarify_pdf)
             confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
             st.session_state["plan_confirmation"] = confirm_text
             st.session_state["plan_locked"] = awaiting.get("plan", "")
@@ -3654,52 +3720,100 @@ if user_input:
 
         # 4.5) PIVOT: если ассистент вернул блок ```pivot_code``` — применяем сводное преобразование к df
         m_pivot = re.search(r"```pivot_code\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
-        if st.session_state.get("pivot_pending") and st.session_state.get("last_df") is not None and not m_pivot:
-            # Fallback: строим сводную на клиенте по выбранным параметрам
+        def _apply_pivot_selection(sel: dict) -> bool:
+            """Строит сводную таблицу в pandas по выбору пользователя. Возвращает True при успехе."""
             try:
-                sel = st.session_state.get("pivot_sel", {})
-                df_polars = st.session_state["last_df"]
+                df_polars = st.session_state.get("last_df")
+                if df_polars is None:
+                    st.info("Нет данных для сводной таблицы.")
+                    return False
                 pdf = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
-                # Подбор колонок
-                g = _guess_df_columns(pdf)
-                idx = g.get('city') if sel.get('index',1)==1 else (g.get('company') if sel.get('index',1)==2 else g.get('date'))
-                col_choice = sel.get('columns',1)
-                if col_choice == 1 and g.get('date'):
-                    # создаём месяц в формате по выбору
-                    fmt = sel.get('date',1)
-                    fmt_map = {1: '%d.%m.%Y', 2: '%Y-%m-%d', 3: '%B %Y'}
-                    pdf['__month__'] = pd.to_datetime(pdf[g.get('date')], errors='coerce').dt.to_period('M').dt.to_timestamp().dt.strftime(fmt_map.get(fmt, '%d.%m.%Y'))
-                    cols = '__month__'
-                elif col_choice == 2 and g.get('platform'):
-                    cols = g.get('platform')
+                if not isinstance(pdf, pd.DataFrame) or pdf.empty:
+                    st.info("Нет данных для сводной таблицы.")
+                    return False
+
+                sel = _resolve_pivot_selection(sel, pdf)
+                index_name = sel.get("index_name") or str(pdf.columns[0])
+                values_name = sel.get("values_name")
+                date_col = sel.get("date_column")
+                date_format = sel.get("date_format", "D.M.Y")
+                fmt_map = {"D.M.Y": "%d.%m.%Y", "Y-M-D": "%Y-%m-%d", "MonthName Y": "%B %Y"}
+                strftime_fmt = fmt_map.get(date_format, "%d.%m.%Y")
+                columns_name = sel.get("columns_name")
+
+                working_pdf = pdf.copy()
+
+                if columns_name == "__month__":
+                    if date_col and date_col in working_pdf.columns:
+                        working_pdf["__month__"] = pd.to_datetime(
+                            working_pdf[date_col], errors="coerce"
+                        ).dt.to_period("M").dt.to_timestamp().dt.strftime(strftime_fmt)
+                    else:
+                        columns_name = "none"
+
+                # Значение по умолчанию, если не выбрано ни одной метрики
+                if values_name in (None, "none"):
+                    num_cols = [
+                        c for c in working_pdf.columns if pd.api.types.is_numeric_dtype(working_pdf[c])
+                    ]
+                    values_name = num_cols[0] if num_cols else working_pdf.columns[-1]
+
+                if columns_name and columns_name != "none":
+                    pivot_df = pd.pivot_table(
+                        working_pdf,
+                        index=[index_name],
+                        columns=[columns_name],
+                        values=values_name,
+                        aggfunc="sum",
+                        fill_value=0,
+                    )
                 else:
-                    cols = None
-                val_choice = sel.get('values',1)
-                if val_choice == 2 and g.get('revenue'):
-                    val = g.get('revenue')
-                elif val_choice == 3 and g.get('count'):
-                    val = g.get('count')
+                    pivot_df = pd.pivot_table(
+                        working_pdf,
+                        index=[index_name],
+                        values=values_name,
+                        aggfunc="sum",
+                    )
+                pivot_df = pivot_df.reset_index()
+
+                # Сохраняем pivot_code, сгенерированный детерминированно
+                code_lines = ["df = df.copy()"]
+                if columns_name == "__month__" and date_col:
+                    code_lines.append(
+                        f"df['__month__'] = pd.to_datetime(df['{date_col}'], errors='coerce').dt.to_period('M').dt.to_timestamp().dt.strftime('{strftime_fmt}')"
+                    )
+                    pivot_columns_name = "__month__"
                 else:
-                    # дефолт: первая числовая
-                    num_cols = [c for c in pdf.columns if pd.api.types.is_numeric_dtype(pdf[c])]
-                    val = num_cols[0] if num_cols else None
-                if idx is None:
-                    idx = pdf.columns[0]
-                if val is None:
-                    val = pdf.columns[1] if len(pdf.columns)>1 else pdf.columns[0]
-                if cols:
-                    pivot_df = pd.pivot_table(pdf, index=[idx], columns=[cols], values=val, aggfunc='sum', fill_value=0)
+                    pivot_columns_name = columns_name if columns_name and columns_name != "none" else None
+
+                if pivot_columns_name:
+                    code_lines.append(
+                        f"df = pd.pivot_table(df, index=['{index_name}'], columns=['{pivot_columns_name}'], "
+                        f"values='{values_name}', aggfunc='sum', fill_value=0)"
+                    )
                 else:
-                    pivot_df = pd.pivot_table(pdf, index=[idx], values=val, aggfunc='sum')
-                new_pl = pl.from_pandas(pivot_df.reset_index())
-                st.session_state['last_df'] = new_pl
-                meta_tbl = dict(st.session_state.get('last_sql_meta', {}))
-                meta_tbl.setdefault('title', 'Сводная таблица')
-                _push_result('table', df_pl=new_pl, meta=meta_tbl)
-                _render_result(st.session_state['results'][-1])
+                    code_lines.append(
+                        f"df = pd.pivot_table(df, index=['{index_name}'], values='{values_name}', aggfunc='sum')"
+                    )
+                code_lines.append("df = df.reset_index()")
+                sel["pivot_code"] = "\n".join(code_lines)
+
+                st.session_state["last_df"] = pl.from_pandas(pivot_df)
+                meta_tbl = dict(st.session_state.get("last_sql_meta", {}))
+                meta_tbl.setdefault("title", "Сводная таблица")
+                meta_tbl["pivot_code"] = sel.get("pivot_code") or ""
+                _push_result("table", df_pl=st.session_state["last_df"], meta=meta_tbl)
+                _render_result(st.session_state["results"][-1])
+                st.session_state["pivot_sel"] = sel
+                return True
             except Exception as e:
                 st.error(f"Fallback сводной не удался: {e}")
-            finally:
+                return False
+
+        if st.session_state.get("pivot_pending") and st.session_state.get("last_df") is not None and not m_pivot:
+            if _apply_pivot_selection(st.session_state.get("pivot_sel", {})):
+                st.session_state.pop('pivot_pending', None)
+            else:
                 st.session_state.pop('pivot_pending', None)
 
         if m_pivot and st.session_state.get("last_df") is not None:
@@ -3726,6 +3840,10 @@ if user_input:
                 if isinstance(new_df, pd.DataFrame):
                     new_pl = pl.from_pandas(new_df)
                     st.session_state["last_df"] = new_pl
+                    try:
+                        st.session_state.setdefault("pivot_sel", {})["pivot_code"] = pivot_code
+                    except Exception:
+                        pass
                     # Сохраним pivot_code в meta последней таблицы, чтобы при сохранении он попал в ClickHouse
                     try:
                         if st.session_state.get("results"):
@@ -3741,8 +3859,16 @@ if user_input:
                     st.session_state.pop("pivot_pending", None)
                 else:
                     st.info("Код сводной должен присвоить переменной df новый pandas.DataFrame.")
+                    if _apply_pivot_selection(st.session_state.get("pivot_sel", {})):
+                        st.session_state.pop("pivot_pending", None)
+                    else:
+                        st.session_state.pop("pivot_pending", None)
             except Exception as e:
                 st.error(f"Ошибка выполнения pivot_code: {e}")
+                if _apply_pivot_selection(st.session_state.get("pivot_sel", {})):
+                    st.session_state.pop("pivot_pending", None)
+                else:
+                    st.session_state.pop("pivot_pending", None)
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
         m_plotly = re.search(r"```plotly\s*(.*?)```", final_reply, re.DOTALL | re.IGNORECASE)
