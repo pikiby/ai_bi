@@ -324,7 +324,7 @@ def _run_saved_item(item_uuid: str):
         with st.spinner("Выполняю сохранённый запрос…"):
             df_pl = ch.query_run(sql)
         st.session_state["last_df"] = df_pl
-        meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
+        meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or "", "pandas_code": ""}
         pandas_code = (rec.get("pandas_code") or rec.get("pivot_code") or "").strip()
         table_code = (rec.get("table_code") or "").strip()
         plotly_code = (rec.get("plotly_code") or "").strip()
@@ -682,11 +682,11 @@ def _parse_plan_kv(plan_text: str) -> dict:
             out[k.strip().lower()] = v.strip()
     return out
 
+
 DEFAULT_SQL_CLARIFY_PROMPT = (
     "Сформулируй краткое уточнение к SQL-заданию. "
-    "Используй черновой план, текст пользователя и найденный контекст (если есть), чтобы задать 1–2 вопроса, раскрывающих неочевидные параметры. "
-    "Если всё понятно, скажи что готов строить запрос и попроси подтвердить словом «Ок». "
-    "Ответ дай на русском, максимум в двух абзацах, без списков."
+    "Используй черновой план, текст пользователя и найденный контекст (если есть), чтобы предложить понятный человеку план: какие таблицы, поля, фильтры и период подходят. "
+    "В конце предложи пользователю скорректировать или подтвердить план. Ответ дай на русском, максимум в двух абзацах."
 )
 
 def _build_human_sql_clarify_text(plan_text: str, user_text: str, prompt_map: dict | None = None, rag_context: str | None = None) -> str:
@@ -741,9 +741,11 @@ def _build_human_sql_clarify_text(plan_text: str, user_text: str, prompt_map: di
     fallback_lines = []
     if summary:
         fallback_lines.append("**Черновой план от модели**\n" + "\n".join(summary))
+    elif plan_text:
+        fallback_lines.append("**Черновой план от модели**\n" + plan_text.strip())
     else:
-        fallback_lines.append("**Черновой план от модели**\n" + (plan_text.strip() or "Не удалось определить параметры."))
-    fallback_lines.append("Уточните, пожалуйста, детали запроса или напишите «Ок», если план подходит.")
+        fallback_lines.append("**Черновой план от модели**\nНе удалось определить параметры.")
+    fallback_lines.append("Уточните детали или подтвердите план.")
     return "\n\n".join(fallback_lines)
 
 def _guess_df_columns(pdf) -> dict:
@@ -1186,8 +1188,8 @@ def _render_result(item: dict, index: int | None = None):
 # ======================== Вспомогательные функции для _render_result ========================
 
 # Отрисовка таблиц: координирует полную отрисовку таблиц от заголовка до кнопок скачивания
-# АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → Содержимое → Подпись → SQL → Скачивание
-# ИСПОЛЬЗУЕТ: _get_title(), _render_table_content(), _render_table_caption(), _render_sql_block(), _render_download_buttons()
+# АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → Содержимое → Подпись → Скачивание → Универсальный редактор
+# ИСПОЛЬЗУЕТ: _get_title(), _render_table_content_styler(), _render_table_caption(), _render_download_buttons(), _render_code_editors()
 # ОБРАБОТКА ОШИБОК: Graceful degradation при некорректных данных, безопасная обработка отсутствующих метаданных
 def _render_table(item: dict, index: int | None = None):
     """
@@ -1216,8 +1218,8 @@ def _render_table(item: dict, index: int | None = None):
 
 
 # Отрисовка графиков: координирует полную отрисовку Plotly-графиков с интерактивностью и экспортом
-# АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → График → Подпись → SQL → Код Plotly → Скачивание
-# ИСПОЛЬЗУЕТ: _get_title(), _render_chart_caption(), _render_sql_block(), _render_plotly_code(), _render_download_buttons()
+# АЛГОРИТМ: Валидация данных → Подготовка → График → Подпись → Скачивание → Универсальный редактор
+# ИСПОЛЬЗУЕТ: _render_chart_caption(), _render_download_buttons(), _render_code_editors()
 # ОСОБЕННОСТИ: Интерактивные графики с PNG-экспортом, fallback на контекст SQL, двойная документация (SQL + Plotly)
 def _render_chart(item: dict, index: int | None = None):
     fig = item.get("fig")
@@ -1551,6 +1553,9 @@ def _calc_textarea_height(text: str, min_height: int = 140, max_height: int = 52
     return int(min(max_height, max(min_height, 24 * lines + 40)))
 
 
+# ====================== Универсальный вывод и редактор кода ======================
+
+
 def _render_code_editors(item: dict, index: int | None = None):
     if index is None:
         try:
@@ -1573,29 +1578,30 @@ def _render_code_editors(item: dict, index: int | None = None):
             "label": "SQL",
             "code": sql_code,
             "language": "sql",
+            "applies": True,
         },
         {
             "key": "pandas",
             "label": "Pandas постобработка",
             "code": pandas_code,
             "language": "python",
+            "applies": True,
         },
-    ]
-
-    if kind == "table":
-        code_blocks.append({
+        {
             "key": "table",
             "label": "TABLE (стили)",
             "code": table_code,
             "language": "python",
-        })
-    if kind == "chart":
-        code_blocks.append({
+            "applies": kind == "table",
+        },
+        {
             "key": "plotly",
             "label": "Plotly",
             "code": plotly_code,
             "language": "python",
-        })
+            "applies": kind == "chart",
+        },
+    ]
 
     with st.expander("Редактировать и применить код", expanded=False):
         mode = st.radio(
@@ -1610,44 +1616,34 @@ def _render_code_editors(item: dict, index: int | None = None):
                 with st.expander(block["label"], expanded=False):
                     if block["code"]:
                         st.code(block["code"], language=block["language"])
+                        if not block["applies"]:
+                            st.caption("Код сохранён, но применяется только для соответствующего типа результата.")
                     else:
-                        st.caption("Код не задан")
+                        msg = "Код не задан"
+                        if not block["applies"]:
+                            msg += " (для текущего результата не применяется)"
+                        st.caption(msg)
             return
 
         # Режим редактирования
         with st.form(f"code_form_{idx}"):
-            sql_val = st.text_area(
-                "SQL",
-                value=sql_code,
-                height=_calc_textarea_height(sql_code, min_height=180, max_height=560),
-                key=f"sql_editor_{idx}",
-            )
-            pandas_val = st.text_area(
-                "Pandas постобработка",
-                value=pandas_code,
-                height=_calc_textarea_height(pandas_code),
-                key=f"pandas_editor_{idx}",
-            )
-
-            table_val = table_code
-            plotly_val = plotly_code
-
-            if kind == "table":
-                table_val = st.text_area(
-                    "TABLE (стили)",
-                    value=table_code,
-                    height=_calc_textarea_height(table_code),
-                    key=f"table_editor_{idx}",
+            edited_values = {}
+            for block in code_blocks:
+                min_h = 200 if block["key"] == "sql" else 140
+                help_text = "" if block["applies"] else "Не применяется к текущему типу результата, но код будет сохранён."
+                edited_values[block["key"]] = st.text_area(
+                    block["label"],
+                    value=block["code"],
+                    height=_calc_textarea_height(block["code"], min_height=min_h),
+                    help=help_text or None,
+                    key=f"{block['key']}_editor_{idx}",
                 )
-            if kind == "chart":
-                plotly_val = st.text_area(
-                    "Plotly",
-                    value=plotly_code,
-                    height=_calc_textarea_height(plotly_code),
-                    key=f"plotly_editor_{idx}",
-                )
-
             submitted = st.form_submit_button("Применить изменения")
+
+        sql_val = edited_values.get("sql", "")
+        pandas_val = edited_values.get("pandas", "")
+        table_val = edited_values.get("table", "")
+        plotly_val = edited_values.get("plotly", "")
 
         if submitted:
             try:
@@ -3405,7 +3401,7 @@ if user_input:
                 else:
                     # Примем дефолты ОДИН раз и сообщим
                     default_sel = {"metric": 1, "top": 1, "period": 1} if kind == "sql" else {"index": 1, "columns": 1, "values": 1, "date": 1}
-                    info_text = "Ок, беру значения по умолчанию (1‑1‑1)." if kind == "sql" else "Ок, беру значения по умолчанию."
+                    info_text = "Применяю предложенный план и перехожу к выполнению." if kind == "sql" else "Использую текущие параметры для сводной."
                     with st.chat_message("assistant"):
                         st.markdown(info_text)
                     st.session_state["messages"].append({"role": "assistant", "content": info_text})
@@ -3998,6 +3994,8 @@ if user_input:
                 "title": (m_title.group(1).strip() if m_title else None),
                 "explain": (m_explain.group(1).strip() if m_explain else None),
             }
+            meta_extra.setdefault("pandas_code", "")
+            meta_extra.setdefault("pivot_code", "")
             try:
                 ch = ClickHouse_client()
                 df_any, used_sql = run_sql_with_auto_schema(
@@ -4574,7 +4572,8 @@ if user_input:
 
                         fig = local_vars.get("fig")
                         if isinstance(fig, go.Figure):
-                            _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
+                            chart_meta = _compose_chart_meta(plotly_code)
+                            _push_result("chart", fig=fig, meta=chart_meta)
                             last_idx = len(st.session_state.get("results", [])) - 1
                             if last_idx >= 0:
                                 _render_result(st.session_state["results"][last_idx], last_idx)
@@ -4628,7 +4627,6 @@ if user_input:
                                         st.error("Код графика (повтор) отклонён (запрещённые конструкции).")
                                     else:
                                         # Выполняем повторный код в том же «песочном» окружении
-                                        # Собираем такое же безопасное окружение, как в первом запуске
                                         safe_globals_retry = {
                                             "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
                                             "pd": pd,
@@ -4643,14 +4641,15 @@ if user_input:
                                         exec(code_retry_clean, safe_globals_retry, local_vars)
                                         fig = local_vars.get("fig")
 
-                                        if isinstance(fig, go.Figure):
-                                            _push_result("chart", fig=fig, meta={"plotly_code": code_retry})
-                                            last_idx = len(st.session_state.get("results", [])) - 1
-                                            if last_idx >= 0:
-                                                _render_result(st.session_state["results"][last_idx], last_idx)
-                                            created_chart = True
-                                        else:
-                                            st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
+                                    if isinstance(fig, go.Figure):
+                                        chart_meta = _compose_chart_meta(code_retry)
+                                        _push_result("chart", fig=fig, meta=chart_meta)
+                                        last_idx = len(st.session_state.get("results", [])) - 1
+                                        if last_idx >= 0:
+                                            _render_result(st.session_state["results"][last_idx], last_idx)
+                                        created_chart = True
+                                    else:
+                                        st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
                                 else:
                                     st.error("Повтор: ассистент не вернул блок ```plotly```.")
                             except Exception as e2:
@@ -4722,7 +4721,8 @@ if user_input:
                             exec(_code_retry_clean, _safe_globals, _locals)
                             _fig = _locals.get("fig")
                             if isinstance(_fig, go.Figure):
-                                _push_result("chart", fig=_fig, meta={"plotly_code": _code_retry})
+                                chart_meta = _compose_chart_meta(_code_retry)
+                                _push_result("chart", fig=_fig, meta=chart_meta)
                                 last_idx = len(st.session_state.get("results", [])) - 1
                                 if last_idx >= 0:
                                     _render_result(st.session_state["results"][last_idx], last_idx)
@@ -4854,6 +4854,16 @@ def _execute_plotly_code(pdf: pd.DataFrame, code: str) -> tuple[go.Figure, dict]
     return fig, {"plotly_code": code}
 
 
+def _compose_chart_meta(plotly_code: str) -> dict:
+    base = dict(st.session_state.get("last_sql_meta") or {})
+    base.setdefault("pandas_code", base.get("pandas_code", ""))
+    base.setdefault("sql", base.get("sql", ""))
+    base.setdefault("sql_original", base.get("sql_original", base.get("sql", "")))
+    base.setdefault("pivot_code", base.get("pivot_code", ""))
+    base["plotly_code"] = plotly_code
+    return base
+
+
 def _apply_code_pipeline(
     result_index: int,
     kind: str,
@@ -4864,7 +4874,10 @@ def _apply_code_pipeline(
 ) -> None:
     prompts_map, _ = _reload_prompts()
     item = st.session_state["results"][result_index]
-    meta = item.get("meta") or {}
+    meta = dict(item.get("meta") or {})
+    original_meta = dict(meta)
+    original_df = item.get("df_pl")
+    original_fig = item.get("fig")
 
     df_pl = None
     used_sql = ""
@@ -4872,17 +4885,25 @@ def _apply_code_pipeline(
     if sql_code:
         df_pl, used_sql = _execute_sql_block(sql_code, prompts_map)
     else:
-        existing_df = item.get("df_pl")
-        if isinstance(existing_df, pl.DataFrame):
-            df_pl = existing_df.clone()
-        elif isinstance(existing_df, pd.DataFrame):
-            df_pl = pl.from_pandas(existing_df)
+        if isinstance(original_df, pl.DataFrame):
+            df_pl = original_df.clone()
+        elif isinstance(original_df, pd.DataFrame):
+            df_pl = pl.from_pandas(original_df)
         else:
             raise ValueError("Нет данных: необходимо указать SQL или иметь существующий результат.")
+    df_after_sql = df_pl.clone()
 
     pandas_code = (pandas_code or "").strip()
     if pandas_code:
-        df_pl, pandas_meta = _execute_pandas_postprocessing(df_pl, pandas_code)
+        try:
+            df_pl, pandas_meta = _execute_pandas_postprocessing(df_pl, pandas_code)
+        except Exception as e:
+            st.warning(f"Не удалось применить pandas код: {e}")
+            df_pl = df_after_sql
+            pandas_meta = {
+                "pandas_code": original_meta.get("pandas_code", ""),
+                "pivot_code": original_meta.get("pivot_code", ""),
+            }
     else:
         pandas_meta = {"pandas_code": "", "pivot_code": ""}
 
@@ -4898,10 +4919,19 @@ def _apply_code_pipeline(
     if kind == "table":
         table_code = (table_code or "").strip()
         if table_code:
-            table_meta = _apply_table_style_code(pdf, table_code)
+            try:
+                table_meta = _apply_table_style_code(pdf, table_code)
+            except Exception as e:
+                st.warning(f"Не удалось применить стили таблицы: {e}")
+                table_meta = {
+                    "table_code": original_meta.get("table_code", ""),
+                    "_styler_obj": original_meta.get("_styler_obj"),
+                    "rendered_html": original_meta.get("rendered_html", ""),
+                }
         else:
             table_meta = {"table_code": "", "_styler_obj": None, "rendered_html": ""}
         meta_updates.update(table_meta)
+        meta_updates["plotly_code"] = plotly_code
         item["df_pl"] = df_pl
         meta.update(meta_updates)
         item["meta"] = meta
@@ -4910,16 +4940,29 @@ def _apply_code_pipeline(
     elif kind == "chart":
         plotly_code = (plotly_code or "").strip()
         if plotly_code:
-            fig, plotly_meta = _execute_plotly_code(pdf, plotly_code)
-            item["fig"] = fig
+            try:
+                fig, plotly_meta = _execute_plotly_code(pdf, plotly_code)
+                item["fig"] = fig
+            except Exception as e:
+                st.warning(f"Не удалось применить код Plotly: {e}")
+                item["fig"] = original_fig
+                plotly_meta = {"plotly_code": original_meta.get("plotly_code", "")}
         else:
-            raise ValueError("Для графика код Plotly не может быть пустым.")
+            st.warning("Код Plotly не задан — использую текущий график.")
+            item["fig"] = original_fig
+            plotly_meta = {"plotly_code": original_meta.get("plotly_code", "")}
         meta_updates.update(plotly_meta)
+        meta_updates["table_code"] = table_code
         item["df_pl"] = df_pl
         meta.update(meta_updates)
         item["meta"] = meta
         st.session_state["last_df"] = df_pl
         st.session_state["last_sql_meta"] = meta
     else:
+        meta_updates["table_code"] = table_code
+        meta_updates["plotly_code"] = plotly_code
         meta.update(meta_updates)
         item["meta"] = meta
+        item["df_pl"] = df_pl
+        st.session_state["last_df"] = df_pl
+        st.session_state["last_sql_meta"] = meta
