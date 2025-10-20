@@ -230,7 +230,7 @@ def _save_current_result(kind: str, item: dict):
                         sql_code=sql_code,
                         table_code=table_code,
                         plotly_code=plotly_code,
-                        pandas_code=(meta.get("pivot_code") or ""),
+                        pandas_code=(meta.get("pandas_code") or meta.get("pivot_code") or ""),
                     )
                     st.success("Сохранено")
                     st.session_state.pop("_saved_queries_cache", None)
@@ -1208,9 +1208,6 @@ def _render_table(item: dict, index: int | None = None):
     # st.info("🔍 DEBUG: Вызываю _render_table_content_styler")
     _render_table_content_styler(pdf, meta)
     _render_table_caption(meta, pdf)
-    _render_sql_block(meta)
-    _render_table_code(meta)
-    _render_pivot_code(meta)
     _render_table_style_block_styler(meta)
     _render_download_buttons(pdf, item, "table")
     # Кнопка сохранения таблицы (флаг влияет только на сохранение)
@@ -1247,8 +1244,6 @@ def _render_chart(item: dict, index: int | None = None):
     )
     
     _render_chart_caption(meta)
-    _render_sql_block(meta)
-    _render_plotly_code(meta)
     _render_download_buttons(fig, item, "chart")
     # Кнопка сохранения графика (флаг влияет только на сохранение)
     _save_current_result("chart", item)
@@ -1434,27 +1429,6 @@ def _render_chart_caption(meta: dict):
             st.caption(explain)
 
 
-# Отрисовка SQL блока
-def _render_sql_block(meta: dict):
-    """Отрисовка свернутого блока с SQL-кодом"""
-    used_sql = (meta.get("sql") or "").strip()
-    orig_sql = (meta.get("sql_original") or "").strip()
-    
-    if not used_sql and not orig_sql:
-        return
-    
-    # Блок с SQL (сверху)
-    with st.expander("Показать SQL", expanded=False):
-        if used_sql:
-            st.markdown("**Использованный SQL**")
-            st.code(used_sql, language="sql")
-            if orig_sql and orig_sql != used_sql:
-                st.markdown("**Исходный SQL от модели**")
-                st.code(orig_sql, language="sql")
-        elif orig_sql:
-            st.code(orig_sql, language="sql")
-
-
 # Отрисовка блока стилей таблицы
 def _render_table_style_block_styler(meta: dict):
     """НОВАЯ ЛОГИКА: Отрисовка блока со стилями Pandas Styler"""
@@ -1570,31 +1544,12 @@ def _render_table_style_block_styler(meta: dict):
             st.json(styler_config)
 
 
-# Отрисовка кода Plotly
-def _render_plotly_code(meta: dict):
-    """Отрисовка свернутого блока с кодом Plotly"""
-    plotly_src = (meta.get("plotly_code") or "").strip()
-    if not plotly_src:
-        return
-    
-    with st.expander("Показать код Plotly", expanded=False):
-        st.code(plotly_src, language="python")
+# ====================== Редактирование кода (универсальный блок) ======================
 
-def _render_table_code(meta: dict):
-    """Отрисовка свернутого блока с кодом TABLE (table_code)."""
-    table_src = (meta.get("table_code") or "").strip()
-    if not table_src:
-        return
-    with st.expander("Показать код TABLE (table_code)", expanded=False):
-        st.code(table_src, language="python")
+def _calc_textarea_height(text: str, min_height: int = 140, max_height: int = 520) -> int:
+    lines = (text.count("\n") + 1) if text else 1
+    return int(min(max_height, max(min_height, 24 * lines + 40)))
 
-def _render_pivot_code(meta: dict):
-    """Отрисовка свернутого блока с кодом PIVOT (pivot_code)."""
-    pivot_src = (meta.get("pivot_code") or "").strip()
-    if not pivot_src:
-        return
-    with st.expander("Показать код постобработки (pandas)", expanded=False):
-        st.code(pivot_src, language="python")
 
 def _render_code_editors(item: dict, index: int | None = None):
     if index is None:
@@ -1602,23 +1557,98 @@ def _render_code_editors(item: dict, index: int | None = None):
             index = next(i for i, it in enumerate(st.session_state.get("results", [])) if it is item)
         except StopIteration:
             index = 0
-    meta = item.get("meta") or {}
-    default_sql = (meta.get("sql_original") or meta.get("sql") or "").strip()
-    default_pandas = (meta.get("pandas_code") or meta.get("pivot_code") or "").strip()
-    default_table = (meta.get("table_code") or "").strip()
-    default_plotly = (meta.get("plotly_code") or "").strip()
-    kind = item.get("kind")
-
     idx = index if index is not None else 0
 
+    meta = item.get("meta") or {}
+    kind = (item.get("kind") or "table").lower()
+
+    sql_code = (meta.get("sql_original") or meta.get("sql") or "").strip()
+    pandas_code = (meta.get("pandas_code") or meta.get("pivot_code") or "").strip()
+    table_code = (meta.get("table_code") or "").strip()
+    plotly_code = (meta.get("plotly_code") or "").strip()
+
+    code_blocks = [
+        {
+            "key": "sql",
+            "label": "SQL",
+            "code": sql_code,
+            "language": "sql",
+        },
+        {
+            "key": "pandas",
+            "label": "Pandas постобработка",
+            "code": pandas_code,
+            "language": "python",
+        },
+    ]
+
+    if kind == "table":
+        code_blocks.append({
+            "key": "table",
+            "label": "TABLE (стили)",
+            "code": table_code,
+            "language": "python",
+        })
+    if kind == "chart":
+        code_blocks.append({
+            "key": "plotly",
+            "label": "Plotly",
+            "code": plotly_code,
+            "language": "python",
+        })
+
     with st.expander("Редактировать и применить код", expanded=False):
-        form_key = f"code_form_{idx}"
-        with st.form(form_key):
-            sql_val = st.text_area("SQL", value=default_sql, height=200, key=f"sql_editor_{idx}")
-            pandas_val = st.text_area("Pandas постобработка", value=default_pandas, height=160, key=f"pandas_editor_{idx}")
-            table_val = st.text_area("TABLE (стили)", value=default_table, height=160, key=f"table_editor_{idx}")
-            plotly_val = st.text_area("Plotly", value=default_plotly, height=160, key=f"plotly_editor_{idx}")
-            submitted = st.form_submit_button("Применить код")
+        mode = st.radio(
+            "Режим", ["Просмотр", "Редактирование"],
+            index=0,
+            key=f"code_mode_{idx}",
+            horizontal=True,
+        )
+
+        if mode == "Просмотр":
+            for block in code_blocks:
+                with st.expander(block["label"], expanded=False):
+                    if block["code"]:
+                        st.code(block["code"], language=block["language"])
+                    else:
+                        st.caption("Код не задан")
+            return
+
+        # Режим редактирования
+        with st.form(f"code_form_{idx}"):
+            sql_val = st.text_area(
+                "SQL",
+                value=sql_code,
+                height=_calc_textarea_height(sql_code, min_height=180, max_height=560),
+                key=f"sql_editor_{idx}",
+            )
+            pandas_val = st.text_area(
+                "Pandas постобработка",
+                value=pandas_code,
+                height=_calc_textarea_height(pandas_code),
+                key=f"pandas_editor_{idx}",
+            )
+
+            table_val = table_code
+            plotly_val = plotly_code
+
+            if kind == "table":
+                table_val = st.text_area(
+                    "TABLE (стили)",
+                    value=table_code,
+                    height=_calc_textarea_height(table_code),
+                    key=f"table_editor_{idx}",
+                )
+            if kind == "chart":
+                plotly_val = st.text_area(
+                    "Plotly",
+                    value=plotly_code,
+                    height=_calc_textarea_height(plotly_code),
+                    key=f"plotly_editor_{idx}",
+                )
+
+            submitted = st.form_submit_button("Применить изменения")
+
         if submitted:
             try:
                 _apply_code_pipeline(
@@ -4163,7 +4193,9 @@ if user_input:
                 st.session_state["last_df"] = pl.from_pandas(pivot_df)
                 meta_tbl = dict(st.session_state.get("last_sql_meta", {}))
                 meta_tbl.setdefault("title", "Сводная таблица")
-                meta_tbl["pivot_code"] = sel.get("pivot_code") or ""
+                code_text = sel.get("pivot_code") or ""
+                meta_tbl["pivot_code"] = code_text
+                meta_tbl["pandas_code"] = code_text
                 _push_result("table", df_pl=st.session_state["last_df"], meta=meta_tbl)
                 last_idx = len(st.session_state.get("results", [])) - 1
                 if last_idx >= 0:
@@ -4238,13 +4270,16 @@ if user_input:
                     # Сохраним pivot_code в meta последней таблицы, чтобы при сохранении он попал в ClickHouse
                     try:
                         if st.session_state.get("results"):
-                            st.session_state["results"][-1].setdefault("meta", {})["pivot_code"] = pivot_code
+                            meta_ref = st.session_state["results"][-1].setdefault("meta", {})
+                            meta_ref["pivot_code"] = pivot_code
+                            meta_ref["pandas_code"] = pivot_code
                     except Exception:
                         pass
                     # Отрисуем новую таблицу на основе сводной сразу
                     meta_tbl = dict(st.session_state.get("last_sql_meta", {}))
                     meta_tbl.setdefault("title", "Сводная таблица")
                     meta_tbl["pivot_code"] = pivot_code
+                    meta_tbl["pandas_code"] = pivot_code
                     _push_result("table", df_pl=new_pl, meta=meta_tbl)
                     last_idx = len(st.session_state.get("results", [])) - 1
                     if last_idx >= 0:
