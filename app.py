@@ -1431,6 +1431,19 @@ def _render_chart_caption(meta: dict):
             st.caption(explain)
 
 
+def _compose_chart_meta(plotly_code: str) -> dict:
+    """Compose meta for chart results so that SQL/pandas context is always present.
+    Placed early to avoid NameError in upstream calls.
+    """
+    base = dict(st.session_state.get("last_sql_meta") or {})
+    base.setdefault("pandas_code", base.get("pandas_code", ""))
+    base.setdefault("pivot_code", base.get("pivot_code", ""))
+    base.setdefault("sql", base.get("sql", ""))
+    base.setdefault("sql_original", base.get("sql_original", base.get("sql", "")))
+    base["plotly_code"] = (plotly_code or "")
+    return base
+
+
 # Отрисовка блока стилей таблицы
 def _render_table_style_block_styler(meta: dict):
     """НОВАЯ ЛОГИКА: Отрисовка блока со стилями Pandas Styler"""
@@ -4853,15 +4866,6 @@ def _execute_plotly_code(pdf: pd.DataFrame, code: str) -> tuple[go.Figure, dict]
         raise ValueError("Код Plotly должен создать переменную fig типа plotly.graph_objects.Figure.")
     return fig, {"plotly_code": code}
 
-
-def _compose_chart_meta(plotly_code: str) -> dict:
-    base = dict(st.session_state.get("last_sql_meta") or {})
-    base.setdefault("pandas_code", base.get("pandas_code", ""))
-    base.setdefault("sql", base.get("sql", ""))
-    base.setdefault("sql_original", base.get("sql_original", base.get("sql", "")))
-    base.setdefault("pivot_code", base.get("pivot_code", ""))
-    base["plotly_code"] = plotly_code
-    return base
 
 
 def _apply_code_pipeline(
