@@ -3296,8 +3296,9 @@ if _pending_run:
     _run_saved_item(_pending_run)
 
 # Рендер существующей истории чата
-if st.session_state["messages"]:
-    for i, m in enumerate(st.session_state["messages"]):
+messages = st.session_state.get("messages", [])
+if messages:
+    for i, m in enumerate(messages):
         with st.chat_message(m["role"]):
             # Не показываем пустые сообщения (защита от случайных пустых записей)
             if m["content"]:
