@@ -93,6 +93,40 @@ client = OpenAI()
 if "messages" not in st.session_state:
     st.session_state["messages"] = []  
 
+# стандартное приветственное сообщение ассистента
+INTRO_MESSAGE = """
+## Ассистент аналитики: база знаний + SQL
+
+Этот помощник отвечает на вопросы из базы знаний и строит SQL‑запросы к БД, а ещё умеет делать интерактивные графики.
+
+**Как формулировать запросы**
+- Пишите обычным языком — ассистент сам поймёт, что нужно.
+- SQL-запросы можно уточнять и объединять. По умолчанию берём последнюю доступную дату.
+- Можно описать, как строить графики, менять тип и цвета.
+
+**Примеры**
+Запрос к базе знаний:
+```
+Расскажи какие таблицы доступны и что в них содержится.
+```
+
+Простой SQL-запрос:
+```
+Сделай топ 10 городов по оплатам мобильного приложения.
+```
+Простой график:
+```
+Построй график по последнему запросу.
+```
+"""
+
+if "intro_inserted" not in st.session_state:
+    st.session_state["intro_inserted"] = False
+
+if not st.session_state["intro_inserted"]:
+    st.session_state["messages"].append({"role": "assistant", "content": INTRO_MESSAGE})
+    st.session_state["intro_inserted"] = True
+
 # история результатов (таблицы/графики)
 if "results" not in st.session_state:
     st.session_state["results"] = []   
@@ -212,6 +246,7 @@ def _save_current_result(kind: str, item: dict):
 
 
 def _render_saved_queries_sidebar():
+    st.sidebar.toggle("Широкий экран", key="wide_mode")
     """Сайдбар со списком сохранённых запросов: поиск по названию,
     запуск по клику, подменю "..." с переименованием и удалением."""
     st.sidebar.markdown("**Сохранённые запросы**")
@@ -479,6 +514,17 @@ def _reload_prompts():
             "RULES_PIVOT_PLAN",
             "Режим PIVOT_PLAN. Верни ровно один блок ```pivot_plan``` по шаблону."
         ),
+        "pivot_clarify": _get(
+            "PIVOT_CLARIFY_PROMPT",
+            "Сформулируй краткое уточнение для построения сводной таблицы. "
+            "Используй перечень доступных колонок, их типы и короткое превью данных. "
+            "Предложи один разумный вариант и попроси подтвердить или скорректировать. "
+            "Ответ дай на русском в 1-2 предложениях, без списков и нумерации."
+        ),
+        "sql_clarify": _get(
+            "SQL_CLARIFY_PROMPT",
+            "Сформулируй краткое уточнение к SQL-заданию. Ответь кратко, максимум два абзаца, без списков."
+        ),
     }
     return p_map, warn
 
@@ -635,83 +681,69 @@ def _parse_plan_kv(plan_text: str) -> dict:
             out[k.strip().lower()] = v.strip()
     return out
 
-def _build_human_sql_clarify_text(plan_text: str, user_text: str) -> str:
-    plan_kv = _parse_plan_kv(plan_text)
-    plan_norm = {}
-    for key, value in plan_kv.items():
-        key_norm = re.sub(r"\s+", "_", key.lower())
-        plan_norm[key_norm] = value
+DEFAULT_SQL_CLARIFY_PROMPT = (
+    "Сформулируй краткое уточнение к SQL-заданию. "
+    "Используй черновой план, текст пользователя и найденный контекст (если есть), чтобы задать 1–2 вопроса, раскрывающих неочевидные параметры. "
+    "Если всё понятно, скажи что готов строить запрос и попроси подтвердить словом «Ок». "
+    "Ответ дай на русском, максимум в двух абзацах, без списков."
+)
 
-    def _plan_value(*names):
-        for name in names:
-            if name in plan_norm and plan_norm[name]:
-                return plan_norm[name]
-        return None
-
-    summary_lines = []
-    source = _plan_value("source", "source_table", "table", "dataset")
-    if source:
-        summary_lines.append(f"- Источник: `{source}`")
-    metric = _plan_value("metric", "measure")
-    if metric:
-        summary_lines.append(f"- Метрика: {metric}")
-    grouping = _plan_value("group_by", "dimension", "grouping")
-    if grouping:
-        summary_lines.append(f"- Группировка: {grouping}")
-    filters = _plan_value("filters", "where")
-    if filters:
-        summary_lines.append(f"- Фильтры: {filters}")
-    period_plan = _plan_value("period", "date_range")
-    if period_plan:
-        summary_lines.append(f"- Период: {period_plan}")
-    limit_plan = _plan_value("limit", "top")
-    if limit_plan:
-        summary_lines.append(f"- Лимит: {limit_plan}")
-
-    user_lower = (user_text or "").lower()
-    def _has_any(*patterns):
-        return any(re.search(pat, user_lower) for pat in patterns)
-
-    metric_known = bool(metric)
-    if not metric_known:
-        if _has_any(r"\bвыручк", r"revenue", r"_pl"):
-            metric_known = True
-        elif _has_any(r"\bкол-?во\b", r"\bколичеств", r"payments?_count"):
-            metric_known = True
-
-    period_specified = bool(period_plan)
-    if not period_specified:
-        if _has_any(r"20\d{2}", r"конец\s+месяц", r"последн[^\s]*\s+дат", r"\bмежду\b", r"\bза\s+\d{4}\b"):
-            period_specified = True
-
-    grouping_known = bool(grouping)
-    if not grouping_known and _has_any(r"\bпо\s+город", r"city", r"region"):
-        grouping_known = True
-
-    questions = []
-    if not metric_known:
-        questions.append("Какую метрику взять? Например, сумму оплат (`Android_PL + IOS_PL`) или количество оплат (`payments_count`).")
-    if not grouping_known:
-        questions.append("По какому признаку группировать результат? Можно указать колонку, например `city` или `partner_name`.")
-    if not period_specified:
-        questions.append("Уточните период. Можно написать диапазон дат или указать, что нужен конец каждого месяца за 2025 год.")
-    if not filters and not _has_any(r"\bфильтр", r"\bисключ", r"\bтолько\b"):
-        questions.append("Нужны ли фильтры по продуктам, платформам или статусу подписки?")
-
-    parts = []
-    if summary_lines:
-        parts.append("**Черновой план от модели**\n" + "\n".join(summary_lines))
-    elif plan_text:
-        parts.append("**Черновой план от модели**\n" + plan_text.strip())
-
-    if questions:
-        parts.append("**Уточните, пожалуйста:**\n" + "\n".join(f"- {q}" for q in questions))
+def _build_human_sql_clarify_text(plan_text: str, user_text: str, prompt_map: dict | None = None, rag_context: str | None = None) -> str:
+    plan_text = plan_text or ""
+    user_text = user_text or ""
+    base_info = []
+    if plan_text.strip():
+        base_info.append("Черновой план:\n" + plan_text.strip())
+    if user_text.strip():
+        base_info.append("Запрос пользователя:\n" + user_text.strip())
+    if rag_context:
+        snippet = rag_context.strip()
+        if len(snippet) > 1200:
+            snippet = snippet[:1200] + " …"
+        base_info.append("Контекст RAG:\n" + snippet)
+    combined = "\n\n".join(base_info)
+    clarify_prompt = DEFAULT_SQL_CLARIFY_PROMPT
+    if prompt_map and isinstance(prompt_map, dict):
+        clarify_prompt = prompt_map.get("sql_clarify") or clarify_prompt
     else:
-        parts.append("Если всё верно, напишите «Ок», и я построю запрос по этому плану.")
-        return "\n\n".join(parts)
+        clarify_prompt = getattr(prompts, "SQL_CLARIFY_PROMPT", clarify_prompt)
+    if combined:
+        try:
+            llm_messages = [
+                {"role": "system", "content": clarify_prompt},
+                {"role": "user", "content": combined},
+            ]
+            response = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=llm_messages,
+                temperature=0.2,
+            )
+            text = response.choices[0].message.content.strip()
+            if text:
+                return text
+        except Exception:
+            pass
 
-    parts.append("Можете ответить свободным текстом или написать «Ок», если всё подходит.")
-    return "\n\n".join(parts)
+    plan_kv = _parse_plan_kv(plan_text)
+    summary = []
+    for key, label in (
+        ("source", "Источник"),
+        ("metric", "Метрика"),
+        ("group_by", "Группировка"),
+        ("filters", "Фильтры"),
+        ("period", "Период"),
+        ("limit", "Лимит"),
+    ):
+        val = plan_kv.get(key)
+        if val:
+            summary.append(f"- {label}: {val}")
+    fallback_lines = []
+    if summary:
+        fallback_lines.append("**Черновой план от модели**\n" + "\n".join(summary))
+    else:
+        fallback_lines.append("**Черновой план от модели**\n" + (plan_text.strip() or "Не удалось определить параметры."))
+    fallback_lines.append("Уточните, пожалуйста, детали запроса или напишите «Ок», если план подходит.")
+    return "\n\n".join(fallback_lines)
 
 def _guess_df_columns(pdf) -> dict:
     names = [str(c).lower() for c in getattr(pdf, 'columns', [])]
@@ -730,7 +762,15 @@ def _guess_df_columns(pdf) -> dict:
         'platform': find(['platform', 'платформ']),
     }
 
-def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
+DEFAULT_PIVOT_CLARIFY_PROMPT = (
+    "Сформулируй краткое уточнение для построения сводной таблицы. "
+    "Используй перечень доступных колонок, их типы, короткое превью данных и черновой план, если он есть. "
+    "Предложи один разумный вариант и попроси подтвердить или скорректировать. "
+    "Ответ дай на русском в 1-2 предложениях, без списков и нумерации. "
+    "Если всё очевидно, сразу назови вариант и отметь, что можно написать свой."
+)
+
+def _build_human_pivot_clarify_text(plan_text: str, pdf=None, user_text: str = "", prompt_map: dict | None = None) -> str:
     cols_md = "—"
     guessed = {}
     columns_list = []
@@ -742,51 +782,96 @@ def _build_human_pivot_clarify_text(plan_text: str, pdf=None) -> str:
             cols_md = show or "—"
     except Exception:
         cols_md = "—"
+
     city = guessed.get('city')
     comp = guessed.get('company')
     dcol = guessed.get('date')
     plat = guessed.get('platform')
     rev = guessed.get('revenue')
     cnt = guessed.get('count')
-    opts = []
-    opts.append(f"- Источник: 1) текущие (по умолчанию); 2) новые данные")
 
-    idx_opts = []
-    if city:
-        idx_opts.append(f"1) {city}")
-    if comp:
-        idx_opts.append(f"2) {comp}")
-    if dcol:
-        idx_opts.append(f"3) {dcol}")
-    if not idx_opts and columns_list:
-        idx_opts.append(f"1) {columns_list[0]}")
-    if idx_opts:
-        opts.append("- Строки: " + "; ".join(idx_opts))
+    default_index = city or comp or (columns_list[0] if columns_list else None)
+    default_columns = dcol if dcol and dcol != default_index else None
+    if not default_columns and plat:
+        default_columns = plat if plat != default_index else None
+    numeric_candidates = [rev, cnt]
+    default_values = next((c for c in numeric_candidates if c and c in columns_list), None)
+    if not default_values:
+        for c in columns_list:
+            if pdf is not None and isinstance(pdf, pd.DataFrame):
+                if pd.api.types.is_numeric_dtype(pdf[c]):
+                    default_values = c
+                    break
+        if not default_values and columns_list:
+            default_values = columns_list[-1]
 
-    col_opts = []
-    if dcol:
-        col_opts.append("1) Создать столбцы по месяцам")
-    if plat:
-        col_opts.append(f"2) {plat}")
-    col_opts.append("3) — (без столбцов)")
-    opts.append("- Столбцы: " + "; ".join(col_opts))
+    default_summary = []
+    if default_index:
+        default_summary.append(f"строки — `{default_index}`")
+    if default_columns:
+        default_summary.append(f"столбцы — `{default_columns}`")
+    if default_values:
+        default_summary.append(f"значения — `{default_values}` (сумма)")
+    default_text = "; ".join(default_summary) if default_summary else "использовать текущие данные как есть"
 
-    val_opts = ["1) Без агрегации"]
-    if rev:
-        val_opts.append(f"2) {rev}")
-    if cnt:
-        val_opts.append(f"3) {cnt}")
-    opts.append("- Значения: " + "; ".join(val_opts))
+    clarify_columns = []
+    preview_markdown = ""
+    if pdf is not None and isinstance(pdf, pd.DataFrame):
+        try:
+            head_df = pdf.head(5)
+            clarify_columns = [f"{col} ({str(pdf[col].dtype)})" for col in pdf.columns[:8]]
+            if not head_df.empty:
+                preview_markdown = head_df.to_markdown(index=False)
+        except Exception:
+            clarify_columns = []
+            preview_markdown = ""
 
-    opts.append("- Формат даты: 1) D.M.Y; 2) Y-M-D; 3) Месяц словами + год")
-    tips = "\n".join(opts)
-    return (
-        "**Сделаю сводную.**\n\n"
-        f"**Доступные столбцы:** {cols_md}\n\n"
-        "**Выберите параметры (цифрами):**\n"
-        + tips
-        + "\n\nОтветьте, например: `Источник: 1; Строки: 1; Значения: 2; Формат: 1` или `Ок` для текущих значений."
-    )
+    llm_messages = []
+    if clarify_columns or default_summary or plan_text:
+        info_lines = []
+        if clarify_columns:
+            info_lines.append("Колонки и типы: " + ", ".join(clarify_columns))
+        if default_text:
+            info_lines.append("Очевидное решение: " + default_text)
+        if plan_text:
+            info_lines.append("Черновой план:\n" + plan_text.strip())
+        if user_text:
+            info_lines.append("Запрос пользователя: " + user_text.strip())
+        if preview_markdown:
+            info_lines.append("Пример данных:\n" + preview_markdown)
+        llm_messages = "\n".join(info_lines)
+
+    if llm_messages:
+        try:
+            clarify_prompt = DEFAULT_PIVOT_CLARIFY_PROMPT
+            if prompt_map and isinstance(prompt_map, dict):
+                clarify_prompt = prompt_map.get("pivot_clarify") or clarify_prompt
+            else:
+                clarify_prompt = getattr(prompts, "PIVOT_CLARIFY_PROMPT", clarify_prompt)
+            llm_request = [
+                {"role": "system", "content": clarify_prompt},
+                {"role": "user", "content": llm_messages},
+            ]
+            response = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=llm_request,
+                temperature=0.2,
+            )
+            llm_text = response.choices[0].message.content.strip()
+            if llm_text:
+                return llm_text
+        except Exception:
+            pass
+
+    guide_lines = [
+        "**Сделаю сводную.**",
+        f"**Доступные столбцы:** {cols_md}",
+        f"Предлагаю вариант по умолчанию: {default_text}. Напишите `Ок`, чтобы принять.",
+        "Если нужен другой вариант, напишите свободным текстом, например: `Строки: месяц; столбцы: город; значения: сумма оплат`.",
+        "Можно указать только те параметры, которые хотите поменять — я подберу остальное автоматически.",
+    ]
+
+    return "\n\n".join(guide_lines)
 
 def _build_human_sql_suggestions(plan_text: str) -> str:
     """Подсказка с вариантами (Markdown), если ответ расплывчатый."""
@@ -845,35 +930,82 @@ def _interpret_pivot_confirmation(text: str) -> dict:
     if low.strip() in {"ок", "ok", "да", "подходит", "сделай", "сделай уже", "да сделай", "как считаешь", "как считаешь нужным"}:
         return {"source": 1, "index": 1, "columns": 1, "values": 1, "date": 1}
     sel = {}
+
+    def _extract(name, patterns):
+        for pat in patterns:
+            m = re.search(pat, text, flags=re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+        return None
+
+    custom_index = _extract("index", [r"(?:строк[аи]|rows)\s*[:=]\s*([^;\n]+)", r"(?:by\s+rows)\s*[:=]\s*([^;\n]+)"])
+    if custom_index:
+        sel["index_name"] = custom_index.strip()
+    custom_columns = _extract("columns", [r"(?:столбц[ыа]|columns)\s*[:=]\s*([^;\n]+)", r"(?:by\s+cols)\s*[:=]\s*([^;\n]+)"])
+    if custom_columns:
+        val = custom_columns.strip()
+        if val.lower() in {"нет", "без", "none", "no", "пусто"}:
+            sel["columns_name"] = "none"
+        else:
+            sel["columns_name"] = val
+    custom_values = _extract("values", [r"(?:значени[ея]|values?)\s*[:=]\s*([^;\n]+)"])
+    if custom_values:
+        sel["values_name"] = custom_values.strip()
+    custom_source = _extract("source", [r"(?:source|источник)\s*[:=]\s*([^;\n]+)"])
+    if custom_source:
+        if custom_source.lower().startswith(("нов", "new")):
+            sel["source"] = 2
+        else:
+            sel["source"] = 1
+    # поддержка коротких команд вроде "строки город, значения сумма оплат"
+    if "строки" in low and "columns" not in low and "столб" not in low:
+        m = re.search(r"строки\s+([^\s,;]+)", low)
+        if m and "index_name" not in sel:
+            sel["index_name"] = m.group(1)
+    if "столбц" in low and "columns_name" not in sel:
+        m = re.search(r"столбц[ыа]\s+([^\s,;]+)", low)
+        if m:
+            val = m.group(1)
+            sel["columns_name"] = "none" if val in {"нет", "без"} else val
+    if "значен" in low and "values_name" not in sel:
+        m = re.search(r"значен[ия]\s+([^\s,;]+)", low)
+        if m:
+            sel["values_name"] = m.group(1)
+
     # keywords
-    if "новые" in low or "получить новые" in low:
-        sel["source"] = 2
-    elif "текущ" in low:
-        sel["source"] = 1
-    if "город" in low:
-        sel["index"] = 1
-    elif "компан" in low:
-        sel["index"] = 2
-    elif "дат" in low:
-        sel["index"] = 3
-    if "месяц" in low:
-        sel["columns"] = 1
-    elif "платформ" in low:
-        sel["columns"] = 2
-    elif "без столб" in low or "—" in low:
-        sel["columns"] = 3
-    if "без агрег" in low or "без агр" in low:
-        sel["values"] = 1
-    elif "выручк" in low:
-        sel["values"] = 2
-    elif "кол-во" in low or "количество" in low:
-        sel["values"] = 3
-    if "d.m.y" in low or "d.m.y" in text:
-        sel["date"] = 1
-    elif "y-m-d" in low:
-        sel["date"] = 2
-    elif "словами" in low:
-        sel["date"] = 3
+    if "source" not in sel:
+        if "новые" in low or "получить новые" in low:
+            sel["source"] = 2
+        elif "текущ" in low:
+            sel["source"] = 1
+    if "index_name" not in sel:
+        if "город" in low:
+            sel["index"] = 1
+        elif "компан" in low:
+            sel["index"] = 2
+        elif "дат" in low:
+            sel["index"] = 3
+    if "columns_name" not in sel:
+        if "месяц" in low:
+            sel["columns"] = 1
+        elif "платформ" in low:
+            sel["columns"] = 2
+        elif "без столб" in low or "нет столб" in low or "—" in low:
+            sel["columns"] = 3
+    if "values_name" not in sel:
+        if "без агрег" in low or "без агр" in low:
+            sel["values"] = 1
+        elif "выручк" in low:
+            sel["values"] = 2
+        elif "кол-во" in low or "количество" in low:
+            sel["values"] = 3
+    if "date" not in sel:
+        if "d.m.y" in low or "d.m.y" in text:
+            sel["date"] = 1
+        elif "y-m-d" in low:
+            sel["date"] = 2
+        elif "словами" in low:
+            sel["date"] = 3
     # numeric
     nums = _interpret_numbers(low)
     if nums:
@@ -926,32 +1058,44 @@ def _resolve_pivot_selection(sel: dict, pdf: pd.DataFrame | None) -> dict:
     guessed = _guess_df_columns(pdf) if pdf is not None else {}
 
     # Определяем колонку для строк
-    index_name = None
-    if resolved.get("index") == 1 and guessed.get("city"):
-        index_name = guessed["city"]
-    elif resolved.get("index") == 2 and guessed.get("company"):
-        index_name = guessed["company"]
-    elif resolved.get("index") == 3 and guessed.get("date"):
-        index_name = guessed["date"]
-    elif pdf is not None and not pdf.empty:
-        index_name = str(pdf.columns[0])
+    index_name = resolved.get("index_name")
+    if not index_name:
+        if resolved.get("index") == 1 and guessed.get("city"):
+            index_name = guessed["city"]
+        elif resolved.get("index") == 2 and guessed.get("company"):
+            index_name = guessed["company"]
+        elif resolved.get("index") == 3 and guessed.get("date"):
+            index_name = guessed["date"]
+        elif pdf is not None and not pdf.empty:
+            index_name = str(pdf.columns[0])
 
     # Определяем колонку для столбцов
-    columns_name = "none"
-    if resolved.get("columns") == 1 and guessed.get("date"):
-        columns_name = "__month__"  # будет создана из даты
-    elif resolved.get("columns") == 2 and guessed.get("platform"):
-        columns_name = guessed["platform"]
-    elif resolved.get("columns") == 3:
-        columns_name = "none"
+    columns_name = resolved.get("columns_name")
+    if not columns_name:
+        if resolved.get("columns") == 1 and guessed.get("date"):
+            columns_name = "__month__"  # будет создана из даты
+        elif resolved.get("columns") == 2 and guessed.get("platform"):
+            columns_name = guessed["platform"]
+        elif resolved.get("columns") == 3:
+            columns_name = "none"
+    else:
+        if columns_name.lower() in {"нет", "none", "без"}:
+            columns_name = "none"
 
     # Определяем колонку значений
-    values_name = "none"
-    if resolved.get("values") == 2 and guessed.get("revenue"):
-        values_name = guessed["revenue"]
-    elif resolved.get("values") == 3 and guessed.get("count"):
-        values_name = guessed["count"]
+    values_name = resolved.get("values_name")
+    if not values_name:
+        if resolved.get("values") == 2 and guessed.get("revenue"):
+            values_name = guessed["revenue"]
+        elif resolved.get("values") == 3 and guessed.get("count"):
+            values_name = guessed["count"]
+        else:
+            values_name = "none"
 
+    if not columns_name:
+        columns_name = "none"
+    if not values_name:
+        values_name = "none"
     resolved["index_name"] = index_name
     resolved["columns_name"] = columns_name
     resolved["values_name"] = values_name
@@ -3064,40 +3208,6 @@ with st.sidebar:
 
 # ----------------------- Основной layout -----------------------
 
-# Красивый стартовый блок с кратким описанием и быстрыми действиями.
-# Появляется только если чат ещё пуст, чтобы не загромождать интерфейс во время работы.
-if not st.session_state.get("messages"):
-    with st.container():
-        # Небольшой «hero»-блок с мягким градиентом и скруглением
-        st.markdown(
-            """
-## Ассистент аналитики: база знаний + SQL
-
-Этот помощник отвечает на вопросы из базы знаний и строит SQL‑запросы к вашей БД, а также может сделать интерактивные графики.
-
-**Как формулировать запросы**
-- Пишите обычным языком — ассистент сам поймет что ему делать.
-- Запросы в базу данных можно уточнять, корректировать и объединять. По умолчанию асистент строит запросы на последнюю дату в таблице. 
-- Можно описать как строить графики, менять их вид, раскрашивать в разные цвета.
-
-
-**Примеры**
-Запрос к базе знаний:
-```
-Расскажи какие таблицы доступны и что в них содержится.
-```
-
-Простой SQL‑запрос:
-```
-Сделай топ 10 городов по оплатам мобильного приложения.
-```
-Простой график:
-```
-Построй график по последнему запросу.
-```
-"""
-        )
-
 # Предупреждения о пропущенных блоках промптов (если есть)
 _prompts_map, _prompts_warn = _reload_prompts()
 if _prompts_warn:
@@ -3135,13 +3245,6 @@ if st.session_state["messages"]:
 
 
 # Переключатель ширины рядом со строкой ввода
-try:
-    col_wide, _ = st.columns([2, 10], gap="small")
-except TypeError:
-    col_wide, _ = st.columns([2, 10])
-with col_wide:
-    st.toggle("Широкий экран", key="wide_mode")
-
 # Поле ввода внизу
 user_input = st.chat_input("Введите запрос…")
 
@@ -3401,7 +3504,7 @@ if user_input:
             )
             if needs_confirm:
                 st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
-                txt = _build_human_sql_clarify_text(plan_text, user_input)
+                txt = _build_human_sql_clarify_text(plan_text, user_input, prompt_map=prompts_map, rag_context=context)
                 # Немедленно показать пользователю
                 with st.chat_message("assistant"):
                     st.markdown(txt)
@@ -3439,7 +3542,7 @@ if user_input:
                         _pivot_prompt_df = st.session_state["last_df"].to_pandas()
                     except Exception:
                         _pivot_prompt_df = None
-                    txt = _build_human_pivot_clarify_text("", pdf=_pivot_prompt_df)
+                    txt = _build_human_pivot_clarify_text("", pdf=_pivot_prompt_df, user_text=user_input, prompt_map=prompts_map)
                     with st.chat_message("assistant"):
                         st.markdown(txt)
                     st.session_state["messages"].append({"role": "assistant", "content": txt})
@@ -3507,7 +3610,7 @@ if user_input:
                 needs_confirm = AUTO_PLAN_REQUIRED or bool(re.search(r"\b(по\s+месяц|по\s+дням|по\s+год|на\s+конец\s+месяц|итог\s+месяц|топ)\b", user_input, flags=re.IGNORECASE))
                 if needs_confirm:
                     st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
-                    txt = _build_human_sql_clarify_text(plan_text, user_input)
+                    txt = _build_human_sql_clarify_text(plan_text, user_input, prompt_map=prompts_map, rag_context=st.session_state.get("last_rag_ctx"))
                     with st.chat_message("assistant"):
                         st.markdown(txt)
                     st.session_state["messages"].append({"role": "assistant", "content": txt})
@@ -3558,8 +3661,16 @@ if user_input:
                 _pdf = st.session_state["last_df"].to_pandas()
                 pivot_pdf_ctx = _pdf
                 cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
-                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                    f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns
                 )
+                preview = ""
+                try:
+                    preview_df = _pdf.head(5)
+                    if not preview_df.empty:
+                        preview = "\nПример данных:\n" + preview_df.to_markdown(index=False)
+                except Exception:
+                    preview = ""
+                cols_hint_text += preview
                 cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
         except Exception:
             cols_hint_msg = []
@@ -3626,7 +3737,7 @@ if user_input:
                 except Exception:
                     _pdf_ctx = None
                 st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ptext}
-                txt = _build_human_pivot_clarify_text(ptext, pdf=_pdf_ctx)
+                txt = _build_human_pivot_clarify_text(ptext, pdf=_pdf_ctx, user_text=user_input, prompt_map=prompts_map)
                 with st.chat_message("assistant"):
                     st.markdown(txt)
                 st.session_state["messages"].append({"role": "assistant", "content": txt})
@@ -3634,7 +3745,7 @@ if user_input:
 
             # Если LLM не вернул план, продолжим без него (fallback на дефолт)
             st.session_state["awaiting_plan"] = {"kind": "pivot", "plan": ""}
-            txt = _build_human_pivot_clarify_text("", pdf=pivot_pdf_ctx)
+            txt = _build_human_pivot_clarify_text("", pdf=pivot_pdf_ctx, user_text=user_input, prompt_map=prompts_map)
             with st.chat_message("assistant"):
                 st.markdown(txt)
             st.session_state["messages"].append({"role": "assistant", "content": txt})
@@ -3648,8 +3759,16 @@ if user_input:
             if st.session_state.get("last_df") is not None:
                 _pdf = st.session_state["last_df"].to_pandas()
                 cols_hint_text = "Доступные столбцы и типы:\n" + "\n".join(
-                    [f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns]
+                    f"- {c}: {str(_pdf[c].dtype)}" for c in _pdf.columns
                 )
+                preview = ""
+                try:
+                    preview_df = _pdf.head(5)
+                    if not preview_df.empty:
+                        preview = "\nПример данных:\n" + preview_df.to_markdown(index=False)
+                except Exception:
+                    preview = ""
+                cols_hint_text += preview
                 cols_hint_msg = [{"role": "system", "content": cols_hint_text}]
         except Exception:
             cols_hint_msg = []
@@ -3819,7 +3938,7 @@ if user_input:
                             _pivot_prompt_df = st.session_state["last_df"].to_pandas()
                         except Exception:
                             _pivot_prompt_df = None
-                        txt = _build_human_pivot_clarify_text("", pdf=_pivot_prompt_df)
+                        txt = _build_human_pivot_clarify_text("", pdf=_pivot_prompt_df, user_text=last_user_text, prompt_map=prompts_map)
                         with st.chat_message("assistant"):
                             st.markdown(txt)
                         st.session_state["messages"].append({"role": "assistant", "content": txt})
