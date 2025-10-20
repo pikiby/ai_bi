@@ -3448,6 +3448,7 @@ if user_input:
                     # Сообщим, что сначала получим данные, затем сводную
                     with st.chat_message("assistant"):
                         st.markdown("Сначала получу базовые данные, затем предложу параметры для сводной таблицы.")
+                    st.session_state["messages"].append({"role": "assistant", "content": "Сначала получу базовые данные, затем предложу параметры для сводной таблицы."})
                     st.session_state["post_sql_pivot_requested"] = True
         except Exception:
             pass
@@ -3507,6 +3508,8 @@ if user_input:
                 if needs_confirm:
                     st.session_state["awaiting_plan"] = {"kind": "sql", "plan": plan_text}
                     txt = _build_human_sql_clarify_text(plan_text, user_input)
+                    with st.chat_message("assistant"):
+                        st.markdown(txt)
                     st.session_state["messages"].append({"role": "assistant", "content": txt})
                     st.stop()
 
