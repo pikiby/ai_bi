@@ -230,7 +230,7 @@ def _save_current_result(kind: str, item: dict):
                         sql_code=sql_code,
                         table_code=table_code,
                         plotly_code=plotly_code,
-                        pivot_code=(meta.get("pivot_code") or ""),
+                        pandas_code=(meta.get("pivot_code") or ""),
                     )
                     st.success("Сохранено")
                     st.session_state.pop("_saved_queries_cache", None)
@@ -327,11 +327,11 @@ def _run_saved_item(item_uuid: str):
             df_pl = ch.query_run(sql)
         st.session_state["last_df"] = df_pl
         meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
-        pivot_code = (rec.get("pivot_code") or "").strip()
+        pandas_code = (rec.get("pandas_code") or "").strip()
         table_code = (rec.get("table_code") or "").strip()
         plotly_code = (rec.get("plotly_code") or "").strip()
         # Применим сводное преобразование перед стилями/графиком, если есть
-        if pivot_code:
+        if pandas_code:
             try:
                 df_polars = df_pl
                 df = df_polars.to_pandas() if isinstance(df_polars, pl.DataFrame) else df_polars
@@ -349,7 +349,7 @@ def _run_saved_item(item_uuid: str):
 
                 skip_exec = False
                 values_pattern = re.compile(r"values\s*=\s*(None|['\"]None['\"])")
-                if values_pattern.search(pivot_code):
+                if values_pattern.search(pandas_code):
                     sel_ctx = st.session_state.get("pivot_sel") or {}
                     values_name = sel_ctx.get("values_name")
                     if not values_name or values_name == "none":
@@ -359,20 +359,22 @@ def _run_saved_item(item_uuid: str):
                         values_name = numeric_cols[0] if numeric_cols else (str(df.columns[-1]) if len(df.columns) else None)
                     if values_name and values_name != "none":
                         safe_value = values_name.replace("\\", "\\\\").replace("'", "\\'")
-                        pivot_code = values_pattern.sub(f"values='{safe_value}'", pivot_code)
+                        pandas_code = values_pattern.sub(f"values='{safe_value}'", pandas_code)
                         st.session_state.setdefault("pivot_sel", {})["values_name"] = values_name
                     else:
                         skip_exec = True
 
                 if not skip_exec:
-                    exec(pivot_code, safe_globals, local_vars)
+                    exec(pandas_code, safe_globals, local_vars)
                 else:
                     local_vars["df"] = None
                 new_df = local_vars.get("df")
                 if isinstance(new_df, pd.DataFrame):
+                    if not isinstance(new_df.index, pd.RangeIndex):
+                        new_df = new_df.reset_index()
                     df_pl = pl.from_pandas(new_df)
                     st.session_state["last_df"] = df_pl
-                    meta["pivot_code"] = pivot_code
+                    meta["pivot_code"] = pandas_code
                 else:
                     st.info("pivot_code должен присвоить df новый pandas.DataFrame.")
             except Exception as e:
@@ -938,9 +940,16 @@ def _interpret_pivot_confirmation(text: str) -> dict:
                 return m.group(1).strip()
         return None
 
+    aggregate_markers = {"none", "нет", "без", "пусто", "итог", "total", "all", "все", "общая", "sum", "итоге"}
+
     custom_index = _extract("index", [r"(?:строк[аи]|rows)\s*[:=]\s*([^;\n]+)", r"(?:by\s+rows)\s*[:=]\s*([^;\n]+)"])
     if custom_index:
-        sel["index_name"] = custom_index.strip()
+        norm = custom_index.strip().lower()
+        if any(marker in norm for marker in aggregate_markers) or "по всем" in norm:
+            sel["index_name"] = None
+            sel["index"] = 0
+        else:
+            sel["index_name"] = custom_index.strip()
     custom_columns = _extract("columns", [r"(?:столбц[ыа]|columns)\s*[:=]\s*([^;\n]+)", r"(?:by\s+cols)\s*[:=]\s*([^;\n]+)"])
     if custom_columns:
         val = custom_columns.strip()
@@ -961,7 +970,12 @@ def _interpret_pivot_confirmation(text: str) -> dict:
     if "строки" in low and "columns" not in low and "столб" not in low:
         m = re.search(r"строки\s+([^\s,;]+)", low)
         if m and "index_name" not in sel:
-            sel["index_name"] = m.group(1)
+            norm = m.group(1).lower()
+            if any(marker in norm for marker in aggregate_markers) or "по всем" in norm:
+                sel["index_name"] = None
+                sel["index"] = 0
+            else:
+                sel["index_name"] = m.group(1)
     if "столбц" in low and "columns_name" not in sel:
         m = re.search(r"столбц[ыа]\s+([^\s,;]+)", low)
         if m:
@@ -979,7 +993,10 @@ def _interpret_pivot_confirmation(text: str) -> dict:
         elif "текущ" in low:
             sel["source"] = 1
     if "index_name" not in sel:
-        if "город" in low:
+        if any(phrase in low for phrase in ["по всем", "без разбив", "итог", "общая сумма", "все города", "total", "сумма по всем"]):
+            sel["index_name"] = None
+            sel["index"] = 0
+        elif "город" in low:
             sel["index"] = 1
         elif "компан" in low:
             sel["index"] = 2
@@ -1058,8 +1075,17 @@ def _resolve_pivot_selection(sel: dict, pdf: pd.DataFrame | None) -> dict:
     guessed = _guess_df_columns(pdf) if pdf is not None else {}
 
     # Определяем колонку для строк
-    index_name = resolved.get("index_name")
-    if not index_name:
+    index_raw = resolved.get("index_name")
+    aggregate_total = False
+    if index_raw is None:
+        index_name = None
+    elif isinstance(index_raw, str) and index_raw.strip().lower() in {"", "none", "нет", "без", "пусто", "итог", "total", "all"}:
+        index_name = None
+        aggregate_total = True
+    else:
+        index_name = index_raw
+
+    if index_name is None and not aggregate_total:
         if resolved.get("index") == 1 and guessed.get("city"):
             index_name = guessed["city"]
         elif resolved.get("index") == 2 and guessed.get("company"):
@@ -1101,6 +1127,7 @@ def _resolve_pivot_selection(sel: dict, pdf: pd.DataFrame | None) -> dict:
     resolved["values_name"] = values_name
     resolved["date_format"] = {1: "D.M.Y", 2: "Y-M-D", 3: "MonthName Y"}.get(resolved.get("date", 1), "D.M.Y")
     resolved["date_column"] = guessed.get("date")
+    resolved["aggregate_total"] = aggregate_total
 
     return resolved
 
@@ -1566,7 +1593,7 @@ def _render_pivot_code(meta: dict):
     pivot_src = (meta.get("pivot_code") or "").strip()
     if not pivot_src:
         return
-    with st.expander("Показать код PIVOT (pivot_code)", expanded=False):
+    with st.expander("Показать код постобработки (pandas)", expanded=False):
         st.code(pivot_src, language="python")
 
 
@@ -3987,7 +4014,8 @@ if user_input:
                     return False
 
                 sel = _resolve_pivot_selection(sel, pdf)
-                index_name = sel.get("index_name") or str(pdf.columns[0])
+                aggregate_total = sel.get("aggregate_total", False)
+                index_name = sel.get("index_name")
                 values_name = sel.get("values_name")
                 date_col = sel.get("date_column")
                 date_format = sel.get("date_format", "D.M.Y")
@@ -4012,44 +4040,83 @@ if user_input:
                     ]
                     values_name = num_cols[0] if num_cols else working_pdf.columns[-1]
 
-                if columns_name and columns_name != "none":
-                    pivot_df = pd.pivot_table(
-                        working_pdf,
-                        index=[index_name],
-                        columns=[columns_name],
-                        values=values_name,
-                        aggfunc="sum",
-                        fill_value=0,
-                    )
-                else:
-                    pivot_df = pd.pivot_table(
-                        working_pdf,
-                        index=[index_name],
-                        values=values_name,
-                        aggfunc="sum",
-                    )
-                pivot_df = pivot_df.reset_index()
-
-                # Сохраняем pivot_code, сгенерированный детерминированно
                 code_lines = ["df = df.copy()"]
-                if columns_name == "__month__" and date_col:
-                    code_lines.append(
-                        f"df['__month__'] = pd.to_datetime(df['{date_col}'], errors='coerce').dt.to_period('M').dt.to_timestamp().dt.strftime('{strftime_fmt}')"
-                    )
-                    pivot_columns_name = "__month__"
-                else:
-                    pivot_columns_name = columns_name if columns_name and columns_name != "none" else None
 
-                if pivot_columns_name:
-                    code_lines.append(
-                        f"df = pd.pivot_table(df, index=['{index_name}'], columns=['{pivot_columns_name}'], "
-                        f"values='{values_name}', aggfunc='sum', fill_value=0)"
-                    )
+                if aggregate_total:
+                    if columns_name and columns_name != "none":
+                        if columns_name == "__month__" and date_col:
+                            code_lines.append(
+                                f"df['__month__'] = pd.to_datetime(df['{date_col}'], errors='coerce').dt.to_period('M').dt.to_timestamp().dt.strftime('{strftime_fmt}')"
+                            )
+                            pivot_columns_name = "__month__"
+                        else:
+                            pivot_columns_name = columns_name
+                        code_lines.append(
+                            f"totals = df.groupby('{pivot_columns_name}')['{values_name}'].sum()"
+                        )
+                        code_lines.append("df = totals.to_frame().T")
+                        code_lines.append("df.index = ['Итого']")
+                        code_lines.append("df = df.reset_index().rename(columns={'index': 'Показатель'})")
+
+                        if columns_name == "__month__" and date_col:
+                            pivot_columns_name = "__month__"
+                        else:
+                            pivot_columns_name = columns_name
+                        totals = working_pdf.groupby(pivot_columns_name)[values_name].sum()
+                        pivot_df = totals.to_frame().T
+                        pivot_df.index = ["Итого"]
+                        pivot_df = pivot_df.reset_index().rename(columns={"index": "Показатель"})
+                    else:
+                        code_lines.append(f"total_value = df['{values_name}'].sum()")
+                        code_lines.append("df = pd.DataFrame({")
+                        code_lines.append("    'Показатель': ['Итого'],")
+                        code_lines.append(f"    '{values_name}': [total_value]")
+                        code_lines.append("})")
+                        total_value = working_pdf[values_name].sum()
+                        pivot_df = pd.DataFrame({
+                            "Показатель": ["Итого"],
+                            values_name: [total_value],
+                        })
                 else:
-                    code_lines.append(
-                        f"df = pd.pivot_table(df, index=['{index_name}'], values='{values_name}', aggfunc='sum')"
-                    )
-                code_lines.append("df = df.reset_index()")
+                    if not index_name:
+                        index_name = str(pdf.columns[0])
+                    if columns_name and columns_name != "none":
+                        pivot_df = pd.pivot_table(
+                            working_pdf,
+                            index=[index_name],
+                            columns=[columns_name],
+                            values=values_name,
+                            aggfunc="sum",
+                            fill_value=0,
+                        )
+                    else:
+                        pivot_df = pd.pivot_table(
+                            working_pdf,
+                            index=[index_name],
+                            values=values_name,
+                            aggfunc="sum",
+                        )
+                    pivot_df = pivot_df.reset_index()
+
+                    if columns_name == "__month__" and date_col:
+                        code_lines.append(
+                            f"df['__month__'] = pd.to_datetime(df['{date_col}'], errors='coerce').dt.to_period('M').dt.to_timestamp().dt.strftime('{strftime_fmt}')"
+                        )
+                        pivot_columns_name = "__month__"
+                    else:
+                        pivot_columns_name = columns_name if columns_name and columns_name != "none" else None
+
+                    if pivot_columns_name:
+                        code_lines.append(
+                            f"df = pd.pivot_table(df, index=['{index_name}'], columns=['{pivot_columns_name}'], "
+                            f"values='{values_name}', aggfunc='sum', fill_value=0)"
+                        )
+                    else:
+                        code_lines.append(
+                            f"df = pd.pivot_table(df, index=['{index_name}'], values='{values_name}', aggfunc='sum')"
+                        )
+                    code_lines.append("df = df.reset_index()")
+
                 sel["pivot_code"] = "\n".join(code_lines)
 
                 st.session_state["last_df"] = pl.from_pandas(pivot_df)
