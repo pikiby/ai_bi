@@ -134,6 +134,10 @@ class ClickHouse_client:
         table_code = table_code or ""
         plotly_code = plotly_code or ""
         pandas_code = pandas_code or ""
+        try:
+            self.client.command("ALTER TABLE saved_queries ADD COLUMN IF NOT EXISTS pandas_code String DEFAULT ''")
+        except Exception:
+            pass
         data = [[user_uuid, item_uuid, title, db or "", sql_code, table_code, plotly_code, pandas_code, 0]]
         # Порядок аргументов: insert(table, data, column_names=[...])
         self.client.insert(

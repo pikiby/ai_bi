@@ -327,7 +327,7 @@ def _run_saved_item(item_uuid: str):
             df_pl = ch.query_run(sql)
         st.session_state["last_df"] = df_pl
         meta = {"sql": sql, "sql_original": sql, "title": rec.get("title") or ""}
-        pandas_code = (rec.get("pandas_code") or "").strip()
+        pandas_code = (rec.get("pandas_code") or rec.get("pivot_code") or "").strip()
         table_code = (rec.get("table_code") or "").strip()
         plotly_code = (rec.get("plotly_code") or "").strip()
         # Применим сводное преобразование перед стилями/графиком, если есть
@@ -375,6 +375,7 @@ def _run_saved_item(item_uuid: str):
                     df_pl = pl.from_pandas(new_df)
                     st.session_state["last_df"] = df_pl
                     meta["pivot_code"] = pandas_code
+                    meta["pandas_code"] = pandas_code
                 else:
                     st.info("pivot_code должен присвоить df новый pandas.DataFrame.")
             except Exception as e:
@@ -1170,16 +1171,15 @@ def _last_result_hint() -> str | None:
 # ГДЕ ИСПОЛЬЗУЕТСЯ: Отображение новых результатов (сразу после создания), отображение истории (при загрузке страницы)
 # ВАЖНОСТЬ: Фундаментальная для отображения результатов в интерфейсе, обеспечения персистентности данных
 # БЕЗ НЕЁ: Результаты не отображались бы в интерфейсе пользователя
-def _render_result(item: dict):
+def _render_result(item: dict, index: int | None = None):
     """Главная функция отрисовки результатов - роутер к специализированным функциям"""
     kind = item.get("kind")
     # st.info(f"🔍 DEBUG: _render_result вызван с kind='{kind}'")
-    
+
     if kind == "table":
-        # st.info("🔍 DEBUG: Вызываю _render_table")
-        _render_table(item)
+        _render_table(item, index)
     elif kind == "chart":
-        _render_chart(item)
+        _render_chart(item, index)
     else:
         st.warning(f"Неизвестный тип результата: {kind}")
 
@@ -1191,7 +1191,7 @@ def _render_result(item: dict):
 # АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → Содержимое → Подпись → SQL → Скачивание
 # ИСПОЛЬЗУЕТ: _get_title(), _render_table_content(), _render_table_caption(), _render_sql_block(), _render_download_buttons()
 # ОБРАБОТКА ОШИБОК: Graceful degradation при некорректных данных, безопасная обработка отсутствующих метаданных
-def _render_table(item: dict):
+def _render_table(item: dict, index: int | None = None):
     """
     НОВАЯ ЛОГИКА: Использует Streamlit + Pandas Styler вместо HTML+CSS
     """
@@ -1217,13 +1217,14 @@ def _render_table(item: dict):
     _render_download_buttons(pdf, item, "table")
     # Кнопка сохранения таблицы (флаг влияет только на сохранение)
     _save_current_result("table", item)
+    _render_code_editors(item, index)
 
 
 # Отрисовка графиков: координирует полную отрисовку Plotly-графиков с интерактивностью и экспортом
 # АЛГОРИТМ: Валидация данных → Подготовка → Заголовок → График → Подпись → SQL → Код Plotly → Скачивание
 # ИСПОЛЬЗУЕТ: _get_title(), _render_chart_caption(), _render_sql_block(), _render_plotly_code(), _render_download_buttons()
 # ОСОБЕННОСТИ: Интерактивные графики с PNG-экспортом, fallback на контекст SQL, двойная документация (SQL + Plotly)
-def _render_chart(item: dict):
+def _render_chart(item: dict, index: int | None = None):
     fig = item.get("fig")
     if not isinstance(fig, go.Figure):
         return
@@ -1253,6 +1254,7 @@ def _render_chart(item: dict):
     _render_download_buttons(fig, item, "chart")
     # Кнопка сохранения графика (флаг влияет только на сохранение)
     _save_current_result("chart", item)
+    _render_code_editors(item, index)
 
 
 # УНИФИЦИРОВАННАЯ ФУНКЦИЯ: Получение заголовков для таблиц и графиков с умным fallback
@@ -1595,6 +1597,42 @@ def _render_pivot_code(meta: dict):
         return
     with st.expander("Показать код постобработки (pandas)", expanded=False):
         st.code(pivot_src, language="python")
+
+def _render_code_editors(item: dict, index: int | None = None):
+    if index is None:
+        try:
+            index = next(i for i, it in enumerate(st.session_state.get("results", [])) if it is item)
+        except StopIteration:
+            index = 0
+    meta = item.get("meta") or {}
+    default_sql = (meta.get("sql_original") or meta.get("sql") or "").strip()
+    default_pandas = (meta.get("pandas_code") or meta.get("pivot_code") or "").strip()
+    default_table = (meta.get("table_code") or "").strip()
+    default_plotly = (meta.get("plotly_code") or "").strip()
+    kind = item.get("kind")
+
+    with st.expander("Редактировать и применить код", expanded=False):
+        form_key = f"code_form_{idx}"
+        with st.form(form_key):
+            sql_val = st.text_area("SQL", value=default_sql, height=200, key=f"sql_editor_{idx}")
+            pandas_val = st.text_area("Pandas постобработка", value=default_pandas, height=160, key=f"pandas_editor_{idx}")
+            table_val = st.text_area("TABLE (стили)", value=default_table, height=160, key=f"table_editor_{idx}")
+            plotly_val = st.text_area("Plotly", value=default_plotly, height=160, key=f"plotly_editor_{idx}")
+            submitted = st.form_submit_button("Применить код")
+        if submitted:
+            try:
+                _apply_code_pipeline(
+                    result_index=idx,
+                    kind=kind,
+                    sql_code=sql_val,
+                    pandas_code=pandas_val,
+                    table_code=table_val,
+                    plotly_code=plotly_val,
+                )
+                st.success("Код применён")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Не удалось применить код: {e}")
 
 
 # Отрисовка кнопок скачивания
@@ -3275,9 +3313,9 @@ if st.session_state["messages"]:
                     st.markdown(m["content"])
             if m["role"] == "assistant":
                 # >>> все результаты, привязанные к этому ответу
-                for item in st.session_state["results"]:
+                for idx_res, item in enumerate(st.session_state["results"]):
                     if item.get("msg_idx") == i:
-                        _render_result(item)
+                        _render_result(item, idx_res)
 
 
 # Переключатель ширины рядом со строкой ввода
@@ -3965,7 +4003,9 @@ if user_input:
                     # НОВАЯ СИСТЕМА: сохраняем styler_config для Pandas Styler
                     # HTML будет генерироваться в _render_table_content_styler()
                     _push_result("table", df_pl=df_pl, meta=meta_table)
-                    _render_result(st.session_state["results"][-1])
+                    last_idx = len(st.session_state.get("results", [])) - 1
+                    if last_idx >= 0:
+                        _render_result(st.session_state["results"][last_idx], last_idx)
                     created_table = True
                     # Если ранее пользователь просил сводную, сразу предложим параметры PIVOT
                     if st.session_state.pop("post_sql_pivot_requested", False):
@@ -4124,7 +4164,9 @@ if user_input:
                 meta_tbl.setdefault("title", "Сводная таблица")
                 meta_tbl["pivot_code"] = sel.get("pivot_code") or ""
                 _push_result("table", df_pl=st.session_state["last_df"], meta=meta_tbl)
-                _render_result(st.session_state["results"][-1])
+                last_idx = len(st.session_state.get("results", [])) - 1
+                if last_idx >= 0:
+                    _render_result(st.session_state["results"][last_idx], last_idx)
                 st.session_state["pivot_sel"] = sel
                 return True
             except Exception as e:
@@ -4203,7 +4245,9 @@ if user_input:
                     meta_tbl.setdefault("title", "Сводная таблица")
                     meta_tbl["pivot_code"] = pivot_code
                     _push_result("table", df_pl=new_pl, meta=meta_tbl)
-                    _render_result(st.session_state["results"][-1])
+                    last_idx = len(st.session_state.get("results", [])) - 1
+                    if last_idx >= 0:
+                        _render_result(st.session_state["results"][last_idx], last_idx)
                     st.session_state.pop("pivot_pending", None)
                 else:
                     st.info("Код сводной должен присвоить переменной df новый pandas.DataFrame.")
@@ -4313,7 +4357,9 @@ if user_input:
                                     new_meta["rendered_html"] = styled_html
                                     new_meta["table_code"] = table_code
                                     _push_result("table", df_pl=old_df, meta=new_meta)
-                                    _render_result(st.session_state["results"][-1])
+                                    last_idx = len(st.session_state.get("results", [])) - 1
+                                    if last_idx >= 0:
+                                        _render_result(st.session_state["results"][last_idx], last_idx)
                                     applied = True
                                     created_table = True
                                     break
@@ -4335,7 +4381,9 @@ if user_input:
                                             # ВАЖНО: сохраняем styler для Excel-экспорта
                                             new_meta["_styler_obj"] = styled_df_obj
                                             _push_result("table", df_pl=old_df, meta=new_meta)
-                                            _render_result(st.session_state["results"][-1])
+                                            last_idx = len(st.session_state.get("results", [])) - 1
+                                            if last_idx >= 0:
+                                                _render_result(st.session_state["results"][last_idx], last_idx)
                                             applied = True
                                             created_table = True
                                             break
@@ -4355,7 +4403,9 @@ if user_input:
                                         new_meta["styler_config"] = styler_config
                                         new_meta["table_code"] = table_code
                                         _push_result("table", df_pl=old_df, meta=new_meta)
-                                        _render_result(st.session_state["results"][-1])
+                                        last_idx = len(st.session_state.get("results", [])) - 1
+                                        if last_idx >= 0:
+                                            _render_result(st.session_state["results"][last_idx], last_idx)
                                         applied = True
                                         created_table = True
                                         break
@@ -4420,7 +4470,9 @@ if user_input:
                             # Пометим специальный стиль на следующий рендер
                             st.session_state["next_table_style"] = {"striped": True}
                             _push_result("table", df_pl=_df_pl, meta=meta_tbl)
-                            _render_result(st.session_state["results"][-1])
+                            last_idx = len(st.session_state.get("results", [])) - 1
+                            if last_idx >= 0:
+                                _render_result(st.session_state["results"][last_idx], last_idx)
                             created_table = True
                             # Не выполняем plotly-код
                             code = ""
@@ -4487,7 +4539,9 @@ if user_input:
                         fig = local_vars.get("fig")
                         if isinstance(fig, go.Figure):
                             _push_result("chart", fig=fig, meta={"plotly_code": plotly_code})
-                            _render_result(st.session_state["results"][-1])
+                            last_idx = len(st.session_state.get("results", [])) - 1
+                            if last_idx >= 0:
+                                _render_result(st.session_state["results"][last_idx], last_idx)
                             created_chart = True
 
                         else:
@@ -4555,7 +4609,9 @@ if user_input:
 
                                         if isinstance(fig, go.Figure):
                                             _push_result("chart", fig=fig, meta={"plotly_code": code_retry})
-                                            _render_result(st.session_state["results"][-1])
+                                            last_idx = len(st.session_state.get("results", [])) - 1
+                                            if last_idx >= 0:
+                                                _render_result(st.session_state["results"][last_idx], last_idx)
                                             created_chart = True
                                         else:
                                             st.error("Повтор: код не создал переменную fig (plotly.graph_objects.Figure).")
@@ -4631,7 +4687,9 @@ if user_input:
                             _fig = _locals.get("fig")
                             if isinstance(_fig, go.Figure):
                                 _push_result("chart", fig=_fig, meta={"plotly_code": _code_retry})
-                                _render_result(st.session_state["results"][-1])
+                                last_idx = len(st.session_state.get("results", [])) - 1
+                                if last_idx >= 0:
+                                    _render_result(st.session_state["results"][last_idx], last_idx)
                                 created_chart = True
                 except Exception:
                     pass
@@ -4648,3 +4706,184 @@ st.download_button(
     mime="application/zip",
     disabled=(len(st.session_state["results"]) == 0),
 )
+def _execute_sql_block(sql_code: str, prompts_map: dict) -> tuple[pl.DataFrame, str]:
+    sql_code = (sql_code or "").strip()
+    if not sql_code:
+        return None, ""
+    ch = ClickHouse_client()
+    df, used_sql = run_sql_with_auto_schema(
+        sql_text=sql_code,
+        base_messages=st.session_state.get("messages", []),
+        ch_client=ch,
+        llm_client=client,
+        prompts_map=prompts_map,
+        model_name=OPENAI_MODEL,
+    )
+    if isinstance(df, pl.DataFrame):
+        df_pl = df
+    elif isinstance(df, pd.DataFrame):
+        df_pl = pl.from_pandas(df)
+    else:
+        raise ValueError("SQL должен вернуть таблицу.")
+    return df_pl, used_sql
+
+
+def _execute_pandas_postprocessing(df_pl: pl.DataFrame, code: str) -> tuple[pl.DataFrame, dict]:
+    code = (code or "").strip()
+    if not code:
+        return df_pl, {"pandas_code": "", "pivot_code": ""}
+    pdf = df_pl.to_pandas()
+    def col(*names):
+        for nm in names:
+            if nm in pdf.columns:
+                return nm
+        raise KeyError(f"Нет ни одной из колонок: {names}")
+    def has_col(name):
+        return name in pdf.columns
+    COLS = list(pdf.columns)
+    safe_globals = {
+        "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+        "pd": pd,
+        "df": pdf.copy(),
+        "col": col,
+        "has_col": has_col,
+        "COLS": COLS,
+    }
+    local_vars = {}
+    exec(code, safe_globals, local_vars)
+    new_df = local_vars.get("df")
+    if not isinstance(new_df, pd.DataFrame):
+        raise ValueError("Код pandas должен присвоить df новый pandas.DataFrame.")
+    if not isinstance(new_df.index, pd.RangeIndex):
+        new_df = new_df.reset_index()
+    return pl.from_pandas(new_df), {"pandas_code": code, "pivot_code": code}
+
+
+def _apply_table_style_code(pdf: pd.DataFrame, code: str) -> dict:
+    code = (code or "").strip()
+    if not code:
+        return {"table_code": "", "_styler_obj": None, "rendered_html": ""}
+    def col(*names):
+        for nm in names:
+            if nm in pdf.columns:
+                return pdf[nm]
+        raise KeyError(f"Нет ни одной из колонок: {names}")
+    def has_col(name):
+        return name in pdf.columns
+    COLS = list(pdf.columns)
+    safe_builtins = {"__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list}}
+    local_vars = {"pd": pd, "df": pdf.copy(), "col": col, "has_col": has_col, "COLS": COLS, "styled_df": None}
+    exec(code, safe_builtins, local_vars)
+    styled_df_obj = local_vars.get("styled_df")
+    meta_update = {"table_code": code}
+    if styled_df_obj is not None and hasattr(styled_df_obj, "to_html"):
+        meta_update["_styler_obj"] = styled_df_obj
+        try:
+            meta_update["rendered_html"] = styled_df_obj.to_html(escape=False, table_id="styled-table")
+        except Exception:
+            meta_update["rendered_html"] = ""
+    else:
+        raise ValueError("Код TABLE должен создать styled_df (pandas Styler).")
+    return meta_update
+
+
+def _execute_plotly_code(pdf: pd.DataFrame, code: str) -> tuple[go.Figure, dict]:
+    code = (code or "").strip()
+    if not code:
+        raise ValueError("Код Plotly не должен быть пустым.")
+    def col(*names):
+        for nm in names:
+            if nm in pdf.columns:
+                return pdf[nm]
+        raise KeyError(f"Нет ни одной из колонок: {names}")
+    def has_col(name):
+        return name in pdf.columns
+    COLS = list(pdf.columns)
+    code_clean = re.sub(r"(?m)^\s*(?:from\s+\S+\s+import\s+.*|import\s+.*)\s*$", "", code)
+    safe_globals = {
+        "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
+        "pd": pd,
+        "px": px,
+        "go": go,
+        "df": pdf.copy(),
+        "col": col,
+        "has_col": has_col,
+        "COLS": COLS,
+    }
+    local_vars = {}
+    exec(code_clean, safe_globals, local_vars)
+    fig = local_vars.get("fig")
+    if not isinstance(fig, go.Figure):
+        raise ValueError("Код Plotly должен создать переменную fig типа plotly.graph_objects.Figure.")
+    return fig, {"plotly_code": code}
+
+
+def _apply_code_pipeline(
+    result_index: int,
+    kind: str,
+    sql_code: str,
+    pandas_code: str,
+    table_code: str,
+    plotly_code: str,
+) -> None:
+    prompts_map, _ = _reload_prompts()
+    item = st.session_state["results"][result_index]
+    meta = item.get("meta") or {}
+
+    df_pl = None
+    used_sql = ""
+    sql_code = (sql_code or "").strip()
+    if sql_code:
+        df_pl, used_sql = _execute_sql_block(sql_code, prompts_map)
+    else:
+        existing_df = item.get("df_pl")
+        if isinstance(existing_df, pl.DataFrame):
+            df_pl = existing_df.clone()
+        elif isinstance(existing_df, pd.DataFrame):
+            df_pl = pl.from_pandas(existing_df)
+        else:
+            raise ValueError("Нет данных: необходимо указать SQL или иметь существующий результат.")
+
+    pandas_code = (pandas_code or "").strip()
+    if pandas_code:
+        df_pl, pandas_meta = _execute_pandas_postprocessing(df_pl, pandas_code)
+    else:
+        pandas_meta = {"pandas_code": "", "pivot_code": ""}
+
+    pdf = df_pl.to_pandas()
+
+    meta_updates = {}
+    if used_sql:
+        meta_updates["sql"] = used_sql
+    if sql_code or used_sql:
+        meta_updates["sql_original"] = sql_code
+    meta_updates.update(pandas_meta)
+
+    if kind == "table":
+        table_code = (table_code or "").strip()
+        if table_code:
+            table_meta = _apply_table_style_code(pdf, table_code)
+        else:
+            table_meta = {"table_code": "", "_styler_obj": None, "rendered_html": ""}
+        meta_updates.update(table_meta)
+        item["df_pl"] = df_pl
+        meta.update(meta_updates)
+        item["meta"] = meta
+        st.session_state["last_df"] = df_pl
+        st.session_state["last_sql_meta"] = meta
+    elif kind == "chart":
+        plotly_code = (plotly_code or "").strip()
+        if plotly_code:
+            fig, plotly_meta = _execute_plotly_code(pdf, plotly_code)
+            item["fig"] = fig
+        else:
+            raise ValueError("Для графика код Plotly не может быть пустым.")
+        meta_updates.update(plotly_meta)
+        item["df_pl"] = df_pl
+        meta.update(meta_updates)
+        item["meta"] = meta
+        st.session_state["last_df"] = df_pl
+        st.session_state["last_sql_meta"] = meta
+    else:
+        meta.update(meta_updates)
+        item["meta"] = meta
