@@ -4859,6 +4859,7 @@ def _execute_plotly_code(pdf: pd.DataFrame, code: str) -> tuple[go.Figure, dict]
         "has_col": has_col,
         "COLS": COLS,
     }
+    
     local_vars = {}
     exec(code_clean, safe_globals, local_vars)
     fig = local_vars.get("fig")
