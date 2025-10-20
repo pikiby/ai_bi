@@ -636,16 +636,82 @@ def _parse_plan_kv(plan_text: str) -> dict:
     return out
 
 def _build_human_sql_clarify_text(plan_text: str, user_text: str) -> str:
-    return (
-        "**Построю Топ‑10 городов по мобильным оплатам.**\n\n"
-        "**Источник**: `t_ai_global_report` — агрегированная таблица по мобильным подпискам и платежам.\n"
-        "Если дата не указана — берём последнюю доступную.\n\n"
-        "**Выберите параметры (цифрами):**\n"
-        "- Метрика: 1) Выручка (Android + iOS) — сумма платежей; 2) Количество оплат — число транзакций\n"
-        "- Топ 10: 1) Единый топ за весь период; 2) Топ в каждом месяце\n"
-        "- Период: 1) Последняя доступная дата; 2) По месяцам\n\n"
-        "Ответьте, например: `Метрика: 1; Топ: 2; Период: 2` или просто `Ок` для варианта 1‑1‑1."
-    )
+    plan_kv = _parse_plan_kv(plan_text)
+    plan_norm = {}
+    for key, value in plan_kv.items():
+        key_norm = re.sub(r"\s+", "_", key.lower())
+        plan_norm[key_norm] = value
+
+    def _plan_value(*names):
+        for name in names:
+            if name in plan_norm and plan_norm[name]:
+                return plan_norm[name]
+        return None
+
+    summary_lines = []
+    source = _plan_value("source", "source_table", "table", "dataset")
+    if source:
+        summary_lines.append(f"- Источник: `{source}`")
+    metric = _plan_value("metric", "measure")
+    if metric:
+        summary_lines.append(f"- Метрика: {metric}")
+    grouping = _plan_value("group_by", "dimension", "grouping")
+    if grouping:
+        summary_lines.append(f"- Группировка: {grouping}")
+    filters = _plan_value("filters", "where")
+    if filters:
+        summary_lines.append(f"- Фильтры: {filters}")
+    period_plan = _plan_value("period", "date_range")
+    if period_plan:
+        summary_lines.append(f"- Период: {period_plan}")
+    limit_plan = _plan_value("limit", "top")
+    if limit_plan:
+        summary_lines.append(f"- Лимит: {limit_plan}")
+
+    user_lower = (user_text or "").lower()
+    def _has_any(*patterns):
+        return any(re.search(pat, user_lower) for pat in patterns)
+
+    metric_known = bool(metric)
+    if not metric_known:
+        if _has_any(r"\bвыручк", r"revenue", r"_pl"):
+            metric_known = True
+        elif _has_any(r"\bкол-?во\b", r"\bколичеств", r"payments?_count"):
+            metric_known = True
+
+    period_specified = bool(period_plan)
+    if not period_specified:
+        if _has_any(r"20\d{2}", r"конец\s+месяц", r"последн[^\s]*\s+дат", r"\bмежду\b", r"\bза\s+\d{4}\b"):
+            period_specified = True
+
+    grouping_known = bool(grouping)
+    if not grouping_known and _has_any(r"\bпо\s+город", r"city", r"region"):
+        grouping_known = True
+
+    questions = []
+    if not metric_known:
+        questions.append("Какую метрику взять? Например, сумму оплат (`Android_PL + IOS_PL`) или количество оплат (`payments_count`).")
+    if not grouping_known:
+        questions.append("По какому признаку группировать результат? Можно указать колонку, например `city` или `partner_name`.")
+    if not period_specified:
+        questions.append("Уточните период. Можно написать диапазон дат или указать, что нужен конец каждого месяца за 2025 год.")
+    if not filters and not _has_any(r"\bфильтр", r"\bисключ", r"\bтолько\b"):
+        questions.append("Нужны ли фильтры по продуктам, платформам или статусу подписки?")
+
+    parts = []
+    if summary_lines:
+        parts.append("**Черновой план от модели**\n" + "\n".join(summary_lines))
+    elif plan_text:
+        parts.append("**Черновой план от модели**\n" + plan_text.strip())
+
+    if questions:
+        parts.append("**Уточните, пожалуйста:**\n" + "\n".join(f"- {q}" for q in questions))
+    else:
+        parts.append("Если всё верно, напишите «Ок», и я построю запрос по этому плану.")
+        return "\n\n".join(parts)
+
+    parts.append("Можете ответить свободным текстом или написать «Ок», если всё подходит.")
+    return "\n\n".join(parts)
 
 def _guess_df_columns(pdf) -> dict:
     names = [str(c).lower() for c in getattr(pdf, 'columns', [])]
@@ -3093,52 +3159,76 @@ if user_input:
     pre_mode, mode_notice = (None, None)
     awaiting = st.session_state.get("awaiting_plan")
     if awaiting:
-        kind = awaiting.get("kind")
-        plan_text = awaiting.get("plan", "")
-        # Разбираем выбор пользователя
-        sel = _interpret_sql_confirmation(user_input) if kind == "sql" else _interpret_pivot_confirmation(user_input)
-        # Если ответ пуст/расплывчатый, проверим — это новый запрос или принять дефолт
-        if not sel:
-            # Новый запрос: пользователь сменил задачу (например, попросил сводную/график/каталог)
-            if re.search(r"\b(сводн|pivot|график|plot|chart|таблиц|каталог|ресурс|дашборд|описани|структур|ddl|покажи|топ\b.*)", user_input, flags=re.IGNORECASE):
-                # Снимаем ожидание плана и продолжаем обычную маршрутизацию
-                st.session_state.pop("awaiting_plan", None)
-                pre_mode = None
-                mode_notice = None
-            else:
-                # Примем дефолты ОДИН раз и сообщим
-                default_sel = {"metric": 1, "top": 1, "period": 1} if kind == "sql" else {"index": 1, "columns": 1, "values": 1, "date": 1}
-                info_text = "Ок, беру значения по умолчанию (1‑1‑1)." if kind == "sql" else "Ок, беру значения по умолчанию."
-                with st.chat_message("assistant"):
-                    st.markdown(info_text)
-                st.session_state["messages"].append({"role": "assistant", "content": info_text})
-                sel = default_sel
-        # Иначе — принимаем как подтверждение и конвертируем в инструкцию
-        if sel:
-            # Если выбран источник новых данных для pivot — переключим на SQL, затем вернёмся к сводной
-            if kind == "pivot" and sel.get("source") == 2:
-                st.session_state["post_sql_pivot_requested"] = True
-                st.session_state.pop("awaiting_plan", None)
-                pre_mode = None  # вернёмся к обычной маршрутизации (скорее всего sql)
-                with st.chat_message("assistant"):
-                    st.markdown("Сначала получу новые данные, затем сделаю сводную.")
-                st.session_state["messages"].append({"role": "assistant", "content": "Сначала получу новые данные, затем сделаю сводную."})
-                st.stop()
-            if kind == "pivot":
-                try:
-                    _clarify_pdf = st.session_state["last_df"].to_pandas() if st.session_state.get("last_df") is not None else None
-                except Exception:
-                    _clarify_pdf = None
-                sel = _resolve_pivot_selection(sel, _clarify_pdf)
-            confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
-            st.session_state["plan_confirmation"] = confirm_text
-            st.session_state["plan_locked"] = awaiting.get("plan", "")
-            if kind == "pivot":
-                st.session_state["pivot_sel"] = sel
-                st.session_state["pivot_pending"] = True
+        cancel_match = re.match(r"\s*(отмена|отмени|cancel|стоп|не надо)\b(.*)", user_input, flags=re.IGNORECASE | re.DOTALL)
+        if cancel_match:
+            remainder = cancel_match.group(2).strip(" \n\t,.;:")
             st.session_state.pop("awaiting_plan", None)
-            pre_mode = kind
-            mode_notice = "Использую подтверждённый план"
+            st.session_state.pop("plan_locked", None)
+            st.session_state.pop("plan_confirmation", None)
+            st.session_state.pop("pivot_pending", None)
+            st.session_state.pop("post_sql_pivot_requested", None)
+            st.session_state.pop("pivot_sel", None)
+            if not remainder:
+                cancel_msg = "Отменяю предыдущий план. Можете сформулировать новый запрос."
+                with st.chat_message("assistant"):
+                    st.markdown(cancel_msg)
+                st.session_state["messages"].append({"role": "assistant", "content": cancel_msg})
+                st.stop()
+            else:
+                user_input = remainder
+                st.session_state["messages"][-1]["content"] = remainder
+                awaiting = None
+        if awaiting:
+            kind = awaiting.get("kind")
+            plan_text = awaiting.get("plan", "")
+            # Разбираем выбор пользователя
+            sel = _interpret_sql_confirmation(user_input) if kind == "sql" else _interpret_pivot_confirmation(user_input)
+            # Если ответ пуст/расплывчатый, проверим — это новый запрос или принять дефолт
+            if not sel:
+                # Новый запрос: пользователь сменил задачу (например, попросил сводную/график/каталог)
+                if re.search(r"\b(сводн|pivot|график|plot|chart|таблиц|каталог|ресурс|дашборд|описани|структур|ddl|покажи|топ\b.*)", user_input, flags=re.IGNORECASE):
+                    # Снимаем ожидание плана и продолжаем обычную маршрутизацию
+                    st.session_state.pop("awaiting_plan", None)
+                    st.session_state.pop("pivot_pending", None)
+                    st.session_state.pop("post_sql_pivot_requested", None)
+                    st.session_state.pop("pivot_sel", None)
+                    pre_mode = None
+                    mode_notice = None
+                else:
+                    # Примем дефолты ОДИН раз и сообщим
+                    default_sel = {"metric": 1, "top": 1, "period": 1} if kind == "sql" else {"index": 1, "columns": 1, "values": 1, "date": 1}
+                    info_text = "Ок, беру значения по умолчанию (1‑1‑1)." if kind == "sql" else "Ок, беру значения по умолчанию."
+                    with st.chat_message("assistant"):
+                        st.markdown(info_text)
+                    st.session_state["messages"].append({"role": "assistant", "content": info_text})
+                    sel = default_sel
+            # Иначе — принимаем как подтверждение и конвертируем в инструкцию
+            if sel:
+                # Если выбран источник новых данных для pivot — переключим на SQL, затем вернёмся к сводной
+                if kind == "pivot" and sel.get("source") == 2:
+                    st.session_state["post_sql_pivot_requested"] = True
+                    st.session_state.pop("awaiting_plan", None)
+                    st.session_state.pop("pivot_pending", None)
+                    pre_mode = None  # вернёмся к обычной маршрутизации (скорее всего sql)
+                    with st.chat_message("assistant"):
+                        st.markdown("Сначала получу новые данные, затем сделаю сводную.")
+                    st.session_state["messages"].append({"role": "assistant", "content": "Сначала получу новые данные, затем сделаю сводную."})
+                    st.stop()
+                if kind == "pivot":
+                    try:
+                        _clarify_pdf = st.session_state["last_df"].to_pandas() if st.session_state.get("last_df") is not None else None
+                    except Exception:
+                        _clarify_pdf = None
+                    sel = _resolve_pivot_selection(sel, _clarify_pdf)
+                confirm_text = _sql_selection_to_instruction(sel) if kind == "sql" else _pivot_selection_to_instruction(sel)
+                st.session_state["plan_confirmation"] = confirm_text
+                st.session_state["plan_locked"] = awaiting.get("plan", "")
+                if kind == "pivot":
+                    st.session_state["pivot_sel"] = sel
+                    st.session_state["pivot_pending"] = True
+                st.session_state.pop("awaiting_plan", None)
+                pre_mode = kind
+                mode_notice = "Использую подтверждённый план"
 
     # Если pre_mode выставлен (подтверждение плана) — используем его
     mode_source = "router"
