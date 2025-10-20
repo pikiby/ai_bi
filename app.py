@@ -311,7 +311,28 @@ def _run_saved_item(item_uuid: str):
                 safe_globals = {"__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
                                 "pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS}
                 local_vars = {}
-                exec(pivot_code, safe_globals, local_vars)
+
+                skip_exec = False
+                values_pattern = re.compile(r"values\s*=\s*(None|['\"]None['\"])")
+                if values_pattern.search(pivot_code):
+                    sel_ctx = st.session_state.get("pivot_sel") or {}
+                    values_name = sel_ctx.get("values_name")
+                    if not values_name or values_name == "none":
+                        numeric_cols = [
+                            c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])
+                        ]
+                        values_name = numeric_cols[0] if numeric_cols else (str(df.columns[-1]) if len(df.columns) else None)
+                    if values_name and values_name != "none":
+                        safe_value = values_name.replace("\\", "\\\\").replace("'", "\\'")
+                        pivot_code = values_pattern.sub(f"values='{safe_value}'", pivot_code)
+                        st.session_state.setdefault("pivot_sel", {})["values_name"] = values_name
+                    else:
+                        skip_exec = True
+
+                if not skip_exec:
+                    exec(pivot_code, safe_globals, local_vars)
+                else:
+                    local_vars["df"] = None
                 new_df = local_vars.get("df")
                 if isinstance(new_df, pd.DataFrame):
                     df_pl = pl.from_pandas(new_df)
@@ -320,7 +341,19 @@ def _run_saved_item(item_uuid: str):
                 else:
                     st.info("pivot_code должен присвоить df новый pandas.DataFrame.")
             except Exception as e:
-                st.error(f"Ошибка выполнения pivot_code: {e}")
+                fallback_error = None
+                applied = False
+                try:
+                    applied = _apply_pivot_selection(st.session_state.get("pivot_sel", {}))
+                except Exception as fallback_exc:
+                    fallback_error = fallback_exc
+                    applied = False
+                if applied:
+                    st.info("pivot_code из сохранённого запроса не выполнился, использую fallback сводную.")
+                else:
+                    st.error(f"Ошибка выполнения pivot_code: {e}")
+                    if fallback_error:
+                        st.error(f"Fallback сводной также не удался: {fallback_error}")
         if table_code:
             try:
                 df_polars = df_pl
@@ -3886,10 +3919,20 @@ if user_input:
                     else:
                         st.session_state.pop("pivot_pending", None)
             except Exception as e:
-                st.error(f"Ошибка выполнения pivot_code: {e}")
-                if _apply_pivot_selection(st.session_state.get("pivot_sel", {})):
+                fallback_error = None
+                applied = False
+                try:
+                    applied = _apply_pivot_selection(st.session_state.get("pivot_sel", {}))
+                except Exception as fallback_exc:
+                    fallback_error = fallback_exc
+                    applied = False
+                if applied:
                     st.session_state.pop("pivot_pending", None)
+                    st.info("pivot_code не выполнился, использую детерминированную сводную (fallback).")
                 else:
+                    st.error(f"Ошибка выполнения pivot_code: {e}")
+                    if fallback_error:
+                        st.error(f"Fallback сводной тоже не удался: {fallback_error}")
                     st.session_state.pop("pivot_pending", None)
 
         # 5) Если ассистент вернул Plotly-код — исполняем его в песочнице и сохраняем график
