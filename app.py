@@ -3829,12 +3829,34 @@ if user_input:
                 def has_col(name):
                     return name in df.columns
                 COLS = list(df.columns)
+
+                # Если модель не указала столбец значений и подставила None — попробуем подобрать его сами
+                skip_exec = False
+                values_pattern = re.compile(r"values\s*=\s*(None|['\"]None['\"])")
+                if values_pattern.search(pivot_code):
+                    sel_ctx = st.session_state.get("pivot_sel") or {}
+                    values_name = sel_ctx.get("values_name")
+                    if not values_name or values_name == "none":
+                        numeric_cols = [
+                            c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])
+                        ]
+                        values_name = numeric_cols[0] if numeric_cols else (str(df.columns[-1]) if len(df.columns) else None)
+                    if values_name and values_name != "none":
+                        safe_value = values_name.replace("\\", "\\\\").replace("'", "\\'")
+                        pivot_code = values_pattern.sub(f"values='{safe_value}'", pivot_code)
+                        st.session_state.setdefault("pivot_sel", {})["values_name"] = values_name
+                    else:
+                        skip_exec = True  # нет подходящего столбца — перейдём к fallback
+
                 safe_globals = {
                     "__builtins__": {"len": len, "range": range, "min": min, "max": max, "dict": dict, "list": list},
                     "pd": pd, "df": df, "col": col, "has_col": has_col, "COLS": COLS,
                 }
                 local_vars = {}
-                exec(pivot_code, safe_globals, local_vars)
+                if not skip_exec:
+                    exec(pivot_code, safe_globals, local_vars)
+                else:
+                    local_vars["df"] = None
                 # Ожидаем, что переменная df перезаписана на сводную
                 new_df = local_vars.get("df")
                 if isinstance(new_df, pd.DataFrame):
